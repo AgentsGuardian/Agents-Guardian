@@ -1239,7 +1239,7 @@ Let me know which sector you'd like to explore in detail!`;
                   New Client Calibration Suite
                 </span>
                 <h2 className="text-base font-bold text-slate-105 font-display mt-1 leading-tight">
-                  AgentGuardian Step-by-Step Integration Protocol
+                  AgentsGuardian Step-by-Step Integration Protocol
                 </h2>
                 <p className="text-xs text-zinc-400 max-w-xl leading-relaxed">
                   Go from raw codebase configurations to deep-packet proxy guardrails in 10 minutes. Click through our interactive configuration handbook to copy telemetry keys, insert proxy middleware snippets, and register live agent security nodes.
@@ -1629,10 +1629,10 @@ Let me know which sector you'd like to explore in detail!`;
                 </span>
                 <h2 className="text-base font-bold text-slate-100 font-display mt-1 leading-tight flex items-center gap-2">
                   <Video size={16} className="text-blue-400" />
-                  AgentGuardian HD Walkthrough & Demo Tour
+                  AgentsGuardian HD Walkthrough & Demo Tour
                 </h2>
                 <p className="text-xs text-zinc-400 max-w-xl leading-relaxed">
-                  Watch a complete step-by-step video representation of how AgentGuardian operates. Use the media playheads below to pause, scan chapters, toggle speed adjustments, or toggle custom subtitles and captions.
+                  Watch a complete step-by-step video representation of how AgentsGuardian operates. Use the media playheads below to pause, scan chapters, toggle speed adjustments, or toggle custom subtitles and captions.
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0 py-1 bg-blue-500/10 px-3 border border-blue-500/20 rounded-xl font-mono text-[10px]">
@@ -2750,7 +2750,7 @@ Let me know which sector you'd like to explore in detail!`;
                   Downloadable Systems Specification
                 </span>
                 <h3 className="text-lg font-display font-bold text-[#F0EEE6] mt-2 leading-tight">
-                  AgentGuardian Solutions Architecture Specification
+                  AgentsGuardian Solutions Architecture Specification
                 </h3>
                 <p className="text-xs text-[#8B9BAA] mt-1.5 max-w-xl leading-relaxed">
                   Export the complete, production-ready system blueprint mapping architectural pillars, threat templates, telemetry pipelines, and interactive compliance test flows.

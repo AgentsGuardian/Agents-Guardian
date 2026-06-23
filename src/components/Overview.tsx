@@ -98,7 +98,7 @@ export default function Overview({
                 Architecting the Guardrails of Autonomy
               </h1>
               <p className="text-[#8B9BAA] text-sm md:text-base max-w-2xl mt-2 leading-relaxed">
-                AgentGuardian orchestrates automated intent checking, ethical shift audits, and labor index value estimation 
+                AgentsGuardian orchestrates automated intent checking, ethical shift audits, and labor index value estimation 
                 in a single self-healing, zero-trust container environment.
               </p>
             </div>
@@ -246,7 +246,7 @@ export default function Overview({
           The Unified Governance Lifecycle
         </h2>
         <p className="text-xs text-[#8B9BAA] ml-1 mb-6">
-          How AgentGuardian creates a self-healing, deterministic environment where AI can be deployed with zero trust but total control.
+          How AgentsGuardian creates a self-healing, deterministic environment where AI can be deployed with zero trust but total control.
         </p>
 
         {/* 3 Pillar Diagram blocks */}

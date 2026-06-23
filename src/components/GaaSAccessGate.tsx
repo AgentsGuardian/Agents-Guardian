@@ -165,7 +165,7 @@ export default function GaaSAccessGate({
               </svg>
               <div>
                 <h1 className="font-display font-extrabold text-[22px] tracking-tight text-white leading-none">
-                  Agent<span className="text-teal-400">Guardian</span>
+                  Agents<span className="text-teal-400">Guardian</span>
                 </h1>
                 <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest block font-bold mt-1">
                   Sovereign Governance OS

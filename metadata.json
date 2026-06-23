@@ -1,5 +1,5 @@
 {
-  "name": "AgentGuardian",
+  "name": "AgentsGuardian",
   "description": "AI Governance as a Service for automated policy enforcement, real-time kill-switches, and bias tracking.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

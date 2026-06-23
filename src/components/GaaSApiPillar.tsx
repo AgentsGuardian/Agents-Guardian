@@ -27,12 +27,12 @@ const FRAMEWORK_CODE_TEMPLATES = {
   python: {
     title: 'Python GaaS SDK',
     lang: 'python',
-    code: `from guardian_sdk import AgentGuardian, PolicyContext
+    code: `from guardian_sdk import AgentsGuardian, PolicyContext
 
 # Initialize Governance as a Service interceptor
-guardian = AgentGuardian(
+guardian = AgentsGuardian(
     api_key="ag_live_7x8f9c2d1b0a9e8f7...",
-    gateway_url="https://api.agentguardian.io/v1/intercept"
+    gateway_url="https://api.agentsguardian.io/v1/intercept"
 )
 
 # Intercept agent action before execution
@@ -64,9 +64,9 @@ class InterceptorInput(BaseModel):
     parameters: str = Field(description="Raw parameters for the execution")
 
 def gaas_policy_check(action_name: str, parameters: str) -> str:
-    # Ship credentials and action structure to AgentGuardian Webhook GaaS Engine
+    # Ship credentials and action structure to AgentsGuardian Webhook GaaS Engine
     response = requests.post(
-        "https://api.agentguardian.io/v1/intercept",
+        "https://api.agentsguardian.io/v1/intercept",
         headers={"X-Guardian-Key": "ag_live_7x8f9c2d1b0a9e8f7..."},
         json={
             "agent_id": "LangChain-Agent-Worker",
@@ -81,7 +81,7 @@ def gaas_policy_check(action_name: str, parameters: str) -> str:
 
 # Wrap as standard LangChain Tool
 guardian_tool = Tool(
-    name="AgentGuardian_GaaS_Gate",
+    name="AgentsGuardian_GaaS_Gate",
     func=gaas_policy_check,
     description="Mandatory validator. Must run before executing database purges or external system modifications.",
     args_schema=InterceptorInput
@@ -98,7 +98,7 @@ class GovernedAgent(Agent):
     def execute_task(self, task, context=None, tools=None):
         # Fire intercept telemetry to GaaS Gateway prior to task execution
         gaas_res = requests.post(
-            "https://api.agentguardian.io/v1/intercept",
+            "https://api.agentsguardian.io/v1/intercept",
             headers={"X-Guardian-Key": "ag_live_7x8f9c2d1b0a9e8f7..."},
             json={
                 "agent_id": self.role,
@@ -107,7 +107,7 @@ class GovernedAgent(Agent):
             }
         )
         if gaas_res.json().get("status") == "HALTED":
-            return "Task Blocked by AgentGuardian: Session violates active security blast parameters."
+            return "Task Blocked by AgentsGuardian: Session violates active security blast parameters."
             
         return super().execute_task(task, context, tools)`
   },
@@ -117,7 +117,7 @@ class GovernedAgent(Agent):
     code: `import autogen
 import requests
 
-# Set up global AgentGuardian Interceptor on Conversational Model Messages
+# Set up global AgentsGuardian Interceptor on Conversational Model Messages
 def gaas_message_interceptor(sender, recipient, message, silent=False):
     payload = {
         "agent_id": sender.name,
@@ -127,14 +127,14 @@ def gaas_message_interceptor(sender, recipient, message, silent=False):
     
     # Intercept conversational reasoning log to audit sentiment and ethics drift
     res = requests.post(
-        "https://api.agentguardian.io/v1/intercept",
+        "https://api.agentsguardian.io/v1/intercept",
         headers={"X-Guardian-Key": "ag_live_7x8f9c2d1b0a9e8f7..."},
         json=payload
     )
     
     if res.json().get("status") == "HALTED":
         # Block output transmission immediately or redirect to compliance
-        return False, "AgentGuardian Message Filter Intervened: Cognitive drift limit breached."
+        return False, "AgentsGuardian Message Filter Intervened: Cognitive drift limit breached."
         
     return True, message`
   },
@@ -540,7 +540,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
               Governance as a Service Gateway
             </h1>
             <p className="text-zinc-400 text-sm max-w-xl mt-1">
-              Plug AgentGuardian directly into **any** external framework (Python SDK, LangChain, CrewAI, AutoGen, or REST APIs) 
+              Plug AgentsGuardian directly into **any** external framework (Python SDK, LangChain, CrewAI, AutoGen, or REST APIs) 
               as a cloud-neutral webhook shield. Guarantee active compliance with less than 40ms intercept latencies.
             </p>
             <div className="flex flex-wrap items-center gap-2 mt-3 select-none">
@@ -963,7 +963,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
           <div>
             <h3 className="font-display font-medium text-white text-base">Governed Active System Agents (GaaS Registered)</h3>
             <span className="text-zinc-400 text-xs block mt-0.5">
-              General governance ledger status for all framework modules currently hooked into AgentGuardian
+              General governance ledger status for all framework modules currently hooked into AgentsGuardian
             </span>
           </div>
 

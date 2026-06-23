@@ -111,13 +111,13 @@ export default function AdminPillar({
       return;
     }
 
-    // SuperAdmin should only be available to the Development team of Agent Guardian.
+    // SuperAdmin should only be available to the Development team of Agents Guardian.
     if (newRole === 'SuperAdmin') {
       if (!isDevelopmentTeam(newEmail)) {
         addToast({
           type: 'danger',
           title: '🔒 Access Denied: SuperAdmin Restrained',
-          message: 'The SuperAdmin role is strictly reserved for members of the Agent Guardian Development Team.'
+          message: 'The SuperAdmin role is strictly reserved for members of the Agents Guardian Development Team.'
         });
         return;
       }
@@ -125,7 +125,7 @@ export default function AdminPillar({
         addToast({
           type: 'danger',
           title: '🔒 Access Denied: SuperAdmin Grant Blocked',
-          message: 'Only authorized members of the Agent Guardian Development Team can assign the SuperAdmin role.'
+          message: 'Only authorized members of the Agents Guardian Development Team can assign the SuperAdmin role.'
         });
         return;
       }
@@ -209,13 +209,13 @@ export default function AdminPillar({
       return;
     }
 
-    // SuperAdmin should only be available to the Development team of Agent Guardian.
+    // SuperAdmin should only be available to the Development team of Agents Guardian.
     if (role === 'SuperAdmin') {
       if (targetUser && !isDevelopmentTeam(targetUser.email)) {
         addToast({
           type: 'danger',
           title: '🔒 Access Denied: SuperAdmin Restrained',
-          message: 'The SuperAdmin role is strictly reserved for members of the Agent Guardian Development Team.'
+          message: 'The SuperAdmin role is strictly reserved for members of the Agents Guardian Development Team.'
         });
         return;
       }
@@ -223,7 +223,7 @@ export default function AdminPillar({
         addToast({
           type: 'danger',
           title: '🔒 Access Denied: SuperAdmin Grant Blocked',
-          message: 'Only authorized members of the Agent Guardian Development Team can assign or promote accounts to the SuperAdmin role.',
+          message: 'Only authorized members of the Agents Guardian Development Team can assign or promote accounts to the SuperAdmin role.',
         });
         return;
       }
@@ -615,7 +615,7 @@ export default function AdminPillar({
                 </h3>
               </div>
               <p className="text-[11px] text-zinc-500 font-mono mb-4 leading-relaxed">
-                Add an additional authenticated security member to manage and audit specific security gates within AgentGuardian.
+                Add an additional authenticated security member to manage and audit specific security gates within AgentsGuardian.
               </p>
 
               {!currentRolePerms.manageUsers && (
@@ -990,7 +990,7 @@ export default function AdminPillar({
               </button>
             </div>
             <p className="text-[10px] text-zinc-550 font-mono leading-relaxed">
-              Restricts access to AgentGuardian platform to request queries matching the designated CIDR blocks. Default values represent internal GaaS orchestrator gateways.
+              Restricts access to AgentsGuardian platform to request queries matching the designated CIDR blocks. Default values represent internal GaaS orchestrator gateways.
             </p>
           </div>
 

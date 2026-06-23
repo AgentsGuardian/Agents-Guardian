@@ -288,7 +288,7 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[10.5px]">
                 <div className={`p-2 rounded border ${simulationStep >= 1 ? 'border-[#1D9E75]/35 bg-[#1D9E75]/5 text-[#1D9E75]' : 'border-[#1F2E40] text-[#556070]'}`}>
                   <span className="font-mono block font-bold text-slate-300">Step 1: Policy Ingestion</span>
-                  CISO defines limit standards in AgentGuardian Dashboard.
+                  CISO defines limit standards in AgentsGuardian Dashboard.
                 </div>
                 <div className={`p-2 rounded border ${simulationStep >= 2 ? 'border-[#1D9E75]/35 bg-[#1D9E75]/5 text-[#1D9E75]' : 'border-[#1F2E40] text-[#556070]'}`}>
                   <span className="font-mono block font-bold text-slate-300">Step 2: Real-time Vigilance</span>
