@@ -203,7 +203,7 @@ export default function HelpCenter({
       end: 30,
       label: "CORE GOVERNANCE LIFECYCLE",
       badge: "OVERVIEW",
-      narrator: "Welcome! Let's start our tour with a look at the AgentGuardian command center. Think of the Overview tab as your central cockpit. Here, you'll see a real-time summary of your entire autonomous fleet. The widgets track daily activity, transaction volume, and cluster locations. It is a clean, live dashboard built to keep systems aligned. Next, let's look at the active Threat Kill-Switch.",
+      narrator: "Welcome! Let's start our tour with a look at the AgentsGuardian command center. Think of the Overview tab as your central cockpit. Here, you'll see a real-time summary of your entire autonomous fleet. The widgets track daily activity, transaction volume, and cluster locations. It is a clean, live dashboard built to keep systems aligned. Next, let's look at the active Threat Kill-Switch.",
       screenshotType: "overview"
     },
     {
@@ -273,7 +273,7 @@ export default function HelpCenter({
       end: 240,
       label: "HELP & PLAYBOOK QUICKSTART",
       badge: "USER GUIDE",
-      narrator: "Finally, we have our SDK suite and playbook desk. Integrating AgentGuardian is extremely simple. Developers can grab copyable Python or TypeScript snippets, trigger a secure handshake test, and install the library in less than ten minutes. This gets you protected and up and running quickly. This wraps up our video walkthrough!",
+      narrator: "Finally, we have our SDK suite and playbook desk. Integrating AgentsGuardian is extremely simple. Developers can grab copyable Python or TypeScript snippets, trigger a secure handshake test, and install the library in less than ten minutes. This gets you protected and up and running quickly. This wraps up our video walkthrough!",
       screenshotType: "help"
     }
   ], []);
@@ -412,7 +412,7 @@ export default function HelpCenter({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', 'AgentGuardian_Solution_Design.md');
+    link.setAttribute('download', 'AgentsGuardian_Solution_Design.md');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -457,7 +457,7 @@ export default function HelpCenter({
       id: 'killswitch',
       category: 'kill-switch',
       question: "How does the active Threat Interceptor / Kill-Switch execute?",
-      answer: "When a governed agent makes an outbound API call or command, the AgentGuardian gateway proxies the request. Before forwarding the package, it parses the agent's intent block. If the content matches a prohibited policy code or threshold (such as a database erasure, exfiltration patterns, or unapproved financial transactions), the Threat Interceptor aborts the transmission instantly, registers a 'HALTED' event in the Kill-Switch board, logs the telemetry, and keeps the agent from committing unauthorized actions.",
+      answer: "When a governed agent makes an outbound API call or command, the AgentsGuardian gateway proxies the request. Before forwarding the package, it parses the agent's intent block. If the content matches a prohibited policy code or threshold (such as a database erasure, exfiltration patterns, or unapproved financial transactions), the Threat Interceptor aborts the transmission instantly, registers a 'HALTED' event in the Kill-Switch board, logs the telemetry, and keeps the agent from committing unauthorized actions.",
       keywords: ['kill-switch', 'threat interceptor', 'halted', 'how kill switch works', 'abort API']
     },
     {
@@ -491,8 +491,8 @@ export default function HelpCenter({
     {
       id: 'sdk-integration',
       category: 'api',
-      question: "How do I embed AgentGuardian gateway into LangChain or CrewAI?",
-      answer: "Simply swap your base model request endpoint in your framework setup to use the AgentGuardian gateway endpoint, adding authorization headers. The standard GaaS / APIs panel provides ready-made, copyable cURL snippets and webhook codes for seamless integration.",
+      question: "How do I embed AgentsGuardian gateway into LangChain or CrewAI?",
+      answer: "Simply swap your base model request endpoint in your framework setup to use the AgentsGuardian gateway endpoint, adding authorization headers. The standard GaaS / APIs panel provides ready-made, copyable cURL snippets and webhook codes for seamless integration.",
       keywords: ['sdk', 'langchain', 'crewai', 'webhook', 'curl', 'api codes']
     },
     {
@@ -522,6 +522,13 @@ export default function HelpCenter({
       question: "Why is the 'Inject 15% Drift Model' button locked under my active session?",
       answer: "Under federated IAM security norms, users logged in as 'Auditor' are restricted to read-only compliance access. To safeguard production systems against accidental simulation injections or unintended drift logs, the 'Inject 15% Drift Model' option on the Observability Sentinel board displays a padlock and is fully disabled. To play with this or any other interactive threat/drift simulation, swap your administrative user session to 'SuperAdmin' or 'PolicyManager' via the profile catalog dropdown on the outer right header banner.",
       keywords: ['inject drift locked', 'auditor restriction', '15% drift model', 'simulation lock', 'read-only role', 'security policy']
+    },
+    {
+      id: 'google-sso-registration-flow',
+      category: 'general',
+      question: "How does the Google Account authentication and registration work?",
+      answer: "AgentsGuardian supports secure Single Sign-On (SSO) with your Google credentials. On the landing page, clicking the 'Sign In with Google' button will automatically verify your operator email. If your email is already registered in our secure memory database, you are immediately logged in. If your email is NOT registered yet, AgentsGuardian redirects you to the 'Register' tab, pre-fills your secure Google details (including name, email, role, and a secure federated password), and guides you to complete your administrative profile setup with a single click.",
+      keywords: ['google sso', 'register with google', 'google account login', 'sign in google', 'prefill credentials', 'federated login']
     }
   ], []);
 
@@ -1305,7 +1312,7 @@ Let me know which sector you'd like to explore in detail!`;
 
                   <div className="text-xs text-zinc-400 space-y-3 leading-relaxed">
                     <p>
-                      Before AgentGuardian can intercept your autonomous network requests, your native application server must establish an identity trust binding. Every tenant receives a production-grade <strong>GaaS Tenant Access Token</strong> and custom API gateway keys.
+                      Before AgentsGuardian can intercept your autonomous network requests, your native application server must establish an identity trust binding. Every tenant receives a production-grade <strong>GaaS Tenant Access Token</strong> and custom API gateway keys.
                     </p>
                     <p>
                       Declare these secure strings in your client environment configuration settings (e.g., in a <code>.env</code> file in the root of your LangChain, AutoGen, or CrewAI workspace):
@@ -1334,7 +1341,7 @@ Let me know which sector you'd like to explore in detail!`;
                       </button>
                     </div>
                     <pre className="w-full bg-black border border-zinc-900 p-4 rounded-b-lg font-mono text-[10.5px] text-[#1D9E75] overflow-x-auto space-y-1">
-                      <div><span className="text-zinc-650 font-bold"># AgentGuardian Central Security Gateway URL</span></div>
+                      <div><span className="text-zinc-650 font-bold"># AgentsGuardian Central Security Gateway URL</span></div>
                       <div>AGENT_GUARDIAN_GATEWAY_URL=<span className="text-slate-100">"https://api.agentguardian.io/v1"</span></div>
                       <div><span className="text-zinc-650 font-bold"># Authorized Token Binding for client: {currentUser.name} ({currentUser.role})</span></div>
                       <div>AGENT_GUARDIAN_API_KEY=<span className="text-slate-100">"ag_prod_live_{currentUser.id.substring(0,8)}_enc"</span></div>
@@ -1467,7 +1474,7 @@ Let me know which sector you'd like to explore in detail!`;
 
                   <div className="text-xs text-zinc-400 space-y-3 leading-relaxed">
                     <p>
-                      AgentGuardian scans outbound transactions across three core vectors: <strong>Security</strong>, <strong>Ethics & Bias</strong>, and <strong>Financial Spending Caps</strong>. In this step, Security Operators calibrate the strictness boundaries of each policy tier.
+                      AgentsGuardian scans outbound transactions across three core vectors: <strong>Security</strong>, <strong>Ethics & Bias</strong>, and <strong>Financial Spending Caps</strong>. In this step, Security Operators calibrate the strictness boundaries of each policy tier.
                     </p>
                   </div>
 
@@ -1527,7 +1534,7 @@ Let me know which sector you'd like to explore in detail!`;
                       When proxy middleware routes run on client installations, execution heartbeats stream directly to the GaaS central command server. This fuels live telemetry charts and helps identify dangerous drift patterns dynamically.
                     </p>
                     <p>
-                      To hook up the telemetry flow endpoint, ensure your application exports an authenticated telemetry bundle. AgentGuardian handles high-frequency pipelines automatically at sub-10ms rates:
+                      To hook up the telemetry flow endpoint, ensure your application exports an authenticated telemetry bundle. AgentsGuardian handles high-frequency pipelines automatically at sub-10ms rates:
                     </p>
                   </div>
 

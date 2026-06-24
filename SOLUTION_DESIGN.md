@@ -1,9 +1,9 @@
-# Solution Design Document: AgentGuardian
+# Solution Design Document: AgentsGuardian
 **Enterprise AI Governance, Real-Time Guardrails, and Economic Assurance Platform**
 
 ---
 
-This document outlines the end-to-end technical, architectural, and visual designs of the **AgentGuardian** platform—an enterprise-grade AI Governance-as-a-Service (GaaS) platform built to intercept, secure, evaluate, and trace autonomous AI agent execution loops under zero-trust conditions.
+This document outlines the end-to-end technical, architectural, and visual designs of the **AgentsGuardian** platform—an enterprise-grade AI Governance-as-a-Service (GaaS) platform built to intercept, secure, evaluate, and trace autonomous AI agent execution loops under zero-trust conditions.
 
 ---
 
@@ -11,13 +11,13 @@ This document outlines the end-to-end technical, architectural, and visual desig
 
 As enterprise adoption of autonomous agentic systems grows, organizations face unprecedented risks: unaligned decision-making, demographic/sentiment drift, runaway token expenditures, and vulnerable identity access tokens. 
 
-**AgentGuardian** serves as a security gateway, cognitive auditor, and financial throttle. Operating as a proxy layer over agent telemetry, the solution intercepts agent actions in real-time, matching them against cryptographic policies, auditing behavioral patterns, enforcing budget boundaries, and maintaining an immutable annex-compliant audit trail.
+**AgentsGuardian** serves as a security gateway, cognitive auditor, and financial throttle. Operating as a proxy layer over agent telemetry, the solution intercepts agent actions in real-time, matching them against cryptographic policies, auditing behavioral patterns, enforcing budget boundaries, and maintaining an immutable annex-compliant audit trail.
 
 ---
 
 ## 2. Product Architecture (The Three Pillars)
 
-Architected directly around the core vectors of enterprise agent governance, AgentGuardian is divided into three functional pillars:
+Architected directly around the core vectors of enterprise agent governance, AgentsGuardian is divided into three functional pillars:
 
 ```
                             [ AGENT Telemetry & API Calls ]
@@ -98,7 +98,7 @@ We have streamlined the layout structure for enterprise ease of use:
 * **Collapsible Lifecycle Pillars**: Once authenticated and inside the application, the primary sidebar with the **Lifecycle & Gateway Pillars** becomes collapsible to maximize workspace real estate. It persists state gracefully via local storage across page sessions.
 
 ### 3. Active Threat Interceptor & Security Sentinel Suite
-On the access login gate, AgentGuardian integrates the elite **Active Threat Interceptor** directly into its security branding panel:
+On the access login gate, AgentsGuardian integrates the elite **Active Threat Interceptor** directly into its security branding panel:
 * **Active Threat Interceptor**: Real-time isolation shields block hostile prompt injection payloads and malicious shell insertions before reaching the agent context.
 * **Cognitive Health Sentinel**: Analyzes intent vectors to identify jailbreak queries.
 * **Value Meter & Observability**: Direct audits of active stream spending and raw token ROI metrics.
@@ -130,7 +130,7 @@ The application utilizes a dark "Hex-Coal" theme reflecting modern cybersecurity
 
 ## 6. How to Test & Verify the Application
 
-To rigorously evaluate the AgentGuardian implementation, execute the following interactive test cases in the dev screen:
+To rigorously evaluate the AgentsGuardian implementation, execute the following interactive test cases in the dev screen:
 
 ### Test Case A: Real-Time Policy Interception (Secure Panel)
 1. **Navigate to "Secure" Tab** via the left-hand navigation sidebar.
