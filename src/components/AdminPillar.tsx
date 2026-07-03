@@ -43,8 +43,7 @@ export default function AdminPillar({
   const [permissions, setPermissions] = useState<RolePermission[]>(INITIAL_PERMISSIONS);
 
   const isDevelopmentTeam = (email: string) => {
-    const lowercaseVal = email.toLowerCase();
-    return lowercaseVal === 'mritunjoysingh@gmail.com' || lowercaseVal.endsWith('@agentguardian.io') || lowercaseVal.endsWith('@agentguardian.com');
+    return email.toLowerCase().trim() === 'mritunjoysingh@gmail.com';
   };
 
   const currentRolePerms = permissions.find(p => p.role === currentUser.role) || {
@@ -111,13 +110,25 @@ export default function AdminPillar({
       return;
     }
 
-    // SuperAdmin should only be available to the Development team of Agents Guardian.
+    // The admin and Super Admin role can only be given by the Super Admin
+    if (newRole === 'Admin' || newRole === 'SuperAdmin') {
+      if (currentUser.role !== 'SuperAdmin') {
+        addToast({
+          type: 'danger',
+          title: '🔒 Access Denied: Admin/SuperAdmin Grant Blocked',
+          message: 'Only a Super Admin is authorized to assign the Admin or Super Admin role.'
+        });
+        return;
+      }
+    }
+
+    // SuperAdmin should only be available to the Master Workspace Owner (mritunjoysingh@gmail.com).
     if (newRole === 'SuperAdmin') {
       if (!isDevelopmentTeam(newEmail)) {
         addToast({
           type: 'danger',
           title: '🔒 Access Denied: SuperAdmin Restrained',
-          message: 'The SuperAdmin role is strictly reserved for members of the Agents Guardian Development Team.'
+          message: 'The SuperAdmin role is strictly tied to the Master Workspace Owner email address (mritunjoysingh@gmail.com).'
         });
         return;
       }
@@ -125,7 +136,7 @@ export default function AdminPillar({
         addToast({
           type: 'danger',
           title: '🔒 Access Denied: SuperAdmin Grant Blocked',
-          message: 'Only authorized members of the Agents Guardian Development Team can assign the SuperAdmin role.'
+          message: 'Only the Master Workspace Owner (mritunjoysingh@gmail.com) can assign the SuperAdmin role.'
         });
         return;
       }
@@ -209,13 +220,25 @@ export default function AdminPillar({
       return;
     }
 
-    // SuperAdmin should only be available to the Development team of Agents Guardian.
+    // The admin and Super Admin role can only be given/taken by the Super Admin
+    if (role === 'Admin' || role === 'SuperAdmin' || (targetUser && (targetUser.role === 'Admin' || targetUser.role === 'SuperAdmin'))) {
+      if (currentUser.role !== 'SuperAdmin') {
+        addToast({
+          type: 'danger',
+          title: '🔒 Access Denied: Admin/SuperAdmin Modification Blocked',
+          message: 'Only a Super Admin is authorized to grant, revoke, or modify Admin or Super Admin roles.'
+        });
+        return;
+      }
+    }
+
+    // SuperAdmin should only be available to the Master Workspace Owner (mritunjoysingh@gmail.com).
     if (role === 'SuperAdmin') {
       if (targetUser && !isDevelopmentTeam(targetUser.email)) {
         addToast({
           type: 'danger',
           title: '🔒 Access Denied: SuperAdmin Restrained',
-          message: 'The SuperAdmin role is strictly reserved for members of the Agents Guardian Development Team.'
+          message: 'The SuperAdmin role is strictly tied to the Master Workspace Owner email address (mritunjoysingh@gmail.com).'
         });
         return;
       }
@@ -223,7 +246,7 @@ export default function AdminPillar({
         addToast({
           type: 'danger',
           title: '🔒 Access Denied: SuperAdmin Grant Blocked',
-          message: 'Only authorized members of the Agents Guardian Development Team can assign or promote accounts to the SuperAdmin role.',
+          message: 'Only the Master Workspace Owner (mritunjoysingh@gmail.com) can assign or promote accounts to the SuperAdmin role.',
         });
         return;
       }
@@ -526,19 +549,30 @@ export default function AdminPillar({
                             <span className="text-[10px] text-zinc-500">{user.email}</span>
                           </td>
                           <td className="p-3">
-                            <select
-                              value={user.role}
-                              onChange={(e) => handleUserRoleChange(user.id, e.target.value as AdminRole)}
-                              disabled={!currentRolePerms.manageUsers}
-                              className={`bg-zinc-950 border border-zinc-850 rounded px-1.5 py-1 text-xs font-mono text-zinc-350 cursor-pointer focus:outline-none ${
-                                !currentRolePerms.manageUsers ? 'opacity-55 cursor-not-allowed text-zinc-650' : ''
-                              }`}
-                            >
-                              <option value="Admin">Admin</option>
-                              <option value="PolicyManager">PolicyManager</option>
-                              <option value="Auditor">Auditor</option>
-                              <option value="Operator">Operator</option>
-                            </select>
+                            {(() => {
+                              const isRoleChangeDisabled = !currentRolePerms.manageUsers || 
+                                (currentUser.role !== 'SuperAdmin' && (user.role === 'SuperAdmin' || user.role === 'Admin'));
+                              return (
+                                <select
+                                  value={user.role}
+                                  onChange={(e) => handleUserRoleChange(user.id, e.target.value as AdminRole)}
+                                  disabled={isRoleChangeDisabled}
+                                  className={`bg-zinc-950 border border-zinc-850 rounded px-1.5 py-1 text-xs font-mono text-zinc-350 cursor-pointer focus:outline-none ${
+                                    isRoleChangeDisabled ? 'opacity-55 cursor-not-allowed text-zinc-650' : ''
+                                  }`}
+                                >
+                                  {(currentUser.role === 'SuperAdmin' || user.role === 'SuperAdmin') && (
+                                    <option value="SuperAdmin">SuperAdmin</option>
+                                  )}
+                                  {(currentUser.role === 'SuperAdmin' || user.role === 'Admin') && (
+                                    <option value="Admin">Admin</option>
+                                  )}
+                                  <option value="PolicyManager">PolicyManager</option>
+                                  <option value="Auditor">Auditor</option>
+                                  <option value="Operator">Operator</option>
+                                </select>
+                              );
+                            })()}
                           </td>
                           <td className="p-3">
                             {user.status === 'ACTIVE' ? (
@@ -665,7 +699,12 @@ export default function AdminPillar({
                       !currentRolePerms.manageUsers ? 'opacity-50 cursor-not-allowed bg-zinc-950' : 'bg-[#121214]'
                     }`}
                   >
-                    <option value="Admin">Admin (Workspace & Setup Mgr)</option>
+                    {currentUser.role === 'SuperAdmin' && (
+                      <>
+                        <option value="SuperAdmin">SuperAdmin (Master & Recovery)</option>
+                        <option value="Admin">Admin (Workspace & Setup Mgr)</option>
+                      </>
+                    )}
                     <option value="PolicyManager">PolicyManager (Manage Rules)</option>
                     <option value="Auditor">Auditor (Read-Only Metrics)</option>
                     <option value="Operator">Operator (Kill-Switch Control)</option>
@@ -1193,7 +1232,7 @@ export default function AdminPillar({
                 <tbody className="divide-y divide-zinc-900">
                   {users.map((usr) => {
                     const isRoot = usr.email === 'mritunjoysingh@gmail.com';
-                    const isCustomReg = usr.id.startsWith('USR-REQ-');
+                    const isCustomReg = usr.id.startsWith('USR-REQ-') || usr.lastLogin.includes('Registered') || usr.lastLogin.includes('Captured') || (usr.id.startsWith('USR-0') && parseInt(usr.id.replace('USR-0', '').replace('USR-', ''), 10) > 4);
                     
                     return (
                       <tr key={usr.id} className="hover:bg-zinc-900/20 transition-colors">

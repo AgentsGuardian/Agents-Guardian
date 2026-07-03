@@ -556,43 +556,65 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Switch Session dropdown in sub menu */}
-                  <div className="space-y-1.5">
-                    <label className="text-[9px] text-[#8B9BAA] font-bold uppercase tracking-widest block font-mono">
-                      Switch Active Identity
-                    </label>
-                    <select
-                      value={currentUser.id}
-                      onChange={(e) => {
-                        const selected = users.find(u => u.id === e.target.value);
-                        if (selected) {
-                          if (selected.status === 'SUSPENDED') {
+                  {/* Tenant Identity Isolation & Switch Session Controller */}
+                  {currentUser.role === 'SuperAdmin' ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[9px] text-[#8B9BAA] font-bold uppercase tracking-widest block font-mono">
+                          Switch Active Identity
+                        </label>
+                        <span className="text-[8px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1 rounded font-mono">
+                          SuperAdmin Privilege
+                        </span>
+                      </div>
+                      <select
+                        value={currentUser.id}
+                        onChange={(e) => {
+                          const selected = users.find(u => u.id === e.target.value);
+                          if (selected) {
+                            if (selected.status === 'SUSPENDED') {
+                              addToast({
+                                type: 'danger',
+                                title: '❌ Authentication Error',
+                                message: `Administrative account for "${selected.name}" is currently SUSPENDED. Access token generation halted.`,
+                                duration: 6000
+                              });
+                              return;
+                            }
+                            setCurrentUser(selected);
                             addToast({
-                              type: 'danger',
-                              title: '❌ Authentication Error',
-                              message: `Administrative account for "${selected.name}" is currently SUSPENDED. Access token generation halted.`,
-                              duration: 6000
+                              type: 'success',
+                              title: '🔐 Active Session Swapped',
+                              message: `Successfully authenticated as: ${selected.name} (${selected.role}). Gateway encryption tokens recompiled.`
                             });
-                            return;
                           }
-                          setCurrentUser(selected);
-                          addToast({
-                            type: 'success',
-                            title: '🔐 Active Session Swapped',
-                            message: `Successfully authenticated as: ${selected.name} (${selected.role}). Gateway encryption tokens recompiled.`
-                          });
-                        }
-                      }}
-                      className="w-full text-xs font-sans font-bold bg-black/60 border border-[#1F2E40] rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-[--theme-primary] hover:border-zinc-700 transition-colors cursor-pointer"
-                    >
-                      {users.map(u => (
-                        <option key={u.id} value={u.id} className="bg-[#111E2E] text-xs text-slate-300">
-                          {u.email === 'mritunjoysingh@gmail.com' ? '👑 ' : u.role === 'SuperAdmin' ? '💎 ' : '👤 '} 
-                          {u.name} ({u.role})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                        }}
+                        className="w-full text-xs font-sans font-bold bg-black/60 border border-[#1F2E40] rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-[--theme-primary] hover:border-zinc-700 transition-colors cursor-pointer"
+                      >
+                        {users.map(u => (
+                          <option key={u.id} value={u.id} className="bg-[#111E2E] text-xs text-slate-300">
+                            {u.email === 'mritunjoysingh@gmail.com' ? '👑 ' : u.role === 'SuperAdmin' ? '💎 ' : '👤 '} 
+                            {u.name} ({u.role})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-black/40 border border-zinc-800/80 rounded-xl space-y-1.5">
+                      <div className="flex items-center justify-between text-[9px] font-mono font-bold uppercase tracking-wider text-teal-400">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></span>
+                          Tenant Isolation Active
+                        </span>
+                        <span className="text-[8px] bg-teal-500/10 border border-teal-500/20 px-1.5 py-0.5 rounded text-teal-300">
+                          LOCKED
+                        </span>
+                      </div>
+                      <p className="text-[10px] font-mono text-zinc-400 leading-relaxed">
+                        Dedicated customer instance locked to <strong className="text-white">{currentUser.name}</strong>. Global identity switching and SuperAdmin impersonation are restricted by security policy.
+                      </p>
+                    </div>
+                  )}
 
                   {/* System Theme Accent Color Picker */}
                   <div className="space-y-2 pt-3 border-t border-[#1F2E40]/50">

@@ -417,7 +417,7 @@ export default function HelpCenter({
     link.click();
     document.body.removeChild(link);
   };
-  
+
   // Interactive Simulator States
   const [simulatorStep, setSimulatorStep] = useState<number>(0);
   const [simulatorStatus, setSimulatorStatus] = useState<'IDLE' | 'ALERT' | 'INTERCEPTED' | 'HEALED'>('IDLE');
