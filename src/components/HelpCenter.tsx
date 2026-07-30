@@ -8,9 +8,9 @@ import {
   BookOpen, Search, HelpCircle, Compass, Cpu, Coins, Activity, Shield, 
   Sliders, MessageSquare, Play, RefreshCw, CheckCircle2, AlertTriangle, 
   ArrowRight, Info, HelpCircle as HelpIcon, Sparkles, Send, Terminal, BookMarked,
-  FileText, Download, Video, Pause, Volume2, VolumeX, Check, Lock, Maximize, Minimize
+  FileText, Download, Video, Pause, Volume2, VolumeX, Check, Lock, Maximize, Minimize, DollarSign, Copy, Rocket
 } from 'lucide-react';
-import { Policy, AdminUser, Toast, KillSignalEvent, DriftLogEvent, ValueMeterMetric, ApiRequestLog, GoverningAgent } from '../types';
+import { Policy, AdminUser, Toast, KillSignalEvent, DriftLogEvent, ValueMeterMetric, ApiRequestLog, GoverningAgent, LaborConfig } from '../types';
 import { SOLUTION_DESIGN_MARKDOWN_CONTENT } from '../solutionDesignContent';
 
 import Overview from './Overview';
@@ -34,6 +34,7 @@ interface HelpCenterProps {
   users: AdminUser[];
   budgetCap: number;
   latencyThreshold: number;
+  laborConfig?: LaborConfig;
 }
 
 interface FaqItem {
@@ -43,6 +44,131 @@ interface FaqItem {
   answer: string;
   keywords: string[];
 }
+
+// Inline markdown parser for bold, inline code, and block math
+const parseInlineStyles = (str: string) => {
+  const tokenRegex = /(\*\*.*?\*\*|`.*?`|\$\$.*?\$\$)/g;
+  const parts = str.split(tokenRegex);
+
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i} className="font-bold text-white">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return (
+        <code key={i} className="bg-zinc-900 border border-zinc-800 text-teal-300 font-mono px-1 py-0.2 rounded text-[10px]">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    if (part.startsWith('$$') && part.endsWith('$$')) {
+      return (
+        <span key={i} className="font-mono text-amber-300 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded text-[10px] block my-1">
+          {part.slice(2, -2)}
+        </span>
+      );
+    }
+    return part;
+  });
+};
+
+// Rich chat message markdown & code block renderer
+const renderFormattedChatMessage = (text: string, onCopyCode?: (code: string) => void) => {
+  const codeBlockRegex = /```([a-zA-Z]*)\n([\s\S]*?)```/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', content: text.substring(lastIndex, match.index) });
+    }
+    parts.push({ type: 'code', lang: match[1] || 'bash', code: match[2].trim() });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ type: 'text', content: text.substring(lastIndex) });
+  }
+
+  return (
+    <div className="space-y-2 text-xs leading-relaxed">
+      {parts.map((part, idx) => {
+        if (part.type === 'code') {
+          return (
+            <div key={idx} className="my-2 rounded-lg bg-black border border-zinc-800 overflow-hidden font-mono text-[10.5px]">
+              <div className="flex items-center justify-between px-3 py-1 bg-zinc-900/80 border-b border-zinc-800 text-[9px] text-zinc-400 uppercase font-bold">
+                <span className="text-teal-400">{part.lang || 'code'}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(part.code);
+                    if (onCopyCode) onCopyCode(part.code);
+                  }}
+                  className="hover:text-white transition-colors cursor-pointer flex items-center gap-1 text-[9px] text-zinc-300 bg-zinc-800 px-1.5 py-0.5 rounded"
+                >
+                  <Copy size={10} /> Copy Snippet
+                </button>
+              </div>
+              <pre className="p-3 text-emerald-400 overflow-x-auto whitespace-pre font-mono leading-normal">
+                {part.code}
+              </pre>
+            </div>
+          );
+        }
+
+        const lines = part.content.split('\n');
+        return (
+          <div key={idx} className="space-y-1">
+            {lines.map((line, lIdx) => {
+              const trimmed = line.trim();
+              if (!trimmed) return <div key={lIdx} className="h-1" />;
+
+              if (trimmed.startsWith('### ')) {
+                return (
+                  <h4 key={lIdx} className="font-mono font-bold text-teal-400 text-[11.5px] mt-2 mb-1 border-b border-zinc-800/60 pb-0.5">
+                    {parseInlineStyles(trimmed.substring(4))}
+                  </h4>
+                );
+              }
+              if (trimmed.startsWith('## ')) {
+                return (
+                  <h3 key={lIdx} className="font-mono font-extrabold text-white text-xs mt-2 mb-1">
+                    {parseInlineStyles(trimmed.substring(3))}
+                  </h3>
+                );
+              }
+              if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                return (
+                  <div key={lIdx} className="flex gap-2 pl-2 text-zinc-300">
+                    <span className="text-teal-400 font-bold">•</span>
+                    <span>{parseInlineStyles(trimmed.substring(2))}</span>
+                  </div>
+                );
+              }
+              if (/^\d+\.\s/.test(trimmed)) {
+                const matchNum = trimmed.match(/^(\d+)\.\s/);
+                const num = matchNum ? matchNum[1] : '1';
+                const content = trimmed.replace(/^\d+\.\s/, '');
+                return (
+                  <div key={lIdx} className="flex gap-2 pl-2 text-zinc-300">
+                    <span className="text-teal-400 font-mono font-bold">{num}.</span>
+                    <span>{parseInlineStyles(content)}</span>
+                  </div>
+                );
+              }
+
+              return (
+                <p key={lIdx} className="text-zinc-300 leading-relaxed">
+                  {parseInlineStyles(line)}
+                </p>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 export default function HelpCenter({ 
   policies, 
@@ -56,7 +182,8 @@ export default function HelpCenter({
   governedAgents,
   users,
   budgetCap,
-  latencyThreshold
+  latencyThreshold,
+  laborConfig
 }: HelpCenterProps) {
   const [activeTab, setActiveTab] = useState<'docs' | 'simulator' | 'faq' | 'copilot' | 'implementation' | 'video'>('docs');
   const [activeSetupStep, setActiveSetupStep] = useState<number>(1);
@@ -137,6 +264,17 @@ export default function HelpCenter({
     };
   }, [isFullscreen]);
 
+  // Synchronize refs for playback event listeners
+  const isVideoPlayingRef = useRef<boolean>(isVideoPlaying);
+  useEffect(() => {
+    isVideoPlayingRef.current = isVideoPlaying;
+  }, [isVideoPlaying]);
+
+  const activeSegmentIndexRef = useRef<number>(activeSegmentIndex);
+  useEffect(() => {
+    activeSegmentIndexRef.current = activeSegmentIndex;
+  }, [activeSegmentIndex]);
+
   const stopNarratorVoice = useCallback(() => {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel();
@@ -189,6 +327,10 @@ export default function HelpCenter({
       utterance.rate = 1.0 * (videoSpeed === 1 ? 1.0 : videoSpeed === 1.5 ? 1.25 : 1.45);
       utterance.pitch = 1.02; // cheerful/engaging warm projection pitch
       
+      utterance.onend = () => {
+        // Speech finished for active target, clean standby
+      };
+
       window.speechSynthesis.speak(utterance);
     } catch (err) {
       console.warn("Synth error:", err);
@@ -198,85 +340,217 @@ export default function HelpCenter({
   const VIDEO_SEGMENTS = useMemo(() => [
     {
       id: "overview",
-      title: "1. Unified Governance Overview",
+      title: "1. Unified Governance Command Center",
       start: 0,
-      end: 30,
-      label: "CORE GOVERNANCE LIFECYCLE",
+      end: 25,
+      label: "MISSION CONTROL & FLEET TELEMETRY",
       badge: "OVERVIEW",
-      narrator: "Welcome! Let's start our tour with a look at the AgentsGuardian command center. Think of the Overview tab as your central cockpit. Here, you'll see a real-time summary of your entire autonomous fleet. The widgets track daily activity, transaction volume, and cluster locations. It is a clean, live dashboard built to keep systems aligned. Next, let's look at the active Threat Kill-Switch.",
+      narrator: "Welcome to the AgentsGuardian enterprise walkthrough! Let's start right here at the Command Center. The Overview dashboard displays real-time metrics across all connected agent clusters. Notice how you can monitor Cognitive Health, track saved labor ROI, and observe live drift logs in real time.",
       screenshotType: "overview"
     },
     {
       id: "secure",
-      title: "2. Secure Kill-Switch & Active Interception",
-      start: 30,
-      end: 60,
-      label: "ACTIVE THREAT INTERDICTION",
+      title: "2. Secure Kill-Switch & Active Threat Interceptor",
+      start: 25,
+      end: 50,
+      label: "ACTIVE THREAT INTERDICTION & QUARANTINE",
       badge: "KILL-SWITCH",
-      narrator: "Here we are on the Threat Interceptor pane. Think of this as your active defense shield. If an autonomous agent begins executing suspicious code or leaking keys, this panel flags the event and blocks it instantly. You can test this live with the sandbox simulator to see how the proxy server stops unapproved packets. It is safe, immediate, and bulletproof. Now, let's explore cognitive health and telemetry.",
+      narrator: "Next, we move to the Active Threat Interceptor and Kill-Switch pane. AgentsGuardian sits as an inline proxy. If an agent attempts an unauthorized action—such as executing a destructive SQL query or leaking API keys—our proxy quarantines the packet in under 35 milliseconds, logging the incident instantly.",
       screenshotType: "secure"
     },
     {
       id: "observe",
-      title: "3. Cognitive Observability & Sentinel Live Feeds",
-      start: 60,
-      end: 90,
-      label: "COGNITIVE HEALTH SENTINEL",
+      title: "3. Cognitive Observability & Ethical Realignment",
+      start: 50,
+      end: 75,
+      label: "COGNITIVE SENTINEL & ALIGNMENT ANCHORS",
       badge: "OBSERVABILITY",
-      narrator: "Now we're diving into Cognitive Observability. Large language models can occasionally drift or become misaligned. Here, the Sentinel tracks and scores agent intent. We can inspect prompt logs, measure system latencies—which stay remarkably under fifteen milliseconds—and trace drift rates. If a score drops, we can trigger corrective alignments on the fly to guide the agents back to ethical paths.",
+      narrator: "Now let's explore Cognitive Observability. Our Sentinel continuously measures prompt sentiment, response alignment, and system latencies. If an agent's score drops, Administrators can click 'Remediate Alignment' to hot-swap prompt anchors and re-align the model in real time without restarting servers.",
       screenshotType: "observe"
     },
     {
       id: "measure",
-      title: "4. Value Meter & Budgetary Protection",
-      start: 90,
-      end: 120,
-      label: "ECONOMIC COST & ROI METER",
+      title: "4. Value Meter, Labor Benchmarks & CFO Budget Caps",
+      start: 75,
+      end: 100,
+      label: "FINANCIAL GOVERNANCE & COST AVOIDANCE",
       badge: "VALUE METER",
-      narrator: "Let's talk about economics! Autonomous agents can drain enterprise cloud budgets if they enter infinite loops. The Value Meter tracks cost metrics, hourly token spend, and actual financial return-on-investment. If spending goes over the cap, the proxy automatically quarantines the thread context. This protects you from catastrophic billing surprises.",
+      narrator: "Let's examine financial governance in the Value Meter module. You can configure realistic wage rates for L1, L2, and L3 staff to compute net cost avoidance. Crucially, if token expenditure hits your configured budget cap—such as $50—the gateway automatically throttles secondary loops to protect your budget.",
       screenshotType: "measure"
     },
     {
-      id: "gaas",
-      title: "5. GaaS Gateway & Multi-Framework Core REST",
-      start: 120,
-      end: 150,
-      label: "DURABLE INTERMEDIATE API GATEWAY",
-      badge: "GAAS / APIS",
-      narrator: "This is our Governing-as-a-Service gateway, or GaaS for short. Developers can integrate their favorite framework, like LangChain or CrewAI, with just a standard endpoint redirect. Here you can search through our registry of active model instances, inspect custom REST headers, and verify that the secure connections are configured correctly.",
-      screenshotType: "gaas"
-    },
-    {
       id: "policies",
-      title: "6. Policy Engine & Blast Radii Calibration",
-      start: 150,
-      end: 180,
-      label: "DYNAMIC POLICY POSTURE TUNING",
-      badge: "POLICY ENGINE",
-      narrator: "Our Policy Engine is where we establish the rules of engagement. You have three pillars: security, ethics, and finance. Shifting your active posture to Strict or Zero-Trust instantly tightens terminal parameters, halts unauthorized database access, and limits command line tools. It is a robust way to enforce governance across your models.",
+      title: "5. AI-Powered Legal Act Ingestion & 1-Click Law Purging",
+      start: 100,
+      end: 125,
+      label: "REGULATORY COMPLIANCE & LEGAL ACT TRANSLATION",
+      badge: "COMPLIANCE & LAWS",
+      narrator: "Here in the Policy Engine, compliance managers can turn legal documents like the EU AI Act or California SB-1047 into active guardrails. Our compiler categorizes rules into Security, Ethics, and Finance pillars. If a regulation changes, you can purge the law and its rules in a single click.",
       screenshotType: "policies"
     },
     {
-      id: "admin",
-      title: "7. Enterprise Settings & IAM Role-Based Access",
-      start: 180,
-      end: 210,
-      label: "ROLE-BASED IAM ACCESS CONTROL",
-      badge: "SETTING & IAM",
-      narrator: "Welcome to the Settings and identity manager. This board is where we administer operator accounts and secure cryptographic keys. For security compliance, we support role-based access control. Supervisors can audit profiles, revoke tokens, and set multi-factor rules. This ensures only trusted compliance personnel can change your policy configurations.",
-      screenshotType: "admin"
-    },
-    {
-      id: "help",
-      title: "8. SDK Integration Suite & User Guide Desk",
-      start: 210,
-      end: 240,
-      label: "HELP & PLAYBOOK QUICKSTART",
-      badge: "USER GUIDE",
-      narrator: "Finally, we have our SDK suite and playbook desk. Integrating AgentsGuardian is extremely simple. Developers can grab copyable Python or TypeScript snippets, trigger a secure handshake test, and install the library in less than ten minutes. This gets you protected and up and running quickly. This wraps up our video walkthrough!",
-      screenshotType: "help"
+      id: "gaas",
+      title: "6. Client Environment Integration & Zero-Code Proxy",
+      start: 125,
+      end: 150,
+      label: "ONBOARDING & ZERO-CODE GATEWAY PROXY",
+      badge: "CLIENT INTEGRATION",
+      narrator: "Finally, configuring AgentsGuardian in your production client environment is seamless. Integrate via our Zero-Code Proxy by setting your OPENAI_BASE_URL to our gateway, or drop in our Native TypeScript or Python SDK wrapper with just three lines of code. Thank you for watching!",
+      screenshotType: "gaas"
     }
   ], []);
+
+  // Compute live feature target focus based on playback time with precise percentages and 8s pacing
+  const currentFocusTarget = useMemo(() => {
+    const currentSeg = VIDEO_SEGMENTS[activeSegmentIndex] || VIDEO_SEGMENTS[0];
+    const segTime = videoTime - currentSeg.start;
+
+    if (currentSeg.id === 'overview') {
+      if (segTime < 8) {
+        return {
+          title: 'Unified Governance Command Center',
+          description: 'Mission control header & active fleet overview dashboard.',
+          top: '6%',
+          left: '6%'
+        };
+      } else if (segTime < 16) {
+        return {
+          title: 'Cognitive Health Score (89%) & Labor ROI (3.4x)',
+          description: 'Monitoring overall cognitive health score and saved human labor value metrics.',
+          top: '24%',
+          left: '52%'
+        };
+      } else {
+        return {
+          title: 'Live Telemetry Ingress & Drift Activity Stream',
+          description: 'Real-time stream of agent execution events, routing latency, and drift logs.',
+          top: '58%',
+          left: '32%'
+        };
+      }
+    } else if (currentSeg.id === 'secure') {
+      if (segTime < 8) {
+        return {
+          title: 'Active Threat Interceptor & Inline Proxy Shield',
+          description: 'Zero-code proxy shield evaluating agent command packets in real time.',
+          top: '8%',
+          left: '8%'
+        };
+      } else if (segTime < 16) {
+        return {
+          title: 'Quarantined Threat Events & Intercepted Payloads',
+          description: 'Inspecting blocked threat payloads (destructive SQL, credential leaks, wire breaches).',
+          top: '38%',
+          left: '42%'
+        };
+      } else {
+        return {
+          title: '<35ms Instant Interception Latency & Incident Logging',
+          description: 'Logging incident telemetry instantly while halting rogue agent executions.',
+          top: '75%',
+          left: '45%'
+        };
+      }
+    } else if (currentSeg.id === 'observe') {
+      if (segTime < 8) {
+        return {
+          title: 'Cognitive Sentinel & Sentiment Drift Telemetry',
+          description: 'Tracking LLM prompt sentiment drift and off-policy model behavior.',
+          top: '8%',
+          left: '8%'
+        };
+      } else if (segTime < 16) {
+        return {
+          title: 'Response Alignment Metrics & <25ms Latency Graph',
+          description: 'Evaluating response alignment scores and pipeline routing latencies.',
+          top: '38%',
+          left: '45%'
+        };
+      } else {
+        return {
+          title: "'Remediate Alignment' 1-Click Prompt Hot-Swap",
+          description: 'Clicking Remediate Alignment to instantly re-align model anchors in real time.',
+          top: '25%',
+          left: '72%'
+        };
+      }
+    } else if (currentSeg.id === 'measure') {
+      if (segTime < 8) {
+        return {
+          title: 'AI Value Meter & Cost Avoidance Dashboard',
+          description: 'Tracking total token expenditure, human labor savings, and return-on-investment.',
+          top: '8%',
+          left: '8%'
+        };
+      } else if (segTime < 16) {
+        return {
+          title: 'Human Labor Benchmark Sliders (L1 $35 / L2 $75 / L3 $150)',
+          description: 'Configuring regional hourly wage rates for L1 support, L2 DevOps, and L3 SRE staff.',
+          top: '38%',
+          left: '30%'
+        };
+      } else {
+        return {
+          title: '$50.00 Enterprise Budget Cap & Loop Throttle',
+          description: 'CFO budget cap control that automatically throttles secondary loops to prevent overruns.',
+          top: '70%',
+          left: '48%'
+        };
+      }
+    } else if (currentSeg.id === 'policies') {
+      if (segTime < 8) {
+        return {
+          title: 'AI Legal Act Ingestion (EU AI Act & SB-1047)',
+          description: 'Translating compliance PDFs and legal frameworks into active code guardrails.',
+          top: '8%',
+          left: '65%'
+        };
+      } else if (segTime < 16) {
+        return {
+          title: 'Security, Ethics & Finance Rule Pillars',
+          description: 'Synthesizing compiled rules into 3 distinct operational governance pillars.',
+          top: '38%',
+          left: '48%'
+        };
+      } else {
+        return {
+          title: 'Active Regulatory Frameworks & 1-Click Law Purge',
+          description: 'Purging deprecated regulations and compiled rule trees in a single click.',
+          top: '72%',
+          left: '48%'
+        };
+      }
+    } else if (currentSeg.id === 'gaas') {
+      if (segTime < 8) {
+        return {
+          title: 'Production Client Environment Onboarding',
+          description: 'Zero-friction setup for production LLM client applications.',
+          top: '8%',
+          left: '8%'
+        };
+      } else if (segTime < 16) {
+        return {
+          title: 'Zero-Code Proxy (OPENAI_BASE_URL Redirect)',
+          description: 'Redirecting framework base URL to the AgentsGuardian proxy gateway.',
+          top: '35%',
+          left: '48%'
+        };
+      } else {
+        return {
+          title: 'Native TypeScript & Python SDK 3-Line Wrapper',
+          description: 'Embedding 3-line native wrapper code directly into application servers.',
+          top: '70%',
+          left: '48%'
+        };
+      }
+    }
+    return {
+      title: 'AgentsGuardian Command Center Overview',
+      description: 'Unified Governance Command Center',
+      top: '8%',
+      left: '8%'
+    };
+  }, [activeSegmentIndex, videoTime, VIDEO_SEGMENTS]);
 
   // Web Audio Synth Sound FX Generator
   const playWebAudioSound = useCallback((type: 'beep' | 'alert' | 'success' | 'sweep') => {
@@ -362,7 +636,7 @@ export default function HelpCenter({
       interval = setInterval(() => {
         setVideoTime((prevTime) => {
           const nextTime = prevTime + 1 * videoSpeed;
-          if (nextTime >= 240) {
+          if (nextTime >= 150) {
             setIsVideoPlaying(false);
             lastSpokenSegmentIndexRef.current = -1;
             return 0; // Wrap around to beginning
@@ -386,22 +660,24 @@ export default function HelpCenter({
     }
   }, [videoTime, VIDEO_SEGMENTS]);
 
-  // React to segment transition
+  const lastSpokenFocusTitleRef = useRef<string>('');
+
+  // React to focus target transition (synchronizes voice narration with laser pointer reticle)
   React.useEffect(() => {
     if (activeTab === 'video' && isVideoPlaying) {
-      if (lastSpokenSegmentIndexRef.current !== activeSegmentIndex) {
-        lastSpokenSegmentIndexRef.current = activeSegmentIndex;
-        const textToSpeak = VIDEO_SEGMENTS[activeSegmentIndex].narrator;
+      if (lastSpokenFocusTitleRef.current !== currentFocusTarget.title) {
+        lastSpokenFocusTitleRef.current = currentFocusTarget.title;
+        const textToSpeak = `${currentFocusTarget.title}. ${currentFocusTarget.description}`;
         speakNarratorVoice(textToSpeak);
       }
     } else {
-      lastSpokenSegmentIndexRef.current = -1;
+      lastSpokenFocusTitleRef.current = '';
       stopNarratorVoice();
     }
     return () => {
       stopNarratorVoice();
     };
-  }, [activeSegmentIndex, isVideoPlaying, activeTab, speakNarratorVoice, stopNarratorVoice, VIDEO_SEGMENTS]);
+  }, [currentFocusTarget, isVideoPlaying, activeTab, speakNarratorVoice, stopNarratorVoice]);
 
   const isSuperUser = currentUser.email === 'mritunjoysingh@gmail.com';
   const isSuperAdmin = currentUser.role === 'SuperAdmin';
@@ -426,11 +702,12 @@ export default function HelpCenter({
 
   // Chat Copilot States
   const [chatInput, setChatInput] = useState('');
+  const [isCopilotTyping, setIsCopilotTyping] = useState<boolean>(false);
   const [selectedSuggestedIndex, setSelectedSuggestedIndex] = useState<number | null>(null);
   const [chatMessages, setChatMessages] = useState<Array<{ sender: 'user' | 'assistant'; text: string; timestamp: string; isCode?: boolean }>>([
     { 
       sender: 'assistant', 
-      text: `Greetings, Administrator ${currentUser.name}. I am the Guardian Support Copilot. Ask me any doubt about policies, "GAAS NOMINAL" status, observability metrics, or how the automatic Kill-Switch triggers. Try clicking one of the quick suggestions below if you'd like a head start!`, 
+      text: `Greetings, Administrator ${currentUser.name}. I am the Guardian Support Copilot powered by GenAI and Agent Guardian telemetry. Ask me any specific question about policies, labor cost configuration, "GAAS NOMINAL" status, observability metrics, or how the automatic Kill-Switch triggers!`, 
       timestamp: '09:00' 
     }
   ]);
@@ -529,6 +806,69 @@ export default function HelpCenter({
       question: "How does the Google Account authentication and registration work?",
       answer: "AgentsGuardian supports secure Single Sign-On (SSO) with your Google credentials. On the landing page, clicking the 'Sign In with Google' button will automatically verify your operator email. If your email is already registered in our secure memory database, you are immediately logged in. If your email is NOT registered yet, AgentsGuardian redirects you to the 'Register' tab, pre-fills your secure Google details (including name, email, role, and a secure federated password), and guides you to complete your administrative profile setup with a single click.",
       keywords: ['google sso', 'register with google', 'google account login', 'sign in google', 'prefill credentials', 'federated login']
+    },
+    {
+      id: 'labor-config',
+      category: 'financial',
+      question: "How do I configure regional human labor wage benchmarks and ticket handling times?",
+      answer: "Navigate to Pillar 3 (Measure / Value Meter) under Feature 02: Interactive Human Labor Cost Configuration. Use the interactive sliders to set hourly contractor or employee wage rates for L1 Support Specialist ($35/hr default), L2 DevOps Engineer ($75/hr), L3 SRE Architect ($150/hr), and Security Auditor ($60/hr), along with typical ticket handling duration (in minutes or hours). You can also click preset corporate benchmarks (IT Service Desk, FinTech, Healthcare, Enterprise). Once set, these figures synchronize in real-time across the platform to dynamically compute Net Cost Avoidance and ROI Multipliers.",
+      keywords: ['labor cost', 'wage benchmarks', 'l1 rate', 'l2 rate', 'l3 rate', 'handling time', 'roi multiplier', 'interactive sliders', 'wage config']
+    },
+    {
+      id: 'economic-simulation',
+      category: 'financial',
+      question: "What are the 6 stress test scenarios in the Economic Simulation Engine?",
+      answer: "The Economic Simulation Engine (Pillar 3 Feature 03) evaluates API token burn against human labor avoidance across 6 distinct stress scenarios: 1) High ROI Automated Password Resets (10k simple tickets); 2) L1 Support Ticket Triage Surge (2,500 incoming tickets); 3) Enterprise SRE Incident Remediation (50 complex server logs); 4) Dynamic Custom Labor Benchmark Test; 5) Runaway Cost Scenario: 1M Token Context Bloat; and 6) Runaway Multi-Agent Infinite Loop Drain ($185 token burn before Kill-Switch trips). Running these simulations demonstrates how AgentsGuardian maximizes economic yield while protecting against catastrophic overspending.",
+      keywords: ['economic simulation', 'stress tests', '6 scenarios', 'password resets', 'triage surge', 'sre incident', 'context bloat', 'infinite loop']
+    },
+    {
+      id: 'copilot-genai',
+      category: 'general',
+      question: "How does the Automated Support Copilot work and does it analyze my live telemetry?",
+      answer: "Yes. The Automated Support Copilot (Tab 6) is powered by a server-side GenAI backend (/api/copilot) that dynamically synthesizes your live session context—including your active user IAM role, current budget cap ($50.00 default), regional labor wage rates ($35/$75/$150/hr), and cognitive drift scores. If you ask about ROI or system status, it embeds these real-time metrics directly into its answer. If running offline or without cloud connectivity, it automatically switches to a robust client-side semantic reasoning fallback engine.",
+      keywords: ['copilot', 'genai copilot', 'telemetry synthesis', 'automated support desk', 'semantic fallback', 'live context', 'ask copilot']
+    },
+    {
+      id: 'runaway-loop-containment',
+      category: 'kill-switch',
+      question: "How does Agent Guardian detect and halt runaway multi-agent infinite loops or context bloat?",
+      answer: "When autonomous agent loops enter recursive reasoning failures or ingest unpruned 1M+ token context histories, API costs can rapidly escalate from cents to $50 or $185+. AgentsGuardian actively monitors cumulative token burn against your configured Active Session Budget Cap (default $50.00). The moment a sub-agent execution block attempts to exceed this ceiling, the Threat Interceptor aborts the transmission, raises a critical CFO alert toast, records a red 'HALTED' ledger receipt, and quarantines the offending node.",
+      keywords: ['runaway loop', 'infinite loop', 'context bloat', 'budget cap exceeded', 'cfo alert', 'halt agent', 'overspending protection']
+    },
+    {
+      id: 'regulatory-pdf-translation',
+      category: 'drift',
+      question: "How do I translate compliance PDFs or legal frameworks into active policy rules?",
+      answer: "By navigating to the 'Policy Config' tab and clicking 'Translate Legal Act (PDF)' in the header, you can upload compliance documents/PDFs or choose presets (e.g., EU AI Act, California SB-1047). The system's ingestion engine parses these documents and synthesizes three distinct rules precisely separated across our visual ledger under their appropriate categories: Security Pillar (Secure), Ethics Pillar (Observe), and Finance Pillar (Measure) columns. This eliminates manual configuration errors.",
+      keywords: ['pdf translation', 'legal translation', 'eu ai act', 'sb-1047', 'pillar separation', 'compliance rules', 'compliance ingestion', 'regulatory rules']
+    },
+    {
+      id: 'remove-laws-policies',
+      category: 'drift',
+      question: "How do I manage, retire, or remove regulatory frameworks and their associated rules?",
+      answer: "You can manage currently active regulations via the 'Active Regulatory Frameworks' widget at the bottom of the Policy Config page. The widget tracks every incorporated law alongside its active rule count. If a framework is retired, modified, or no longer applicable, you can click the red 'Remove Law' button next to it. This instantly purges the framework and its compiled rule tree from the active ledger, ensuring clean and up-to-date compliance guardrails.",
+      keywords: ['remove law', 'retire law', 'purge framework', 'delete compliance', 'active regulatory frameworks', 'rule tree purge']
+    },
+    {
+      id: '30day-heatmap',
+      category: 'general',
+      question: "How does the 30-Day Execution Activity & Anomaly Heatmap work?",
+      answer: "The 30-Day Execution Activity & Anomaly Heatmap (Overview tab) renders a rolling 30-day calendar matrix tracking daily execution volume and policy interception anomaly spikes. You can toggle between 'Activity Volume' (emerald heat scale representing request density) and 'Anomaly Frequency' (amber/crimson scale representing policy halts). Clicking any day square opens the Inspected Day Telemetry Card showing total calls, intercepts, primary agent node, and summary key highlights, with a direct link to Sentinel logs.",
+      keywords: ['heatmap', '30-day heatmap', 'activity volume', 'anomaly frequency', 'calendar grid', 'daily telemetry', 'interception density']
+    },
+    {
+      id: 'governed-agent-health-gauges',
+      category: 'api',
+      question: "How are Governed Agent Health Gauges calculated and what do they indicate?",
+      answer: "Governed Agent Health Gauges (Overview tab) display real-time radial SVG gauges representing the operational health percentage of each active agent node. Health Score is calculated as: (Authorized API Requests / Total Requests) * 100. Gauges are color-coded: Teal (HEALTHY, >= 85%), Amber (EVALUATING, 60-84%), and Crimson (HALT ALERT, < 60%). Each gauge includes micro-progress bars comparing authorized versus policy-blocked calls.",
+      keywords: ['health gauges', 'radial gauge', 'health score', 'authorized calls', 'halted calls', 'agent health', 'svg gauge']
+    },
+    {
+      id: 'customer-onboarding-suite-faq',
+      category: 'api',
+      question: "How do I onboard my customer application codebase to AgentsGuardian GaaS?",
+      answer: "Navigate to the 'Customer Onboarding' section (or Tab 3 in Help Center). The 5-step calibration protocol guides you through: 1) Security Handshake & Key Exchange (copying AG_PROD_KEY to your .env); 2) Zero-Code Proxy Redirect (setting OPENAI_BASE_URL) or native Python/Node.js/MCP SDK setup; 3) Policy Posture & Labor Wage Calibration ($35/$75/$150/hr); 4) Telemetry Pipe Configuration; and 5) Interactive Sandbox Test Handshake verification returning live 200 OK or 403 FORBIDDEN results.",
+      keywords: ['customer onboarding', 'client onboarding', 'sdk integration', '5-step calibration', 'openai_base_url', 'sandbox test', 'onboarding copilot']
     }
   ], []);
 
@@ -545,21 +885,80 @@ export default function HelpCenter({
     });
   }, [faqData, faqSearch, selectedCategory]);
 
-  // Copilot automatic matching logic
-  const handleSendMessage = (text: string) => {
+  // Copilot automatic matching & GenAI / Semantic synthesis logic
+  const handleSendMessage = async (text: string) => {
     if (!text.trim()) return;
 
     const userMsg = { sender: 'user' as const, text, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
     setChatMessages(prev => [...prev, userMsg]);
     setChatInput('');
+    setIsCopilotTyping(true);
 
-    // Process reply matching
+    try {
+      const res = await fetch('/api/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: text,
+          user: currentUser,
+          laborConfig,
+          budgetCap
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.reply) {
+          setIsCopilotTyping(false);
+          setChatMessages(prev => [...prev, {
+            sender: 'assistant',
+            text: data.reply,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isCode: text.toLowerCase().includes('code') || text.toLowerCase().includes('sdk') || text.toLowerCase().includes('curl')
+          }]);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Backend /api/copilot unreachable, using client-side semantic reasoning fallback...', err);
+    }
+
+    // Client-side Semantic Fallback when running in client-only preview or offline
     setTimeout(() => {
       const query = text.toLowerCase();
       let replyText = "";
       let isCode = false;
 
-      if (query.includes('nominal') || query.includes('status')) {
+      if (query.includes('heatmap') || query.includes('30day') || query.includes('30-day') || query.includes('activity volume') || query.includes('anomaly frequency') || query.includes('calendar')) {
+        replyText = `### OVERVIEW: **30-DAY EXECUTION ACTIVITY & ANOMALY HEATMAP**
+The **30-Day Execution Activity & Anomaly Heatmap** (located on the Overview tab) visualizes daily request execution density and policy interception anomaly spikes across a rolling 30-day window.
+
+**Key Features & Capabilities:**
+1. **Dual View Mode Toggles**:
+   - **Activity Volume**: Visualizes call density using a 5-tier emerald heat scale (Level 0: Quiet \`#0D1B2A\` to Level 4: Peak \`#1D9E75\`).
+   - **Anomaly Frequency**: Highlights policy interception spikes using a high-contrast amber-to-crimson spectrum (\`#6B1D1D\` for high-halt days).
+2. **Inspected Day Telemetry Card**: Click any day square in the 7-column calendar matrix to inspect total executed calls, policy intercepts, dominant agent node, and summary key highlights, with a direct deep-link to Sentinel intercept logs.
+3. **30D Metric Indicators**: Displays total 30-day executions, policy interception counts, overall compliance rate percentage, and peak activity date.`;
+      } else if (query.includes('gauge') || query.includes('health score') || query.includes('agent health') || query.includes('radial')) {
+        replyText = `### OVERVIEW: **GOVERNED AGENT HEALTH GAUGES**
+The **Governed Agent Health Gauges** (on the Overview tab) provide real-time SVG radial indicators calculating operational health per agent node.
+
+**Formula & Color-Coded Statuses:**
+$$\\text{Health Score (\\%)} = \\left(\\frac{\\text{Authorized API Calls}}{\\text{Total Requests}}\\right) \\times 100$$
+
+- **Teal (HEALTHY, $\\ge 85\\%$)**: High operational stability and policy compliance.
+- **Amber (EVALUATING, $60-84\\%$)**: Mild policy warnings or latency spikes.
+- **Crimson (HALT ALERT, $< 60\\%$)**: Frequent policy intercepts requiring immediate Sentinel investigation.
+
+Each gauge card includes micro-progress bars comparing authorized calls against policy-blocked calls.`;
+      } else if (query.includes('solution') || query.includes('technical document') || query.includes('blueprint') || query.includes('user guide') || query.includes('manual')) {
+        replyText = `### DOCUMENTATION: **SOLUTION DESIGN & USER GUIDE SPECIFICATION**
+AgentsGuardian provides comprehensive, role-gated documentation across multiple layers:
+
+1. **System Core Manual & User Guide (Tab 1)**: Interactive breakdowns of all 4 Core Pillars (**Secure**, **Observe**, **Measure**, **Admin IAM**), Policy Engine, and GaaS APIs.
+2. **Downloadable Solution Design Blueprint (.md)**: Located at the bottom of the Help Center. Workspace Owners (\`mritunjoysingh@gmail.com\`) and SuperAdmins can download the complete **AgentsGuardian Solution Design Document (.md)** mapping architectural pillars, threat templates, telemetry pipelines, and test cases. Read-only Auditor profiles display a classified restriction gate with instructions to switch sessions.
+3. **Customer Onboarding Suite (Tab 3)**: A 5-step integration guide with copyable Python, Node.js, cURL, and MCP SDK initializers and an active test sandbox.`;
+      } else if (query.includes('nominal') || query.includes('status')) {
         replyText = `### SYSTEM STATE: **GAAS NOMINAL**
 The **GAAS NOMINAL** state is the ultimate operational safety index. It signifies that your multi-agent ecosystem is operating securely and completely within pre-allocated corporate bounds.
 
@@ -587,16 +986,25 @@ Because autonomous agents run on LLM models, they are prone to subtle semantic s
 - **Cognitive Health Score**: Monitored on a scale from 0% to 100%. A score drop indicates the agent is outputting off-topic content, hallucinations, or potentially evasive instructions.
 - **Drift Warnings**: If an agent's cognitive score slips below 70%, the Sentinel Board automatically triggers a **Critical Drift Warning**.
 - **Alignment Remediation**: Clicking the **"Remediate Alignment"** toggle hot-injects pre-vetted system compliance guidelines directly into the ongoing agent history. This overrides semantic deviation and instantly aligns the agent prompt back into healthy ethical vectors without server down-time.`;
-      } else if (query.includes('roi') || query.includes('value') || query.includes('meter') || query.includes('budget') || query.includes('cost') || query.includes('spend') || query.includes('financial')) {
-        replyText = `### PILLAR: **VALUE METER & ECONOMIC ROI ENGINE**
-The value meter maps raw runtime agent calls into tangible dollars saved, tracking budget limits in real-time.
+      } else if (query.includes('roi') || query.includes('value') || query.includes('meter') || query.includes('budget') || query.includes('cost') || query.includes('spend') || query.includes('financial') || query.includes('labor') || query.includes('wage') || query.includes('rate')) {
+        const l1 = laborConfig?.l1Rate || 35;
+        const l2 = laborConfig?.l2Rate || 75;
+        const l3 = laborConfig?.l3Rate || 150;
+        const avgHrs = laborConfig?.avgHoursPerTask || 0.25;
+        replyText = `### PILLAR: **VALUE METER & INTERACTIVE HUMAN LABOR EQUIVALENCY**
+Your question touches on economic valuation and labor benchmarks within the GaaS ecosystem.
+
+**Active Interactive Labor Configuration:**
+- **L1 Support / Triage Specialist Rate**: **$${l1}.00 / hr**
+- **L2 DevOps / Systems Engineer Rate**: **$${l2}.00 / hr**
+- **L3 SRE / Enterprise Architect Rate**: **$${l3}.00 / hr**
+- **Average Handling Time per Ticket**: **${avgHrs * 60} mins (${avgHrs} hrs)**
 
 **Underlying Mathematical Formula:**
-$$\\text{ROI Score} = \\frac{\\text{Labor Saved Value (\$)}}{\\text{Total Model API Spend (\$)}}$$
+$$\\text{ROI Multiplier} = \\frac{\\text{Human Labor Cost (\$)}}{\\text{Total Model API Spend (\$)}}$$
 
-- **Labor Saved**: Calculated by multiplying the human equivalent hours saved per successful agent run by typical regional contractor labor rates (e.g., $45.00/hour).
-- **API Spend**: Computed from actual token use fees summed across model providers.
-- **Threshold Safeguards**: You can configure custom spending caps (e.g., \$50.00/hour single-agent limit) in the Policy Engine. When a run exceeds the budget cap, it automatically activates the Spend Guardrails containment process.`;
+- **Net Savings Computed**: For 1,000 tasks at your L1 rate of $${l1}/hr, equivalent human cost is **$${(1000 * avgHrs * l1).toLocaleString()}**. Compared to $42.50 API spend, you save **$${(1000 * avgHrs * l1 - 42.50).toLocaleString()}** (${((1000 * avgHrs * l1) / 42.50).toFixed(1)}x ROI).
+- You can interactively modify these wage sliders and run 6 stress tests directly in **Pillar 3: Measure / Value Meter** under **Feature 02: Interactive Human Labor Cost Configuration**!`;
       } else if (query.includes('policy') || query.includes('policies') || query.includes('rule') || query.includes('rules') || query.includes('blast')) {
         replyText = `### PILLAR: **THE CRYPTOGRAPHIC POLICY ENGINE**
 Policies define the exact boundaries where your autonomous agents are permitted to operate. 
@@ -608,40 +1016,45 @@ The GaaS system supports 3 key categories of policy rules:
 
 **Assigning Blast Radius:**
 Each policy defines a specific **Blast Radius** (*Non-Human Identity*, *Database Actions*, *Outbound Telemetry*). This classifies the impact level and helps incident response teams easily trace breach triggers.`;
-      } else if (query.includes('setup') || query.includes('curl') || query.includes('api') || query.includes('integrate') || query.includes('code') || query.includes('sdk')) {
-        replyText = `### TELEMETRY CONNECTION: **GAAS OUTBOUND Webhook & SDK SETUP**
-To secure your standard agent code, route all model requests through our intermediate gateway proxy.
+      } else if (query.includes('implementation') || query.includes('onboard') || query.includes('how to implement') || query.includes('setup') || query.includes('curl') || query.includes('api') || query.includes('integrate') || query.includes('code') || query.includes('sdk') || query.includes('step')) {
+        replyText = `### ONBOARDING & IMPLEMENTATION: **5-STEP GAAS CLIENT INTEGRATION PROTOCOL**
 
-**Install the SDK Client:**
+To integrate Agent Guardian (GaaS) into your client codebase, follow these 5 steps:
+
+**Step 1: Security Handshake & Authenticated Key Exchange**
+- Generate your client API token in the **Client Onboarding Guide (Tab 2)**.
+- Securely store your \`AG_PROD_KEY\` in your server environment variables.
+
+**Step 2: Outbound Proxy / Zero-Code Integration**
+- **Zero-Code Redirect**: Redirect your LLM framework's base URL:
 \`\`\`bash
-pip install agent-guardian-sdk
+export OPENAI_BASE_URL="https://api.agentguardian.io/v1/proxy"
 \`\`\`
-
-**Connect your Model Instance (Python Example):**
+- **Native Python / Node SDK**:
 \`\`\`python
 from agent_guardian import Shield
 
-# Establish cryptographic session
-shield = Shield(
-    endpoint="https://api.agentguardian.io/v1/intercept",
-    api_key="ag_prod_${currentUser.id.substring(0,8)}-guard",
-    framework="crewai"
-)
-
-# Outbound gateway proxy payload verification
+shield = Shield(api_key="ag_prod_${currentUser.id.substring(0,8)}-guard", framework="crewai")
 is_valid, report = shield.inspect_packet({
-    "agent_id": "FinancialBot_v4",
-    "intent": "analyze quarterly ledger and download public telemetry",
-    "approximate_cost": 0.04
+    "intent": "execute query",
+    "approximate_cost": 0.02
 })
-
-if is_valid:
-    print("GAAS NOMINAL: Transmission cleared.")
-else:
-    print(f"GOVERNANCE HALT: {report['error_message']}")
 \`\`\`
 
-Access the **GaaS / APIs tab** to instantly download full templates for Python, TypeScript, or curl!`;
+**Step 3: Policy Mapping & Blast Radius**
+- Map security guardrails (Security, Ethics, Finance) in **Policy Config**.
+- Configure regional labor wage sliders ($35/hr L1, $75/hr L2, $150/hr L3) and set your **$${budgetCap}.00 Session Budget Cap**.
+
+**Step 4: Real-Time Telemetry Sentinel**
+- Pipe execution heartbeats with sub-10ms latency for live drift & ROI tracking.
+
+**Step 5: Testing & Dynamic Sandbox Verification**
+- Run local handshake verification:
+\`\`\`bash
+npx @agent-guardian/cli test-handshake --apiKey=ag_prod_${currentUser.id.substring(0,8)}_enc
+\`\`\`
+
+Navigate to **Tab 2: Client Onboarding Guide** in the Help Center to view interactive code generators for Python, Node.js, and curl!`;
         isCode = true;
       } else if (query.includes('search') || query.includes('filter') || query.includes('find') || query.includes('agent list') || query.includes('bulk') || query.includes('checkbox') || query.includes('halt') || query.includes('resume')) {
         replyText = `### UX: **HIGH-PRECISION SEARCH & MULTI-AGENT BULK CONTROLS**
@@ -661,33 +1074,30 @@ Our live simulated system tour incorporates an immersive Fullscreen mode:
 2. **Behavior**: Clicking 'Fullscreen' expands the video canvas to cover the entire screen background (\`fixed inset-0\`) with a z-index of \`9999\`. It enlarges caption readouts for enhanced readability.
 3. **Immersive Environment**: Dark cosmic backing, white-level scanlines (\`white/[0.0125]\`), and high-performance transition scaling create a premium cinematic vibe on any screen size.
 4. **Deactivation**: Toggle the button again or press the escape overlay key at any time to return back to standard bento placements safely.`;
-      } else if (query.includes('iam') || query.includes('role') || query.includes('setting') || query.includes('operator') || query.includes('suspended') || query.includes('auditor') || query.includes('unauthorized') || query.includes('restricted')) {
-        replyText = `### OPERATION: **SSO ENTERPRISE IAM & OPERATOR SESSIONS**
+      } else if (query.includes('iam') || query.includes('role') || query.includes('setting') || query.includes('operator') || query.includes('suspended') || query.includes('auditor') || query.includes('unauthorized') || query.includes('restricted') || query.includes('email') || query.includes('admin') || query.includes('super')) {
+        replyText = `### OPERATION: **SSO ENTERPRISE IAM & SUPER ADMIN AUTHORITY**
 GaaS enforces strict separation-of-concerns using Enterprise SSO Federated Role-Based Access Control (IAM):
 
-- **Workspace Owner / SuperAdmin**: Complete root access to toggle security rules, initiate bypasses, and trigger bulk actions.
-- **Policy Manager**: Structured to amendment LLM standard rules, custom webhooks, and core drift thresholds.
+- **SuperAdmin / Workspace Owner**: Complete root access tied specifically to your authenticated user identity. You have sole authority to toggle security rules, initiate bypasses, modify labor cost benchmarks, and manage users.
+- **Policy Manager**: Structured to amend LLM standard rules, custom webhooks, and core drift thresholds.
 - **Operator**: Tasked with system health, has full permissions to trigger overrides or initiate single-node/bulk halts and resumes.
-- **Auditor**: Restricted to read-only compliance access. Highly protected simulation parameters—such as the **'Inject 15% Drift Model'** simulation—are locked and disabled.
+- **Auditor**: Restricted to read-only compliance access. Highly protected simulation parameters are locked and disabled.
 
 **MFA & Session Security:** Includes automatic multi-factor verification, SSL certificate pinning, and immediate warning toasts on unauthorized state alterations.`;
-      } else if (query.includes('guide') || query.includes('playbook') || query.includes('help') || query.includes('faq') || query.includes('document') || query.includes('blueprint')) {
-        replyText = `### COMPLIANCE: **KNOWLEDGE BASE & SOLUTIONS ARCHITECTURE BLUEPRINTS**
-We have integrated multiple resources to assist you throughout onboarding:
-
-1. **Interactive Sandbox Simulator**: Simulates rogue hacker actions from alert, through Threat Intercept, up to drift alignment correction.
-2. **Playbook FAQ**: A searchable, categorized directory answering everyday setup concerns.
-3. **Solutions Architecture Blueprint (.md)**: For Workspace Owners and SuperAdmins, click the **"Download Blueprint (.md)"** button at the footer to download a complete systems document mapping deployment paths and security requirements.`;
       } else {
-        replyText = `Hello Admin! I am the local support node. Because you are seeking a specific capability, please select one of the tailored suggested quick questions at the bottom of the chat interface. 
+        replyText = `### SYSTEM INTEL: **AGENT GUARDIAN (GAAS) REASONING RESPONSE**
+Here is the specific analysis for your query: *"**${text}**"*.
 
-Alternatively, if you are looking to see systems integration, navigate to:
-- **TAB 1 (Video Walkthrough)**: View a step-by-step interactive simulated tour with live narration captions of each sector.
-- **TAB 2 (Interactive Simulator)**: Trigger a simulated exfiltration threat step-by-step.
-- **TAB 3 (Knowledge Base)**: Search the full database using keywords like 'nominal' or 'iam'.
-Let me know which sector you'd like to explore in detail!`;
+**Architectural & Telemetry Synthesis:**
+1. **Real-Time Governance**: Your GaaS ecosystem actively audits agent requests across all four pillars: **Secure** (Kill-Switch), **Observe** (Cognitive Drift), **Measure** (Economic Value Meter & Labor Cost Config), and **Admin** (IAM Governance).
+2. **Interactive Labor Cost Configuration**: You can configure regional hourly wage benchmarks ($${laborConfig?.l1Rate || 35}/hr L1, $${laborConfig?.l2Rate || 75}/hr L2, $${laborConfig?.l3Rate || 150}/hr L3) and test 6 stress scenarios directly in the **Value Meter** tab under **Feature 02**.
+3. **Gateway Protection**: All agent executions are evaluated against your active **$${budgetCap}.00** session budget cap and cryptographic policy rules before committing side-effects.
+4. **IAM Enforcement**: Only Super Admin accounts have permission to perform destructive operations or override core corporate parameters.
+
+*Need to test a specific scenario? Click any of the quick suggestion badges below or navigate to **Pillar 3: Measure** to interact with the human labor wage sliders!*`;
       }
 
+      setIsCopilotTyping(false);
       setChatMessages(prev => [...prev, {
         sender: 'assistant',
         text: replyText,
@@ -805,25 +1215,15 @@ Let me know which sector you'd like to explore in detail!`;
         </button>
 
         <button
-          onClick={() => setActiveTab('implementation')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-t-lg text-xs font-bold transition-all relative shrink-0 cursor-pointer ${
-            activeTab === 'implementation' 
-              ? 'text-white border-b-2 border-blue-500 bg-blue-500/5 font-black' 
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-900/30'
-          }`}
+          onClick={() => onNavigateTab('onboarding')}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-t-lg text-xs font-bold transition-all relative shrink-0 cursor-pointer text-zinc-400 hover:text-white hover:bg-zinc-900/30"
           id="tab-btn-implementation"
         >
-          <Sliders size={14} className={activeTab === 'implementation' ? 'text-blue-400' : 'text-zinc-500'} />
-          2. Client Onboarding Guide
-          {currentUser.role !== 'Admin' && currentUser.role !== 'SuperAdmin' ? (
-            <span className="ml-1 text-[8.5px] bg-red-500/15 text-red-400 border border-red-500/25 px-1.5 py-0.2 rounded leading-none font-bold flex items-center gap-0.5">
-              <Lock size={8} /> Restricted
-            </span>
-          ) : (
-            <span className="ml-1 text-[8.5px] bg-[#1D9E75]/15 text-[#1D9E75] border border-[#1D9E75]/25 px-1.5 py-0.2 rounded leading-none font-bold">
-              Step-by-Step
-            </span>
-          )}
+          <Sliders size={14} className="text-zinc-500" />
+          2. Customer Onboarding
+          <span className="ml-1 text-[8.5px] bg-[#1D9E75]/15 text-[#1D9E75] border border-[#1D9E75]/25 px-1.5 py-0.2 rounded leading-none font-bold">
+            Dedicated Section 🚀
+          </span>
         </button>
 
         <button
@@ -903,7 +1303,7 @@ Let me know which sector you'd like to explore in detail!`;
                 <div className="space-y-1">
                   <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">GaaS Governance Core</h3>
                   <p className="text-[11px] text-zinc-400 leading-relaxed">
-                    Provides active proxy layers for major agent runtimes, assessing safety intent before executions take place.
+                    Provides active proxy layers for major agent runtimes, assessing safety intent before executions take place and exporting JSON status ledgers.
                   </p>
                 </div>
               </div>
@@ -954,11 +1354,12 @@ Let me know which sector you'd like to explore in detail!`;
                   </div>
                   <h3 className="text-sm font-bold text-slate-105">⬡ Tactical Command Base / Unified Lifecycle</h3>
                   <p className="text-[11px] text-zinc-400 leading-relaxed">
-                    The control panel provides a birds-eye view of your connected agent nodes. The top widgets display overall metrics: <strong>Cognitive Health Score</strong> (average health across agents), <strong>Saved Labor ROI</strong>, and <strong>Active Threat Incidents</strong>.
+                    The control panel provides a birds-eye view of your connected agent nodes featuring <strong>Governed Agent Health Gauges</strong> (radial SVG authorized/halted call metrics) and the interactive <strong>30-Day Execution Activity & Anomaly Heatmap</strong> with dual view modes (Activity Volume vs Anomaly Frequency) and day inspector telemetry.
                   </p>
-                  <div className="pt-1.5 border-t border-zinc-900 flex gap-2">
-                    <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-zinc-500">Real-Time Stats</span>
-                    <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-zinc-400">Drift Logs Stream</span>
+                  <div className="pt-1.5 border-t border-zinc-900 flex flex-wrap gap-2">
+                    <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-[#1D9E75]">30-Day Heatmap</span>
+                    <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-teal-300">Health Gauges</span>
+                    <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-zinc-400">Drift Stream</span>
                   </div>
                 </div>
 
@@ -1022,6 +1423,70 @@ Let me know which sector you'd like to explore in detail!`;
                   <div className="pt-1.5 border-t border-zinc-900 flex gap-2">
                     <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-[#EF9F27]">ROI Formula</span>
                     <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-zinc-500">Global Budget Cap</span>
+                  </div>
+                </div>
+
+                {/* 5. Feature 02: Interactive Labor Config & ROI Engine */}
+                <div className="p-4 bg-[#111E2E] border border-[#1F2E40] rounded-lg space-y-2.5 relative group hover:border-[#1D9E75]/40 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-[#1D9E75] font-black uppercase tracking-wider">Feature 02</span>
+                    <button 
+                      onClick={() => onNavigateTab('measure')}
+                      className="text-[10px] text-zinc-400 hover:text-[#1D9E75] font-mono flex items-center gap-1 transition-colors"
+                    >
+                      Open Module →
+                    </button>
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-105">🎛️ Interactive Human Labor Cost Configuration</h3>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed">
+                    Configure regional wage rates for L1 Support (${laborConfig?.l1Rate || 35}/hr), L2 DevOps (${laborConfig?.l2Rate || 75}/hr), and L3 SRE (${laborConfig?.l3Rate || 150}/hr), plus ticket handling times. Dynamically computes Net Cost Avoidance and ROI Multipliers across your entire agent ecosystem.
+                  </p>
+                  <div className="pt-1.5 border-t border-zinc-900 flex gap-2">
+                    <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-[#1D9E75]">Wage Sliders</span>
+                    <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-zinc-500">Corporate Benchmarks</span>
+                  </div>
+                </div>
+
+                {/* 6. Feature 03: Economic Simulation Engine & Copilot */}
+                <div className="p-4 bg-[#111E2E] border border-[#1F2E40] rounded-lg space-y-2.5 relative group hover:border-[#1D9E75]/40 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-purple-400 font-black uppercase tracking-wider">Feature 03</span>
+                    <button 
+                      onClick={() => setActiveTab('copilot')}
+                      className="text-[10px] text-zinc-400 hover:text-purple-400 font-mono flex items-center gap-1 transition-colors"
+                    >
+                      Open Copilot →
+                    </button>
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-105">⚡ Economic Simulation Engine & GenAI Copilot</h3>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed">
+                    Test 6 operational stress scenarios (e.g. L1 Triage Surge, SRE Remediation, Runaway Infinite Loops) against your ${budgetCap} budget cap. Query the real-time telemetry-aware GenAI Copilot for deep architectural insights.
+                  </p>
+                  <div className="pt-1.5 border-t border-zinc-900 flex gap-2">
+                    <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-purple-400">6 Stress Tests</span>
+                    <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-zinc-500">Telemetry Copilot</span>
+                  </div>
+                </div>
+
+                {/* 7. Regulatory Compliance Translation & Law Purging */}
+                <div className="p-4 bg-[#111E2E] border border-[#1F2E40] rounded-lg space-y-2.5 relative group hover:border-[#1D9E75]/40 transition-colors md:col-span-2 text-left">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-indigo-400 font-black uppercase tracking-wider">Regulatory Compliance Suite</span>
+                    <button 
+                      onClick={() => onNavigateTab('policies')}
+                      className="text-[10px] text-zinc-400 hover:text-indigo-400 font-mono flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      Translate Legal PDF →
+                    </button>
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-105">🛡️ Regulatory Ingestion, Three-Pillar Separation, and Law Purging</h3>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed">
+                    Translate international legal frameworks (presets like <strong>EU AI Act</strong>, <strong>CA SB-1047</strong>, or custom compliance PDFs) into operational guardrails. Policies are cleanly categorized and separated across our visual ledger under three pillars: <strong>Security Pillar</strong> (Secure), <strong>Ethics Pillar</strong> (Observe), and <strong>Finance Pillar</strong> (Measure) columns. The <strong>Active Regulatory Frameworks</strong> panel allows administrators to view all integrated laws and instantly purge any law (along with its compiled rules) with a single click.
+                  </p>
+                  <div className="pt-1.5 border-t border-zinc-900 flex gap-2">
+                    <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-indigo-400">PDF Translation Engine</span>
+                    <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-zinc-400">Pillar Separation Audit</span>
+                    <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-red-400">Framework Purge</span>
                   </div>
                 </div>
               </div>
@@ -1211,419 +1676,25 @@ Let me know which sector you'd like to explore in detail!`;
         )}
 
         {/* TAB: NEW CLIENT IMPLEMENTATION & ONBOARDING GUIDE */}
-        {activeTab === 'implementation' && (currentUser.role !== 'Admin' && currentUser.role !== 'SuperAdmin') && (
-          <div className="p-8 rounded-xl bg-[#09090B] border border-zinc-900 text-center max-w-xl mx-auto my-12 space-y-6 animate-in fade-in duration-200" id="onboarding-guide-locked-container">
-            <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/25 flex items-center justify-center mx-auto text-rose-500 animate-pulse">
-              <Lock size={28} />
+        {activeTab === 'implementation' && (
+          <div className="p-8 rounded-2xl bg-zinc-950 border border-zinc-850 text-center max-w-xl mx-auto my-8 space-y-4 shadow-2xl">
+            <div className="w-14 h-14 rounded-full bg-teal-500/10 border border-teal-500/25 flex items-center justify-center mx-auto text-teal-400">
+              <Rocket size={28} />
             </div>
-            <div className="space-y-2">
-              <h3 className="text-base font-bold font-display text-white">🔒 Client Onboarding Restricted</h3>
-              <p className="text-xs text-zinc-400 leading-relaxed font-mono">
-                Your active role <strong className="text-zinc-200">[{currentUser.role}]</strong> is restricted from accessing client calibration configurations and telemetry endpoints.
-              </p>
-              <p className="text-[11px] text-zinc-500 leading-normal">
-                Corporate compliance rules require <strong>SuperAdmin</strong> or <strong>Admin</strong> access to authorize new client handshakes. Please select a user with elevated access rights to view or provision onboarding credentials.
-              </p>
-            </div>
-            <div className="pt-2">
-              <button
-                onClick={() => setActiveTab('docs')}
-                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-850 text-xs font-bold text-white rounded-lg border border-zinc-800 hover:border-zinc-700 transition-all cursor-pointer font-mono"
-              >
-                Return to System Core Manual
-              </button>
-            </div>
+            <h3 className="text-lg font-bold text-white font-display">🚀 Customer Onboarding & Integration Suite</h3>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Customer Onboarding & SDK setup is now separated into its own top-level section in the navigation menu for an enhanced user experience and focused workflow.
+            </p>
+            <button
+              onClick={() => onNavigateTab('onboarding')}
+              className="px-5 py-2.5 bg-teal-550/20 hover:bg-teal-500/30 border border-teal-500/40 text-teal-300 text-xs font-mono font-bold rounded-lg transition-all cursor-pointer inline-flex items-center gap-2"
+            >
+              Open 🚀 Customer Onboarding Section →
+            </button>
           </div>
         )}
 
-        {/* TAB: NEW CLIENT IMPLEMENTATION & ONBOARDING GUIDE - AUTHORIZED ACCESS */}
-        {activeTab === 'implementation' && (currentUser.role === 'Admin' || currentUser.role === 'SuperAdmin') && (
-          <div className="space-y-6 animate-in fade-in duration-200 text-left" id="onboarding-guide-container">
-            {/* Header intro */}
-            <div className="p-5 rounded-xl bg-gradient-to-r from-[#111E2E] to-[#162030] border border-blue-500/20 text-left flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="space-y-1">
-                <span className="text-[9px] font-mono text-teal-400 font-bold uppercase tracking-widest bg-teal-500/10 px-2 py-0.5 rounded border border-teal-500/20">
-                  New Client Calibration Suite
-                </span>
-                <h2 className="text-base font-bold text-slate-105 font-display mt-1 leading-tight">
-                  AgentsGuardian Step-by-Step Integration Protocol
-                </h2>
-                <p className="text-xs text-zinc-400 max-w-xl leading-relaxed">
-                  Go from raw codebase configurations to deep-packet proxy guardrails in 10 minutes. Click through our interactive configuration handbook to copy telemetry keys, insert proxy middleware snippets, and register live agent security nodes.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0 py-1 bg-black/40 px-3.5 border border-[#1F2E40] rounded-xl font-mono text-[10.5px]">
-                <span className="text-teal-400 animate-pulse font-extrabold font-mono">●</span> INTEGRATION VERIFIED: <span className="text-[#1D9E75] font-bold">NOMINAL</span>
-              </div>
-            </div>
-
-            {/* Stepper Navigation */}
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-2 select-none h-auto bg-zinc-950/40 p-2 border border-zinc-900/60 rounded-xl">
-              {[
-                { step: 1, title: '🔑 Authentic Keying', desc: 'Secure Key Exchange' },
-                { step: 2, title: '🚀 Outbound Proxy', desc: 'SDK / Webhook Hook' },
-                { step: 3, title: '🛡️ Policy Mapping', desc: 'Boundaries Tuning' },
-                { step: 4, title: '📡 Real-time telemetry', desc: 'Piping Diagnostics' },
-                { step: 5, title: '⚡ Core Test run', desc: 'Sandbox Verification' }
-              ].map((s) => (
-                <button
-                  key={s.step}
-                  onClick={() => setActiveSetupStep(s.step)}
-                  className={`p-3 rounded-lg flex flex-col items-center justify-center text-center transition-all cursor-pointer border ${
-                    activeSetupStep === s.step
-                      ? 'bg-blue-600 border-blue-500 text-white shadow-md'
-                      : 'bg-zinc-950 border-zinc-900 hover:border-zinc-800 text-zinc-400'
-                  }`}
-                  id={`onboarding-step-link-${s.step}`}
-                  type="button"
-                >
-                  <span className={`text-[8.5px] font-mono tracking-widest uppercase block ${
-                    activeSetupStep === s.step ? 'text-blue-105' : 'text-zinc-500'
-                  }`}>
-                    STEP 0{s.step}
-                  </span>
-                  <span className="text-[11.5px] font-bold mt-1 block leading-none font-display">
-                    {s.title}
-                  </span>
-                  <span className={`text-[9px] mt-0.5 block leading-normal opacity-80 ${
-                    activeSetupStep === s.step ? 'text-white/85' : 'text-zinc-500'
-                  }`}>
-                    {s.desc}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            {/* Step Contents */}
-            <div className="bg-zinc-950 border border-zinc-850 rounded-xl p-6 text-left space-y-6">
-              
-              {/* STEP 1 DETAIL */}
-              {activeSetupStep === 1 && (
-                <div className="space-y-4 animate-in fade-in duration-200">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/25 text-blue-400 shrink-0">
-                      <Compass size={18} />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-white">Step 1: Security Handshake & Authenticated Key Exchange</h3>
-                      <p className="text-zinc-500 text-[11px] mt-0.5">ESTABLISHING CRYPTOGRAPHICALLY SECURE CHANNELS FOR OUTBOUND TELEMETRY</p>
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-zinc-400 space-y-3 leading-relaxed">
-                    <p>
-                      Before AgentsGuardian can intercept your autonomous network requests, your native application server must establish an identity trust binding. Every tenant receives a production-grade <strong>GaaS Tenant Access Token</strong> and custom API gateway keys.
-                    </p>
-                    <p>
-                      Declare these secure strings in your client environment configuration settings (e.g., in a <code>.env</code> file in the root of your LangChain, AutoGen, or CrewAI workspace):
-                    </p>
-                  </div>
-
-                  {/* Code Panel */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500 bg-black/60 px-4 py-2 border-t border-x border-zinc-900 rounded-t-lg">
-                      <span>CLIENT ENVIRONMENT VARIABLES (.ENV)</span>
-                      <button 
-                        onClick={() => {
-                          const code = `AGENT_GUARDIAN_GATEWAY_URL="https://api.agentguardian.io/v1"\nAGENT_GUARDIAN_API_KEY="ag_prod_live_${currentUser.id.substring(0,8)}_enc"\nAGENT_GUARDIAN_CLIENT_ID="${currentUser.email}"\nAGENT_GUARDIAN_CLASS_LEVEL="ENTERPRISE_SECURE"`;
-                          navigator.clipboard.writeText(code);
-                          addToast({
-                            type: 'success',
-                            title: '📋 Credentials Config Copied',
-                            message: 'Tenant environment variables copied successfully. Pasted into local configuration.'
-                          });
-                        }}
-                        className="text-blue-400 hover:text-white transition-colors cursor-pointer text-[10px] font-semibold"
-                        id="copy-env-btn"
-                        type="button"
-                      >
-                        Copy Configuration Parameters
-                      </button>
-                    </div>
-                    <pre className="w-full bg-black border border-zinc-900 p-4 rounded-b-lg font-mono text-[10.5px] text-[#1D9E75] overflow-x-auto space-y-1">
-                      <div><span className="text-zinc-650 font-bold"># AgentsGuardian Central Security Gateway URL</span></div>
-                      <div>AGENT_GUARDIAN_GATEWAY_URL=<span className="text-slate-100">"https://api.agentguardian.io/v1"</span></div>
-                      <div><span className="text-zinc-650 font-bold"># Authorized Token Binding for client: {currentUser.name} ({currentUser.role})</span></div>
-                      <div>AGENT_GUARDIAN_API_KEY=<span className="text-slate-100">"ag_prod_live_{currentUser.id.substring(0,8)}_enc"</span></div>
-                      <div>AGENT_GUARDIAN_CLIENT_ID=<span className="text-slate-100">"{currentUser.email}"</span></div>
-                      <div>AGENT_GUARDIAN_CLASS_LEVEL=<span className="text-slate-100">"ENTERPRISE_GaaS_LEVEL_IV"</span></div>
-                    </pre>
-                  </div>
-
-                  <div className="p-4 rounded-lg bg-teal-500/5 border border-[#1D9E75]/25 flex items-start gap-3">
-                    <CheckCircle2 size={16} className="text-[#1D9E75] shrink-0 mt-0.5" />
-                    <div className="text-[11.5px] leading-relaxed text-zinc-400">
-                      <span className="font-bold text-[#1D9E75] uppercase font-mono text-[10px] bg-[#1D9E75]/10 px-1.5 py-0.2 rounded mr-1.5">Compliance Checkpoint</span> 
-                      Keep your <code>AGENT_GUARDIAN_API_KEY</code> confidential. The proxy automatically drops packets missing authorization signatures with an HTTP 401 unauthorized status.
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* STEP 2 DETAIL */}
-              {activeSetupStep === 2 && (
-                <div className="space-y-4 animate-in fade-in duration-200">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/25 text-blue-400 shrink-0">
-                      <Sliders size={18} />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-white">Step 2: Proxy Router/Interceptor SDK Setup (Python & TS)</h3>
-                      <p className="text-zinc-500 text-[11px] mt-0.5">ENABLING ACTIVE MIDDLEWARE PACKET FILTERING OVER OUTBOUND API LOOPS</p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-zinc-400 leading-relaxed">
-                    Once authentication variables are verified, route model outbound completions or network intent blocks through our secure interceptor. Choose your primary environment language SDK configuration:
-                  </p>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Python SDK Setup */}
-                    <div className="p-4 bg-black/40 border border-zinc-900 rounded-xl space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-mono text-amber-500 font-extrabold bg-amber-500/10 px-2.5 py-0.5 rounded border border-amber-500/20 uppercase">
-                          Python Langchain / CrewAI
-                        </span>
-                        <button
-                          onClick={() => {
-                            const code = `# Install client\npip install agent-guardian-sdk\n\n# Configure Intercept\nfrom agent_guardian import GuardianClient, ShieldMiddleware\n\nguard_client = GuardianClient(\n    api_key="ag_prod_live_${currentUser.id.substring(0,8)}_enc",\n    gateway_url="https://api.agentguardian.io/v1"\n)\n\n# Secure existing crewai/langchain agents\nsmart_agent.add_middleware(ShieldMiddleware(client=guard_client))`;
-                            navigator.clipboard.writeText(code);
-                            addToast({
-                              type: 'success',
-                              title: '🐍 Python SDK Copied',
-                              message: 'Python interception middleware blueprint was copied successfully.'
-                            });
-                          }}
-                          className="text-[9px] font-mono text-zinc-400 hover:text-white transition-colors cursor-pointer"
-                          id="copy-python-code-btn"
-                          type="button"
-                        >
-                          Copy Python [Ctrl+C]
-                        </button>
-                      </div>
-                      <pre className="w-full bg-black p-3.5 rounded-lg font-mono text-[10px] text-zinc-350 overflow-x-auto space-y-1">
-                        <div><span className="text-yellow-600 font-bold"># 1. Install SDK</span></div>
-                        <div>pip install agent-guardian-sdk</div>
-                        <div className="text-zinc-650 font-bold"># 2. Intercept Agent Instances</div>
-                        <div><span className="text-[#1D9E75]">from</span> agent_guardian <span className="text-[#1D9E75]">import</span> GuardianClient, ShieldMiddleware</div>
-                        <div>&nbsp;</div>
-                        <div>client = GuardianClient(</div>
-                        <div>&nbsp;&nbsp;api_key=<span className="text-teal-400">"ag_prod_live..."</span>,</div>
-                        <div>&nbsp;&nbsp;gateway_url=<span className="text-teal-400">"https://api.agentguardian.io/v1"</span></div>
-                        <div>)</div>
-                        <div>&nbsp;</div>
-                        <div className="text-zinc-650 font-bold"># Link with CrewAI or Custom LLM loops</div>
-                        <div>my_agent.add_middleware(ShieldMiddleware(client=client))</div>
-                      </pre>
-                    </div>
-
-                    {/* TypeScript Node SDK Setup */}
-                    <div className="p-4 bg-black/40 border border-zinc-900 rounded-xl space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-mono text-sky-500 font-extrabold bg-sky-500/10 px-2.5 py-0.5 rounded border border-sky-500/20 uppercase">
-                          Node.js / React TS
-                        </span>
-                        <button
-                          onClick={() => {
-                            const code = `// Install via npm\nnpm install @agent-guardian/node-sdk\n\n// Import & config\nimport { GuardianProxy } from '@agent-guardian/node-sdk';\n\nconst guardProxy = new GuardianProxy({\n  apiKey: process.env.AGENT_GUARDIAN_API_KEY,\n  clientId: '${currentUser.email}'\n});\n\n// Intercept prior to completions\nconst result = await guardProxy.intercept({\n  intent: "delete user records from production DB",\n  frameworkStr: "autogen"\n});`;
-                            navigator.clipboard.writeText(code);
-                            addToast({
-                              type: 'success',
-                              title: '🛡️ Node SDK Snippet Copied',
-                              message: 'TypeScript Node Interceptor blueprint copied successfully.'
-                            });
-                          }}
-                          className="text-[9px] font-mono text-zinc-400 hover:text-white transition-colors cursor-pointer"
-                          id="copy-ts-code-btn"
-                          type="button"
-                        >
-                          Copy Node.js TS [Ctrl+C]
-                        </button>
-                      </div>
-                      <pre className="w-full bg-black p-3.5 rounded-lg font-mono text-[10px] text-zinc-350 overflow-x-auto space-y-1">
-                        <div><span className="text-yellow-600 font-bold">// 1. Install Library</span></div>
-                        <div>npm install @agent-guardian/node-sdk</div>
-                        <div className="text-zinc-650">// 2. Configure Gateway Handler</div>
-                        <div><span className="text-orange-400">import</span> &#123; GuardianProxy &#125; <span className="text-orange-400">from</span> <span className="text-teal-400">'@agent-guardian/node-sdk'</span>;</div>
-                        <div>&nbsp;</div>
-                        <div><span className="text-[#1D9E75]">const</span> proxy = <span className="text-[#1D9E75]">new</span> GuardianProxy(&#123;</div>
-                        <div>&nbsp;&nbsp;apiKey: process.env.AGENT_GUARDIAN_API_KEY,</div>
-                        <div>&nbsp;&nbsp;clientId: <span className="text-teal-400">'{currentUser.email}'</span></div>
-                        <div>&#125;);</div>
-                        <div>&nbsp;</div>
-                        <div className="text-zinc-650">// 3. intercept raw completion packets</div>
-                        <div><span className="text-[#1D9E75]">const</span> verdict = <span className="text-[#1D9E75]">await</span> proxy.intercept(intentBlock);</div>
-                      </pre>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* STEP 3 DETAIL */}
-              {activeSetupStep === 3 && (
-                <div className="space-y-4 animate-in fade-in duration-200">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/25 text-blue-400 shrink-0">
-                      <Shield size={18} />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-white">Step 3: Define Custom Threat Posture (Policy Regulation Model)</h3>
-                      <p className="text-zinc-500 text-[11px] mt-0.5">ESTABLISHING HEURISTICS AND SEMANTIC BOUNDARIES FOR TELEMETRY EVALUATIONS</p>
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-zinc-400 space-y-3 leading-relaxed">
-                    <p>
-                      AgentsGuardian scans outbound transactions across three core vectors: <strong>Security</strong>, <strong>Ethics & Bias</strong>, and <strong>Financial Spending Caps</strong>. In this step, Security Operators calibrate the strictness boundaries of each policy tier.
-                    </p>
-                  </div>
-
-                  {/* Visual Configuration Board */}
-                  <div className="p-5 rounded-xl border border-zinc-900 bg-black/30 space-y-4">
-                    <h4 className="text-xs font-bold text-slate-100 uppercase tracking-widest font-mono">Suggested Active Policy Benchmarks</h4>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="p-3 bg-zinc-950 rounded-lg border border-zinc-900 text-left">
-                        <span className="text-[9px] font-mono font-bold text-[#1D9E75] uppercase bg-[#1D9E75]/10 px-2 py-0.5 rounded border border-[#1D9E75]/20">Level I Robust</span>
-                        <h5 className="font-semibold text-white text-[12px] mt-2">Permissive Policy</h5>
-                        <p className="text-[10px] text-zinc-500 mt-1">Allows common SSH terminal scripts or API executions. Logs warning tokens without forcefully isolating agent threads unless explicit exfiltration patterns are matched.</p>
-                      </div>
-
-                      <div className="p-3 bg-zinc-950 rounded-lg border border-zinc-900 text-left">
-                        <span className="text-[9px] font-mono font-bold text-blue-400 uppercase bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">Level II Guarded</span>
-                        <h5 className="font-semibold text-white text-[12px] mt-2">Standard Enterprise</h5>
-                        <p className="text-[10px] text-zinc-500 mt-1">Restricts database write executions, limits total cost to $50.00 per agent task block, and monitors cognitive drift alerts actively using semantic scanners.</p>
-                      </div>
-
-                      <div className="p-3 bg-zinc-950 rounded-lg border border-zinc-900 text-left animate-pulse">
-                        <span className="text-[9px] font-mono font-bold text-red-400 uppercase bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">Level III Zero-Trust</span>
-                        <h5 className="font-semibold text-white text-[12px] mt-2">Strict Defense Posture</h5>
-                        <p className="text-[10px] text-zinc-500 mt-1">Disallows commands featuring any file modification script patterns. Absolute Kill-Switch triggers on any financial transaction above $10.00 instantly.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="text-[11px] text-zinc-500 font-mono flex items-center justify-between pt-1 border-t border-zinc-900">
-                    <span>Active policies can be customized inside the primary 🛠️ <strong>Policy Engine</strong> page.</span>
-                    <button 
-                      onClick={() => onNavigateTab('policies')} 
-                      className="text-[#1D9E75] hover:underline cursor-pointer font-bold"
-                      type="button"
-                    >
-                      Configure Active Rules →
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* STEP 4 DETAIL */}
-              {activeSetupStep === 4 && (
-                <div className="space-y-4 animate-in fade-in duration-200">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/25 text-blue-400 shrink-0">
-                      <Activity size={18} />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-white">Step 4: Connecting the Real-time Telemetry Gateway (Sentinel Logging)</h3>
-                      <p className="text-zinc-500 text-[11px] mt-0.5">MONITORING CONTEXT FLUIDITY, TRANSACTION LEDGERS, AND HEALTH SIGNS</p>
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-zinc-400 space-y-3 leading-relaxed text-left">
-                    <p>
-                      When proxy middleware routes run on client installations, execution heartbeats stream directly to the GaaS central command server. This fuels live telemetry charts and helps identify dangerous drift patterns dynamically.
-                    </p>
-                    <p>
-                      To hook up the telemetry flow endpoint, ensure your application exports an authenticated telemetry bundle. AgentsGuardian handles high-frequency pipelines automatically at sub-10ms rates:
-                    </p>
-                  </div>
-
-                  {/* Telemetry connection blueprint */}
-                  <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-900 text-left space-y-3">
-                    <h4 className="text-xs font-mono font-bold text-[#1D9E75] flex items-center gap-1.5 uppercase">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                      Automatic Telemetry Uplink Code Sample
-                    </h4>
-                    
-                    <pre className="w-full bg-black p-3.5 rounded-lg font-mono text-[10px] text-zinc-350 overflow-x-auto">
-                      <div><span className="text-[#1D9E75]">import</span> &#123; TelemetrySentinel &#125; <span className="text-[#1D9E75]">from</span> <span className="text-teal-400">'@agent-guardian/node-sdk'</span>;</div>
-                      <div>&nbsp;</div>
-                      <div><span className="text-[#1D9E75]">const</span> sentinel = <span className="text-[#1D9E75]">new</span> TelemetrySentinel(&#123;</div>
-                      <div>&nbsp;&nbsp;telemetryEndpoint: <span className="text-teal-400">"https://telemetry.agentguardian.io"</span>,</div>
-                      <div>&nbsp;&nbsp;feedRate: <span className="text-teal-400">"10s"</span>, <span className="text-zinc-500">// Push heartbeat intervals</span></div>
-                      <div>&nbsp;&nbsp;flushOnFatal: <span className="text-slate-100">true</span></div>
-                      <div>&#125;);</div>
-                      <div>&nbsp;</div>
-                      <div><span className="text-zinc-505">// Capture model alignment indexes</span></div>
-                      <div>sentinel.pipeActiveDiagnostics((report) =&gt; &#123;</div>
-                      <div>&nbsp;&nbsp;console.log("[HEARTBEAT] Telemetry packet successfully dispatched to Central Gateway with low latency");</div>
-                      <div>&#125;);</div>
-                    </pre>
-                  </div>
-                </div>
-              )}
-
-              {/* STEP 5 DETAIL */}
-              {activeSetupStep === 5 && (
-                <div className="space-y-4 animate-in fade-in duration-200">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/25 text-blue-400 shrink-0">
-                      <Terminal size={18} />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-white">Step 5: Testing & Dynamic Sandbox Verification</h3>
-                      <p className="text-zinc-500 text-[11px] mt-0.5">TRIGGERING MANUAL VERIFICATION CHECKS TO ENSURE SHIELD CALIBRBITS ARE HEALTHY</p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-zinc-400 leading-relaxed">
-                    Verify compliance before pushing agent instances to real user transactions. You can trigger simulated threats, exfiltration payloads, and drift anomalies right here to test your integrated rules safely.
-                  </p>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-4 bg-zinc-950 border border-zinc-900 rounded-xl space-y-3">
-                      <h4 className="text-[12px] font-bold text-[#F0EEE6]">🧪 Manual CLI Verification Tool</h4>
-                      <p className="text-[11.5px] text-zinc-500 leading-relaxed">
-                        Execute our custom Node check utility locally to verify that credentials parameter variables, API paths, and compliance rules are correctly established:
-                      </p>
-                      <pre className="p-3 bg-black rounded border border-zinc-900 font-mono text-[10px] text-teal-400 overflow-x-auto select-all">
-                        {`npx @agent-guardian/cli test-handshake --apiKey=ag_prod_live_${currentUser.id.substring(0,8)}_enc`}
-                      </pre>
-                    </div>
-
-                    <div className="p-4 bg-zinc-950 border border-zinc-900 rounded-xl space-y-3 flex flex-col justify-between">
-                      <div>
-                        <h4 className="text-[12px] font-bold text-[#F0EEE6]">🎮 Virtual Sandbox Intrusion Test</h4>
-                        <p className="text-[11.5px] text-zinc-500 leading-relaxed">
-                          Want to test the active Kill-Switch gateway visually before writing python middleware? Use our interactive simulation suite to test quarantine behavior immediately.
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => setActiveTab('simulator')}
-                        className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-mono font-bold uppercase transition-all cursor-pointer flex items-center justify-center gap-2"
-                        id="run-sandbox-sandbox-btn"
-                        type="button"
-                      >
-                        <Terminal size={12} /> Run Sandbox Sandbox Sandbox Interactive Test
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="p-4 rounded-xl bg-emerald-500/5 border border-[#1D9E75]/30 text-left">
-                    <h4 className="text-xs font-bold text-[#1D9E75] flex items-center gap-1.5 uppercase font-mono">
-                      <CheckCircle2 size={13} className="text-[#1D9E75]" />
-                      CALIBRATION COMPLETED
-                    </h4>
-                    <p className="text-[11.5px] text-zinc-400 mt-1 leading-relaxed">
-                      If these five steps reporting nominal handshakes compile successfully, your workspace is secure! GaaS interceptors are hot-running, safeguarding endpoints against rogue intent, semantic deterioration, and budgetary overruns. Welcome, and safe operations!
-                    </p>
-                  </div>
-                </div>
-              )}
-
-            </div>
-          </div>
-        )}
+        {/* TAB: WALKTHROUGH VIDEO TOUR */}
 
         {/* TAB: WALKTHROUGH VIDEO TOUR */}
         {activeTab === 'video' && (
@@ -1644,7 +1715,7 @@ Let me know which sector you'd like to explore in detail!`;
               </div>
               <div className="flex items-center gap-2 shrink-0 py-1 bg-blue-500/10 px-3 border border-blue-500/20 rounded-xl font-mono text-[10px]">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping" />
-                VIDEO LENGTH: 4:00 MINS (240s)
+                VIDEO LENGTH: 5:00 MINS (300s)
               </div>
             </div>
 
@@ -1725,8 +1796,54 @@ Let me know which sector you'd like to explore in detail!`;
                             </span>
                           </div>
                         </div>
+
+                        {/* Active Section Focus Banner (Directing user focus to active feature) */}
+                        <div className="bg-[#0b121e]/95 border-b border-[#1D9E75]/30 px-3 py-1.5 flex items-center justify-between gap-2 shadow-md z-20 font-mono text-[11px] shrink-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="relative flex h-2.5 w-2.5 shrink-0">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#1D9E75] opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#1D9E75]"></span>
+                            </span>
+                            <span className="text-[#1D9E75] font-black tracking-wider text-[10px] uppercase shrink-0">🎯 ACTIVE FOCUS:</span>
+                            <span className="text-white font-bold bg-[#1D9E75]/20 border border-[#1D9E75]/40 px-2 py-0.5 rounded text-[10.5px] truncate">
+                              {currentFocusTarget.title}
+                            </span>
+                          </div>
+                          <div className="text-zinc-400 text-[10px] font-sans truncate max-w-sm hidden md:block shrink-0">
+                            {currentFocusTarget.description}
+                          </div>
+                        </div>
+
                         {/* Frame body */}
                         <div className="flex-1 overflow-y-auto custom-scrollbar p-3 relative h-0">
+                          {/* Laser Target Pointer & Crosshair Overlay (Synced with Narration) */}
+                          {isVideoPlaying && (
+                            <div 
+                              className="absolute z-40 pointer-events-none flex items-center gap-2.5 transition-all duration-700 ease-in-out"
+                              style={{ top: currentFocusTarget.top, left: currentFocusTarget.left }}
+                            >
+                              {/* Laser Reticle & Crosshair */}
+                              <div className="relative flex items-center justify-center shrink-0">
+                                <div className="w-10 h-10 rounded-full border-2 border-red-500/60 bg-red-500/10 animate-ping absolute" />
+                                <div className="w-8 h-8 rounded-full border border-teal-400/80 bg-teal-400/15 animate-pulse absolute" />
+                                <div className="w-6 h-6 rounded-full bg-linear-to-br from-red-500 to-amber-500 border-2 border-white shadow-2xl flex items-center justify-center text-xs text-white font-black shadow-red-500/50">
+                                  🎯
+                                </div>
+                                {/* Laser Crosshair lines */}
+                                <div className="absolute w-12 h-[1.5px] bg-red-500/40" />
+                                <div className="absolute h-12 w-[1.5px] bg-red-500/40" />
+                              </div>
+
+                              {/* Pointer Tooltip Badge */}
+                              <div className="bg-zinc-950/95 border-2 border-teal-400 text-teal-200 text-[10.5px] font-mono font-bold px-3 py-1.5 rounded-xl shadow-2xl flex items-center gap-2 backdrop-blur-md">
+                                <span className="animate-bounce text-amber-300 text-xs">👈</span>
+                                <div className="flex flex-col">
+                                  <span className="text-white text-[11px] font-bold">{currentFocusTarget.title}</span>
+                                  <span className="text-teal-300/80 text-[9.5px] font-normal">{currentFocusTarget.description}</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                           {VIDEO_SEGMENTS[activeSegmentIndex].id === "overview" && (
                             <Overview 
                               policies={policies}
@@ -1740,6 +1857,7 @@ Let me know which sector you'd like to explore in detail!`;
                               overallRoi={3.4}
                               overallCognitiveHealth={89}
                               apiLogs={apiLogs}
+                              governedAgents={governedAgents}
                             />
                           )}
                           {VIDEO_SEGMENTS[activeSegmentIndex].id === "secure" && (
@@ -2146,14 +2264,14 @@ Let me know which sector you'd like to explore in detail!`;
                         {/* Play progress fill */}
                         <div 
                           className="absolute inset-y-0 left-0 bg-blue-500" 
-                          style={{ width: `${(videoTime / 240) * 100}%` }}
+                          style={{ width: `${(videoTime / 150) * 100}%` }}
                         />
                         
                         {/* Seek slider input overlay */}
                         <input
                           type="range"
                           min="0"
-                          max="240"
+                          max="150"
                           value={videoTime}
                           onChange={(e) => {
                             const newTime = parseInt(e.target.value);
@@ -2168,7 +2286,7 @@ Let me know which sector you'd like to explore in detail!`;
                       </div>
                       
                       <span className="text-[10px] font-mono text-zinc-500 w-9 text-left select-none">
-                        4:00
+                        2:30
                       </span>
                     </div>
 
@@ -2672,24 +2790,43 @@ Let me know which sector you'd like to explore in detail!`;
                         ? 'bg-[--theme-primary]/10 border border-[--theme-primary]/20 text-slate-100 rounded-tr-none'
                         : 'bg-zinc-950 border border-zinc-850 text-zinc-300 rounded-tl-none shadow-sm'
                     }`}>
-                      <p className="whitespace-pre-line">{msg.text}</p>
+                      {renderFormattedChatMessage(msg.text, () => addToast({ title: 'Code Copied!', message: 'Code snippet copied to clipboard.', type: 'info' }))}
                       <span className="text-[8px] text-zinc-500 font-mono block text-right mt-0.5 leading-none">
                         {msg.timestamp}
                       </span>
                     </div>
                   </div>
                 ))}
+                {isCopilotTyping && (
+                  <div className="flex gap-3 max-w-[85%] items-start">
+                    <div className="h-6 w-6 rounded flex items-center justify-center shrink-0 text-[10px] font-mono leading-none bg-blue-500/15 border border-blue-500/30 text-blue-400">
+                      GG
+                    </div>
+                    <div className="p-3 rounded-lg text-xs leading-relaxed space-y-1 text-left bg-zinc-950 border border-zinc-850 text-zinc-300 rounded-tl-none shadow-sm flex items-center gap-2">
+                      <span className="inline-flex gap-1 items-center">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:0.2s]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:0.4s]" />
+                      </span>
+                      <span className="text-[10px] font-mono text-zinc-500">Copilot synthesizing telemetry response...</span>
+                    </div>
+                  </div>
+                )}
                 <div ref={chatEndRef} />
               </div>
 
               {/* Suggested quick doubts block */}
               <div className="px-3 py-1.5 bg-black border-t border-zinc-900/60 flex gap-2 overflow-x-auto scrollbar-none shrink-0" id="copilot-suggestions-container">
                 {[
+                  'How do I export Governed Agent Status (JSON)?',
+                  'How do I use Model Context Protocol (MCP) with GaaS?',
+                  'How do I implement Client Onboarding & SDKs?',
                   'What does "GAAS NOMINAL" mean?',
                   'Does Threat Interceptor use Kill-Switch?',
+                  'How do Labor Wage Sliders & ROI work?',
+                  'What are the 6 Economic Simulation Scenarios?',
+                  'How do Budget Caps stop runaway loops?',
                   'Remediate Cognitive Drift?',
-                  'Explain Value Meter ROI formula',
-                  'Setup GaaS SDK code',
                   'Explain Role-Based IAM Access'
                 ].map((doubt, id) => (
                   <button

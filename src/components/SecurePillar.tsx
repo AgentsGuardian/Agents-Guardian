@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { Shield, Play, Terminal, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { KillSignalEvent, Policy } from '../types';
 import { SIMULATION_TRIGGER_TEMPLATES, TaskTrigger } from '../data';
+import CollapsibleSection from './CollapsibleSection';
 
 interface SecurePillarProps {
   killEvents: KillSignalEvent[];
@@ -59,7 +60,7 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
       const finalLatency = Math.floor(Math.random() * 30) + 35; // 35 - 65 ms
       setCurrentLatency(finalLatency);
       
-      const newEventId = `KG-${Math.floor(Math.random() * 900) + 100}`;
+      const newEventId = `KG-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
       const matchingPolicy = policies.find(p => p.category === 'security' && p.enabled) || policies[0];
       const annexIVHash = `${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)}-${newEventId}-ANNEX-IV`;
 
@@ -119,11 +120,13 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
       </div>
 
       {/* Deterministic Intercept Process View */}
-      <div className="bg-[#162030] rounded-xl border border-[#1F2E40] p-6 relative">
-        <h2 className="text-xs font-mono font-bold text-[#8B9BAA] tracking-wider uppercase mb-5 shrink-0 flex items-center gap-2">
-          <span className="text-[#1D9E75]">●</span> INTERACTIVE INTERCEPTION PROCESS FRAMEWORK
-        </h2>
-
+      <CollapsibleSection
+        title={
+          <h2 className="text-xs font-mono font-bold text-[#8B9BAA] tracking-wider uppercase shrink-0 flex items-center gap-2">
+            <span className="text-[#1D9E75]">●</span> INTERACTIVE INTERCEPTION PROCESS FRAMEWORK
+          </h2>
+        }
+      >
         {/* 4 Steps Block matching Deterministic Process */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 relative">
           {/* Connecting lines between nodes and steps */}
@@ -177,16 +180,17 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
             </p>
           </div>
         </div>
-      </div>
+      </CollapsibleSection>
 
       {/* Simulated Interaction Workbench */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Interactive panel: Simulator Control */}
-        <div className="lg:col-span-5 p-6 rounded-xl bg-[#162030] border border-[#1F2E40] flex flex-col justify-between">
+        <CollapsibleSection
+          title="Threat Simulator Workbench"
+          subtitle="Select agent scenarios payload variables to evaluate the Real-Time Kill-Switch."
+          className="lg:col-span-5 p-6 rounded-xl bg-[#162030] border border-[#1F2E40] flex flex-col justify-between"
+        >
           <div>
-            <h3 className="font-display font-bold text-[#F0EEE6] text-base mb-1">Threat Simulator Workbench</h3>
-            <p className="text-xs text-[#8B9BAA] mb-5">Select agent scenarios payload variables to evaluate the Real-Time Kill-Switch.</p>
-
             {/* Template Selector */}
             <div className="space-y-2 mb-5">
               <label className="text-[10px] font-mono text-[#8B9BAA] font-bold tracking-wider uppercase block">
@@ -260,26 +264,29 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
               )}
             </button>
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Right Telemetry Column: Terminal Console */}
-        <div className="lg:col-span-7 flex flex-col justify-between p-6 rounded-xl bg-[#162030] border border-[#1F2E40]">
-          <div>
-            <div className="flex items-center justify-between border-b border-[#1F2E40] pb-3 mb-4">
-              <div className="flex items-center gap-2">
-                <Terminal size={16} className="text-[#E24B4A]" />
-                <span className="text-xs font-mono text-[#8B9BAA] font-bold tracking-wider uppercase">
-                  Google AI Studio Native Sentinel (2026)
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#E24B4A] animate-pulse block" />
-                <span className="text-[9px] font-mono text-[#E24B4A] font-bold tracking-wide uppercase">
-                  ACTIVE BLOCK ATTACHED
-                </span>
-              </div>
+        <CollapsibleSection
+          title={
+            <div className="flex items-center gap-2">
+              <Terminal size={16} className="text-[#E24B4A]" />
+              <span className="text-xs font-mono text-[#8B9BAA] font-bold tracking-wider uppercase">
+                Google AI Studio Native Sentinel (2026)
+              </span>
             </div>
-
+          }
+          headerExtra={
+            <div className="flex items-center gap-1 mr-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#E24B4A] animate-pulse block" />
+              <span className="text-[9px] font-mono text-[#E24B4A] font-bold tracking-wide uppercase">
+                ACTIVE BLOCK ATTACHED
+              </span>
+            </div>
+          }
+          className="lg:col-span-7 flex flex-col justify-between p-6 rounded-xl bg-[#162030] border border-[#1F2E40]"
+        >
+          <div>
             {/* Security Journey block */}
             <div className="mb-4 bg-[#0D1B2A]/75 p-3.5 rounded border border-[#1F2E40]">
               <h4 className="text-[10px] font-mono text-[#556070] font-bold tracking-wider uppercase mb-2">
@@ -323,20 +330,19 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
             <span>ANNEX IV LEDGER STAMPING ACTIVATED</span>
             <span>SYSTEM RESTART-BLOCK DELAY: 0ms</span>
           </div>
-        </div>
+        </CollapsibleSection>
       </div>
 
       {/* Pillar 1 Audit Ledger Ledger List */}
-      <div className="p-6 rounded-xl bg-[#162030] border border-[#1F2E40]">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h3 className="font-display font-bold text-white text-base">Immutable Audit Ledger Index (Annex IV Compliant)</h3>
-            <span className="text-xs text-[#8B9BAA] block mt-0.5">Strict cryptographic transaction logging of every intercepted action</span>
-          </div>
-          <span className="text-xs font-mono font-bold bg-[#0D1B2A] px-3 py-1 border border-[#1F2E40] text-[#8B9BAA] rounded">
+      <CollapsibleSection
+        title="Immutable Audit Ledger Index (Annex IV Compliant)"
+        subtitle="Strict cryptographic transaction logging of every intercepted action"
+        headerExtra={
+          <span className="text-xs font-mono font-bold bg-[#0D1B2A] px-3 py-1 border border-[#1F2E40] text-[#8B9BAA] rounded mr-2">
             {killEvents.length} Halts Recorded
           </span>
-        </div>
+        }
+      >
 
         <div className="overflow-hidden rounded-lg border border-[#1F2E40]">
           <div className="overflow-x-auto">
@@ -417,7 +423,7 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
             </table>
           </div>
         </div>
-      </div>
+      </CollapsibleSection>
     </div>
   );
 }

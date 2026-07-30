@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Shield, Radio, Activity, Coins, Sliders, Menu, X, Landmark, Cpu, Settings, Users, Fingerprint, HelpCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Shield, Radio, Activity, Coins, Sliders, Menu, X, Landmark, Cpu, Settings, Users, Fingerprint, HelpCircle, ChevronLeft, ChevronRight, Rocket } from 'lucide-react';
 import { AdminUser, Toast } from '../types';
 
 interface SidebarProps {
@@ -42,7 +42,8 @@ export default function Sidebar({
     { id: 'gaas', name: '⬢ GaaS / APIs', icon: Cpu, description: 'Multi-Framework Core REST', badge: 'REST Webhook', badgeStyle: 'bg-teal-500/15 text-teal-450 border-teal-500/20' },
     { id: 'policies', name: 'Policy Engine', icon: Sliders, description: 'Configure Blast Radii', badge: `${policiesCount} Rules`, badgeStyle: 'bg-zinc-800/50 text-zinc-400 border-zinc-800' },
     { id: 'admin', name: '⚙ Setting & IAM', icon: Settings, description: 'Enterprise Access Control', badge: 'Admin Shield', badgeStyle: 'bg-indigo-550/15 text-indigo-400 border-indigo-500/20' },
-    { id: 'help', name: '❖ User Guide & Help', icon: HelpCircle, description: 'Interactive Doubt Desk', badge: 'Docs & Help', badgeStyle: 'bg-blue-500/15 text-blue-400 border-blue-500/25' },
+    { id: 'onboarding', name: '🚀 Customer Onboarding', icon: Rocket, description: '5-Step Integration & SDKs', badge: 'SDK & Proxy', badgeStyle: 'bg-teal-500/15 text-teal-300 border-teal-500/25' },
+    { id: 'help', name: '❖ User Guide & Help', icon: HelpCircle, description: 'Docs, Video & AI Copilot', badge: 'Docs & Help', badgeStyle: 'bg-blue-500/15 text-blue-400 border-blue-500/25' },
   ];
 
   return (

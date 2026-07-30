@@ -4,8 +4,9 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Terminal, Key, Webhook, Cpu, Code2, Play, Check, Copy, Sparkles, RefreshCw, Server, AlertCircle, ShieldCheck, Trash2, History, AlertTriangle, Search } from 'lucide-react';
+import { Terminal, Key, Webhook, Cpu, Code2, Play, Check, Copy, Sparkles, RefreshCw, Server, AlertCircle, ShieldCheck, Trash2, History, AlertTriangle, Search, Download, FileJson } from 'lucide-react';
 import { Policy, GoverningAgent, ApiRequestLog, AdminUser } from '../types';
+import CollapsibleSection from './CollapsibleSection';
 
 interface GaaSApiPillarProps {
   policies: Policy[];
@@ -138,6 +139,45 @@ def gaas_message_interceptor(sender, recipient, message, silent=False):
         
     return True, message`
   },
+  mcp: {
+    title: 'Model Context Protocol (MCP) Tool & Server Proxy',
+    lang: 'typescript',
+    code: `import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import fetch from 'node-fetch';
+
+// Initialize AgentsGuardian Zero-Trust MCP Gateway
+const mcpServer = new Server({ name: 'agentsguardian-mcp-gateway', version: '2.4.0' });
+
+mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: toolArgs } = request.params;
+
+  // Intercept MCP JSON-RPC tool call before executing server logic
+  const gaasRes = await fetch("https://api.agentsguardian.io/v1/intercept", {
+    method: "POST",
+    headers: {
+      "X-Guardian-Key": "ag_live_7x8f9c2d1b0a9e8f7...",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      agent_id: "MCP-Tool-Runner",
+      action: \`mcp_tool_\${name}\`,
+      parameters: toolArgs
+    })
+  });
+
+  const decision = await gaasRes.json();
+  if (decision.status === "HALTED") {
+    // Return MCP Standard JSON-RPC Error with Kill-Switch Details
+    throw new Error(
+      \`[AgentsGuardian MCP Interceptor] TOOL EXECUTION BLOCKED by Policy \${decision.policy_violated}. Latency: \${decision.latency_ms}ms\`
+    );
+  }
+
+  // Execute target MCP Tool if policy checks pass (<100ms)
+  return await executeTargetMcpTool(name, toolArgs);
+});`
+  },
   curl: {
     title: 'Direct REST API (cURL)',
     lang: 'bash',
@@ -190,6 +230,59 @@ export default function GaaSApiPillar({
   }, [governedAgents, agentSearchQuery]);
 
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
+
+  const handleExportAgentsJson = () => {
+    const exportPayload = {
+      platform: "AgentsGuardian GaaS Governance Engine",
+      exportedAt: new Date().toISOString(),
+      exportedBy: {
+        email: currentUser.email,
+        name: currentUser.name,
+        role: currentUser.role
+      },
+      metrics: {
+        totalAgents: governedAgents.length,
+        nominalCount: governedAgents.filter(a => a.status === 'NOMINAL').length,
+        haltedCount: governedAgents.filter(a => a.status !== 'NOMINAL').length,
+        totalEvaluatedRequests: governedAgents.reduce((sum, a) => sum + a.requestCount, 0)
+      },
+      governedAgents: governedAgents.map(agent => {
+        const policyMatched = policies.find(p => p.code === agent.attachedPolicyCode);
+        return {
+          id: agent.id,
+          name: agent.name,
+          framework: agent.framework,
+          status: agent.status,
+          requestCount: agent.requestCount,
+          webhookUrl: agent.webhookUrl,
+          attachedPolicy: {
+            code: agent.attachedPolicyCode,
+            name: policyMatched?.name || 'Unknown Policy',
+            category: policyMatched?.category || 'general',
+            enabled: policyMatched?.enabled ?? true,
+            blastRadius: policyMatched?.blastRadius || 'N/A'
+          }
+        };
+      })
+    };
+
+    const jsonStr = JSON.stringify(exportPayload, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `agentsguardian_governed_agents_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    addToast({
+      type: 'success',
+      title: '📥 Agents Status Exported',
+      message: `Exported JSON ledger for ${governedAgents.length} governed agent(s) including request counts & policy statuses.`
+    });
+  };
 
   const handleBulkHalt = () => {
     if (currentUser.role === 'Auditor') {
@@ -387,7 +480,7 @@ export default function GaaSApiPillar({
     }
     if (!newAgentName) return;
     const newAgent: GoverningAgent = {
-      id: `GA-${Math.floor(Math.random() * 900) + 100}`,
+      id: `GA-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       name: newAgentName,
       framework: newAgentFramework,
       webhookUrl: `https://gaas-hooks-api.local/${newAgentName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
@@ -441,7 +534,7 @@ export default function GaaSApiPillar({
 
       // Append to real-time API request log history
       const newRequestLogEntry: ApiRequestLog = {
-        id: `REQ-${Math.floor(Math.random() * 90000) + 10000}`,
+        id: `REQ-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
         timestamp: new Date().toISOString(),
         agentId: sandboxAgentId,
         agentName: targetAgent ? targetAgent.name : 'GaaS-Proxy-Agent',
@@ -472,7 +565,7 @@ Verdict: Access credentials completely revoked. Active script halted inside sand
 
         // Dispatches new security event to the main App lifecycle database
         const newHaltEvent = {
-          id: `KG-GaaS-${Math.floor(Math.random() * 90) + 10}`,
+          id: `KG-GaaS-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
           timestamp: new Date().toISOString(),
           agentName: targetAgent ? targetAgent.name : 'GaaS-Proxy-Agent',
           actionCommand: sandboxAction,
@@ -504,7 +597,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
         if (policyMatched.category === 'finance') {
           const mockSpend = Math.random() * 8 + 0.5;
           const newMetric = {
-            id: `VAL-${Math.floor(Math.random() * 900) + 100}`,
+            id: `VAL-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
             timestamp: new Date().toISOString(),
             agentName: targetAgent ? targetAgent.name : 'GaaS-Governed-Bot',
             completedTasks: 1,
@@ -585,18 +678,15 @@ Verdict: Session parameters registered. Downstream REST action granted.`
       </div>
 
       {/* API Key Credentials control & Webhook configuration */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* API Credentials */}
-        <div className="lg:col-span-4 p-6 rounded-xl bg-[#09090B] border border-zinc-800 flex flex-col justify-between">
+        <CollapsibleSection
+          title="GaaS Credentials"
+          subtitle="Authorized API Key passed through standard X-Guardian-Key HTTP request headers to authenticate other agents."
+          icon={<Key size={18} className="text-zinc-400" />}
+          className="lg:col-span-4 p-6 rounded-xl bg-[#09090B] border border-zinc-800 flex flex-col justify-between"
+        >
           <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Key size={18} className="text-zinc-400" />
-              <h3 className="font-display font-bold text-white text-base">GaaS Credentials</h3>
-            </div>
-            <p className="text-xs text-zinc-400 leading-relaxed mb-4">
-              Authorized API Key passed through standard <code className="text-teal-400 font-mono">X-Guardian-Key</code> HTTP request headers to authenticate other agents.
-            </p>
-
             <div className="space-y-4">
               <div>
                 <label className="text-[10px] font-mono text-zinc-500 tracking-wider font-bold block mb-1">
@@ -655,29 +745,22 @@ Verdict: Session parameters registered. Downstream REST action granted.`
               )}
             </button>
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Integration Code Snippets Panel */}
-        <div className="lg:col-span-8 p-6 rounded-xl bg-[#09090B] border border-zinc-800">
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 pb-3 mb-4">
-            <div className="flex items-center gap-2">
-              <Code2 size={18} className="text-teal-400" />
-              <h3 className="font-display font-medium text-white text-sm">
-                Multi-Platform SDK & Middleware Integrations
-              </h3>
-            </div>
-            
-            {copied && (
-              <span className="text-[10px] font-mono text-emerald-400 animate-pulse bg-emerald-950/20 border border-emerald-500/20 px-2 py-0.5 rounded">
+        <CollapsibleSection
+          title="Multi-Platform SDK & Middleware Integrations"
+          subtitle="Select standard code configurations to intercept and enforce policy rules within your preferred AI frameworks:"
+          icon={<Code2 size={18} className="text-teal-400" />}
+          headerExtra={
+            copied ? (
+              <span className="text-[10px] font-mono text-emerald-400 animate-pulse bg-emerald-950/20 border border-emerald-500/20 px-2 py-0.5 rounded mr-2">
                 Copied snippet to clipboard!
               </span>
-            )}
-          </div>
-
-          <p className="text-xs text-zinc-400 mb-4 font-sans">
-            Select standard code configurations to intercept and enforce policy rules within your preferred AI frameworks:
-          </p>
-
+            ) : undefined
+          }
+          className="lg:col-span-8 p-6 rounded-xl bg-[#09090B] border border-zinc-800"
+        >
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 mb-3">
             {(Object.keys(FRAMEWORK_CODE_TEMPLATES) as Array<keyof typeof FRAMEWORK_CODE_TEMPLATES>).map((key) => (
               <button
@@ -717,22 +800,19 @@ Verdict: Session parameters registered. Downstream REST action granted.`
             <Server size={12} className="text-zinc-600" />
             <span>*All evaluation occurs pre-execution via synchronous webhook proxy.</span>
           </div>
-        </div>
+        </CollapsibleSection>
       </div>
 
       {/* Governed Agents Registry Block & Live Sandbox Simulator */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Governed Agent Registration (Left Form) */}
-        <div className="lg:col-span-5 p-6 rounded-xl bg-[#09090B] border border-zinc-800 flex flex-col justify-between">
+        <CollapsibleSection
+          title="Register Governing Agent Hook"
+          subtitle="Initialize a webhook connection targeting an autonomous third-party agent to include it in the real-time ledger auditing."
+          icon={<Webhook size={18} className="text-teal-400" />}
+          className="lg:col-span-5 p-6 rounded-xl bg-[#09090B] border border-zinc-800 flex flex-col justify-between"
+        >
           <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <Webhook size={18} className="text-teal-400" />
-              <h3 className="font-display font-bold text-white text-base">Register Governing Agent Hook</h3>
-            </div>
-            <p className="text-xs text-zinc-400 leading-relaxed mb-4">
-              Initialize a webhook connection targeting an autonomous third-party agent to include it in the real-time ledger auditing.
-            </p>
-
             {!(currentUser.role === 'SuperAdmin' || currentUser.role === 'Admin' || currentUser.role === 'Operator') ? (
               <div className="p-6 rounded-lg bg-zinc-950/60 border border-zinc-900 text-center space-y-4 my-2 animate-in fade-in duration-200" id="webhook-reg-locked">
                 <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/25 flex items-center justify-center mx-auto text-rose-500">
@@ -777,6 +857,8 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                       <option value="CrewAI">CrewAI Framework</option>
                       <option value="LangChain">LangChain Ecosystem</option>
                       <option value="AutoGen">Microsoft AutoGen</option>
+                      <option value="MCP Server">MCP Server (Model Context Protocol)</option>
+                      <option value="MCP Client">MCP Client (Model Context Protocol)</option>
                       <option value="Custom API">Generic REST Client</option>
                     </select>
                   </div>
@@ -850,31 +932,30 @@ Verdict: Session parameters registered. Downstream REST action granted.`
               </div>
             )}
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Live Interface Simulator Sandbox (Right Console) */}
-        <div className="lg:col-span-7 p-6 rounded-xl bg-[#09090B] border border-zinc-800 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
-              <div className="flex items-center gap-2">
-                <Terminal size={16} className="text-teal-400" />
-                <span className="text-xs font-mono text-white font-bold tracking-wider uppercase">
-                  GaaS Live Intercept Port Webhook Tester
-                </span>
-              </div>
-              
-              <div className="flex items-center gap-1 bg-zinc-950 px-2 py-0.5 rounded border border-zinc-800">
-                <span className="w-1.5 h-1.5 bg-teal-400 rounded-full animate-pulse block" />
-                <span className="text-[9px] font-mono text-teal-400 font-bold tracking-wide uppercase">
-                  SIM PORT ACTIVE
-                </span>
-              </div>
+        <CollapsibleSection
+          title={
+            <div className="flex items-center gap-2">
+              <Terminal size={16} className="text-teal-400" />
+              <span className="text-xs font-mono text-white font-bold tracking-wider uppercase">
+                GaaS Live Intercept Port Webhook Tester
+              </span>
             </div>
-
-            <p className="text-xs text-zinc-400 mb-4 font-sans">
-              Test governance rules instantly. Simulate an incoming agent command packet over GaaS Webhook and view audit evaluation log:
-            </p>
-
+          }
+          subtitle="Test governance rules instantly. Simulate an incoming agent command packet over GaaS Webhook and view audit evaluation log:"
+          headerExtra={
+            <div className="flex items-center gap-1 bg-zinc-950 px-2 py-0.5 rounded border border-zinc-800 mr-2">
+              <span className="w-1.5 h-1.5 bg-teal-400 rounded-full animate-pulse block" />
+              <span className="text-[9px] font-mono text-teal-400 font-bold tracking-wide uppercase">
+                SIM PORT ACTIVE
+              </span>
+            </div>
+          }
+          className="lg:col-span-7 p-6 rounded-xl bg-[#09090B] border border-zinc-800 flex flex-col justify-between"
+        >
+          <div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 text-xs font-mono">
               <div>
                 <label className="text-[10px] font-mono text-zinc-500 block mb-1">Target Governed Agent Context</label>
@@ -954,24 +1035,35 @@ Verdict: Session parameters registered. Downstream REST action granted.`
               )}
             </button>
           </div>
-        </div>
+        </CollapsibleSection>
       </div>
 
       {/* Governing Agents Matrix Grid - Displays all registered framework agents */}
-      <div className="p-6 rounded-xl bg-[#09090B] border border-zinc-800">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div>
-            <h3 className="font-display font-medium text-white text-base">Governed Active System Agents (GaaS Registered)</h3>
-            <span className="text-zinc-400 text-xs block mt-0.5">
-              General governance ledger status for all framework modules currently hooked into AgentsGuardian
+      <CollapsibleSection
+        title="Governed Active System Agents (GaaS Registered)"
+        subtitle="General governance ledger status for all framework modules currently hooked into AgentsGuardian"
+        icon={<Cpu size={18} className="text-teal-400" />}
+        headerExtra={
+          <div className="flex flex-wrap items-center gap-2 mr-2">
+            <button
+              onClick={handleExportAgentsJson}
+              className="px-3 py-1.5 font-mono text-xs font-bold bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 border border-teal-500/30 hover:border-teal-400 rounded flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-97"
+              id="btn-export-agents-json"
+              title="Download current status of all governed agents, request counts, and policy statuses as a JSON file"
+              type="button"
+            >
+              <FileJson size={14} className="text-teal-400" />
+              <Download size={12} className="text-teal-400" />
+              <span>Export Agents Status (JSON)</span>
+            </button>
+
+            <span className="px-3 py-1 font-mono text-xs font-bold bg-zinc-950 text-zinc-400 border border-zinc-800 rounded">
+              {governedAgents.length} Agents Enrolled
             </span>
           </div>
-
-          <span className="px-3 py-1 font-mono text-xs font-bold bg-zinc-950 text-zinc-400 border border-zinc-800 rounded">
-            {governedAgents.length} Agents Enrolled
-          </span>
-        </div>
-
+        }
+        className="p-6 rounded-xl bg-[#09090B] border border-zinc-800"
+      >
         {/* Operational Status Summary Panel */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6" id="gaas-agent-status-summary-panel">
           <div className="p-4 bg-zinc-950 rounded-lg border border-zinc-900 flex flex-col justify-between hover:border-zinc-800 transition-colors">
@@ -1259,22 +1351,15 @@ Verdict: Session parameters registered. Downstream REST action granted.`
             ))}
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
       {/* Real-time GaaS API Request History Ledger */}
-      <div className="p-6 rounded-xl bg-[#09090B] border border-zinc-800 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <History size={18} className="text-teal-400" />
-              <h3 className="font-display font-medium text-white text-base">GaaS Real-Time Intercept Logs</h3>
-            </div>
-            <p className="text-zinc-400 text-xs block mt-0.5">
-              Audits and monitors inbound REST API webhooks, policy check evaluations, and token authorizations in real-time.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
+      <CollapsibleSection
+        title="GaaS Real-Time Intercept Logs"
+        subtitle="Audits and monitors inbound REST API webhooks, policy check evaluations, and token authorizations in real-time."
+        icon={<History size={18} className="text-teal-400" />}
+        headerExtra={
+          <div className="flex flex-wrap items-center gap-3 mr-2">
             {/* Latency Threshold SLAs Setting */}
             <div className="flex items-center gap-2 bg-[#121214] px-3 py-1.5 border border-zinc-850 rounded">
               <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest font-bold">Max SLA Limit</span>
@@ -1362,8 +1447,9 @@ Verdict: Session parameters registered. Downstream REST action granted.`
               <Trash2 size={12} /> Clear Logs
             </button>
           </div>
-        </div>
-
+        }
+        className="p-6 rounded-xl bg-[#09090B] border border-zinc-800 space-y-4"
+      >
         {apiLogs.length === 0 ? (
           <div className="p-12 text-center rounded-lg bg-zinc-950/50 border border-zinc-900 border-dashed">
             <History size={26} className="mx-auto text-zinc-650 mb-2 animate-pulse" />
@@ -1441,7 +1527,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
             </table>
           </div>
         )}
-      </div>
+      </CollapsibleSection>
     </div>
   );
 }

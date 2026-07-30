@@ -4,8 +4,8 @@
  */
 
 import React, { useState } from 'react';
-import { Coins, AlertTriangle, DollarSign, RefreshCw, Layers, Sparkles, Check } from 'lucide-react';
-import { ValueMeterMetric } from '../types';
+import { Coins, AlertTriangle, DollarSign, RefreshCw, Layers, Sparkles, Check, Sliders, Briefcase, Zap, Calculator, ShieldCheck } from 'lucide-react';
+import { ValueMeterMetric, LaborConfig } from '../types';
 
 interface MeasurePillarProps {
   valueMetrics: ValueMeterMetric[];
@@ -13,6 +13,8 @@ interface MeasurePillarProps {
   onAddMetricEvent: (newMetric: ValueMeterMetric) => void;
   budgetCap: number;
   onUpdateBudgetCap: (cap: number) => void;
+  laborConfig?: LaborConfig;
+  onUpdateLaborConfig?: (config: LaborConfig) => void;
 }
 
 export default function MeasurePillar({
@@ -21,11 +23,62 @@ export default function MeasurePillar({
   onAddMetricEvent,
   budgetCap,
   onUpdateBudgetCap,
+  laborConfig,
+  onUpdateLaborConfig,
 }: MeasurePillarProps) {
   const [sessionCap, setSessionCap] = useState<number>(budgetCap);
   const [successMsg, setSuccessMsg] = useState<boolean>(false);
   const [simRunning, setSimRunning] = useState<boolean>(false);
   const [selectedTaskScenario, setSelectedTaskScenario] = useState<string>('password-resets');
+
+  // Feature 2: Interactive Human Labor Cost Configuration states
+  const defaultLabor: LaborConfig = laborConfig || {
+    l1Rate: 35,
+    l2Rate: 75,
+    l3Rate: 150,
+    auditRate: 60,
+    avgHoursPerTask: 0.25
+  };
+
+  const [localL1, setLocalL1] = useState<number>(defaultLabor.l1Rate);
+  const [localL2, setLocalL2] = useState<number>(defaultLabor.l2Rate);
+  const [localL3, setLocalL3] = useState<number>(defaultLabor.l3Rate);
+  const [localAudit, setLocalAudit] = useState<number>(defaultLabor.auditRate);
+  const [localAvgHrs, setLocalAvgHrs] = useState<number>(defaultLabor.avgHoursPerTask);
+  const [simTaskCount, setSimTaskCount] = useState<number>(1000);
+  const [laborSavedMsg, setLaborSavedMsg] = useState<boolean>(false);
+
+  // Dynamic Live Equivalency Calculations
+  const calcHumanCost = Math.round(simTaskCount * localAvgHrs * localL1 * 100) / 100;
+  const calcAiCost = Math.round((simTaskCount * 0.0425) * 100) / 100;
+  const calcSavings = Math.round((calcHumanCost - calcAiCost) * 100) / 100;
+  const calcRoi = calcAiCost > 0 ? (calcHumanCost / calcAiCost).toFixed(1) : '0';
+
+  const applyPreset = (preset: 'servicedesk' | 'fintech' | 'healthcare' | 'enterprise') => {
+    if (preset === 'servicedesk') {
+      setLocalL1(35); setLocalL2(75); setLocalL3(150); setLocalAudit(60); setLocalAvgHrs(0.25);
+    } else if (preset === 'fintech') {
+      setLocalL1(65); setLocalL2(140); setLocalL3(250); setLocalAudit(100); setLocalAvgHrs(0.35);
+    } else if (preset === 'healthcare') {
+      setLocalL1(55); setLocalL2(120); setLocalL3(220); setLocalAudit(85); setLocalAvgHrs(0.30);
+    } else {
+      setLocalL1(45); setLocalL2(95); setLocalL3(180); setLocalAudit(75); setLocalAvgHrs(0.20);
+    }
+  };
+
+  const handleSaveLaborConfig = () => {
+    if (onUpdateLaborConfig) {
+      onUpdateLaborConfig({
+        l1Rate: localL1,
+        l2Rate: localL2,
+        l3Rate: localL3,
+        auditRate: localAudit,
+        avgHoursPerTask: localAvgHrs
+      });
+    }
+    setLaborSavedMsg(true);
+    setTimeout(() => setLaborSavedMsg(false), 2500);
+  };
 
   // Stats
   const totalSpend = valueMetrics.reduce((acc, m) => acc + m.totalApiSpend, 0);
@@ -46,33 +99,91 @@ export default function MeasurePillar({
     setSimRunning(true);
 
     setTimeout(() => {
+      let metric: ValueMeterMetric;
+      const randId = `VAL-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      const now = new Date().toISOString();
+
       if (selectedTaskScenario === 'password-resets') {
-        const resetsMetric: ValueMeterMetric = {
-          id: `VAL-${Math.floor(Math.random() * 900) + 100}`,
-          timestamp: new Date().toISOString(),
+        const saved = Math.round(500 * localAvgHrs * localL1 * 100) / 100;
+        const spend = 42.50;
+        metric = {
+          id: randId,
+          timestamp: now,
           agentName: 'PasswordReset-Agent-HQ',
           completedTasks: 500,
-          totalApiSpend: 200.00,
-          humanLaborSaved: 15000.00, // Calculates exactly to $15k saved
-          roiScore: 75.0, // (15000 / 200)
+          totalApiSpend: spend,
+          humanLaborSaved: saved,
+          roiScore: saved / spend,
           status: 'STABLE'
         };
-        onAddMetricEvent(resetsMetric);
+      } else if (selectedTaskScenario === 'l1-triage-surge') {
+        const saved = Math.round(2500 * localAvgHrs * localL1 * 100) / 100;
+        const spend = 112.50;
+        metric = {
+          id: randId,
+          timestamp: now,
+          agentName: 'AutoGen-TriageHQ',
+          completedTasks: 2500,
+          totalApiSpend: spend,
+          humanLaborSaved: saved,
+          roiScore: saved / spend,
+          status: 'STABLE'
+        };
+      } else if (selectedTaskScenario === 'sre-incident-remediation') {
+        const saved = Math.round(50 * 0.5 * localL3 * 100) / 100; // Using L3 Architect Rate!
+        const spend = 18.40;
+        metric = {
+          id: randId,
+          timestamp: now,
+          agentName: 'SRE-LogParser-Pro',
+          completedTasks: 50,
+          totalApiSpend: spend,
+          humanLaborSaved: saved,
+          roiScore: saved / spend,
+          status: 'STABLE'
+        };
+      } else if (selectedTaskScenario === 'custom-labor-benchmark') {
+        metric = {
+          id: randId,
+          timestamp: now,
+          agentName: 'Custom-LaborBenchmark-Bot',
+          completedTasks: simTaskCount,
+          totalApiSpend: calcAiCost,
+          humanLaborSaved: calcHumanCost,
+          roiScore: calcAiCost > 0 ? calcHumanCost / calcAiCost : 0,
+          status: calcAiCost > sessionCap ? 'ALERT' : 'STABLE',
+          latestViolatingCost: calcAiCost > sessionCap ? calcAiCost : undefined
+        };
+      } else if (selectedTaskScenario === 'infinite-loop-drain') {
+        const spend = 185.00;
+        metric = {
+          id: randId,
+          timestamp: now,
+          agentName: 'Rogue-Recursive-Scraper',
+          completedTasks: 1,
+          totalApiSpend: spend,
+          humanLaborSaved: 15.00,
+          roiScore: 15.00 / spend,
+          status: 'ALERT',
+          latestViolatingCost: spend
+        };
       } else {
-        const bloatedCost = 54.20;
-        const bloatMetric: ValueMeterMetric = {
-          id: `VAL-${Math.floor(Math.random() * 900) + 100}`,
-          timestamp: new Date().toISOString(),
+        // context-bloat
+        const spend = 54.20;
+        const saved = Math.round(1 * localAvgHrs * localL1 * 100) / 100;
+        metric = {
+          id: randId,
+          timestamp: now,
           agentName: 'EnterpriseParser-V5',
           completedTasks: 1,
-          totalApiSpend: bloatedCost,
-          humanLaborSaved: 30.00, // Standard 1hr corporate labor equivalent
-          roiScore: 30 / bloatedCost,
-          status: bloatedCost > budgetCap ? 'ALERT' : 'WARNING',
-          latestViolatingCost: bloatedCost
+          totalApiSpend: spend,
+          humanLaborSaved: saved,
+          roiScore: saved / spend,
+          status: spend > sessionCap ? 'ALERT' : 'WARNING',
+          latestViolatingCost: spend
         };
-        onAddMetricEvent(bloatMetric);
       }
+      onAddMetricEvent(metric);
       setSimRunning(false);
     }, 1200);
   };
@@ -177,69 +288,267 @@ export default function MeasurePillar({
 
       {/* Main Split Layout: Left CFO Budget controls, Right CFO Journey visual steps */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Workbench Panel: Budget Cap set */}
-        <div className="lg:col-span-12 xl:col-span-5 p-6 bg-[#162030] border border-[#1F2E40] rounded-xl flex flex-col justify-between">
-          <form onSubmit={handleUpdateCap} className="space-y-4">
-            <div className="flex items-center gap-2 mb-1.5">
-              <DollarSign size={18} className="text-[#EF9F27]" />
-              <h3 className="font-display font-bold text-white text-base">Economic Parameter Control</h3>
-            </div>
-            <p className="text-xs text-[#8B9BAA] leading-relaxed">
-              Step 1: Establish the "Agentic Budget" cap. Any individual task session accumulating expenditures exceeding this mark triggers an automated halt.
-            </p>
-
-            <div className="space-y-1">
-              <label className="text-[10px] font-mono text-[#8B9BAA] tracking-wider font-bold block">
-                Active Session Budget Cap (USD)
-              </label>
-              <div className="relative rounded-lg shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500 font-mono text-xs">
-                  $
+        {/* Left Workbench Panel: Budget Cap & Labor Configuration */}
+        <div className="lg:col-span-12 xl:col-span-6 p-6 bg-[#162030] border border-[#1F2E40] rounded-xl flex flex-col justify-between space-y-6">
+          <form onSubmit={handleUpdateCap} className="space-y-6">
+            
+            {/* SECTION 1: BUDGET CAP */}
+            <div className="p-4 rounded-xl bg-[#0D1B2A] border border-[#1F2E40] space-y-3">
+              <div className="flex items-center justify-between border-b border-[#1F2E40] pb-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-[#EF9F27]/15 rounded text-[#EF9F27]">
+                    <DollarSign size={16} />
+                  </div>
+                  <div>
+                    <span className="text-[9.5px] font-mono font-bold text-[#EF9F27] uppercase tracking-wider block">Feature 01 • Financial Limit</span>
+                    <h3 className="font-display font-bold text-white text-sm">Active Session Budget Cap Control</h3>
+                  </div>
                 </div>
-                <input
-                  type="number"
-                  step="5"
-                  value={sessionCap}
-                  onChange={(e) => setSessionCap(Number(e.target.value))}
-                  className="w-full bg-[#0D1B2A] border border-[#1F2E40] rounded-lg p-2.5 pl-7 text-xs font-mono text-slate-200 focus:outline-none focus:ring-1 focus:ring-[#EF9F27]/30"
-                  id="input-budget-cap"
-                />
+                <span className="text-[10px] bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded font-mono">
+                  Runtime Gate
+                </span>
               </div>
+
+              <p className="text-xs text-[#8B9BAA] leading-relaxed">
+                Step 1: Establish the "Agentic Budget" cap. Any individual task session accumulating expenditures exceeding this mark triggers an automated halt.
+              </p>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-mono text-[#8B9BAA] tracking-wider font-bold block">
+                  Active Session Budget Cap (USD)
+                </label>
+                <div className="relative rounded-lg shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500 font-mono text-xs">
+                    $
+                  </div>
+                  <input
+                    type="number"
+                    step="5"
+                    value={sessionCap}
+                    onChange={(e) => setSessionCap(Number(e.target.value))}
+                    className="w-full bg-[#162030] border border-[#1F2E40] rounded-lg p-2.5 pl-7 text-xs font-mono text-slate-200 focus:outline-none focus:ring-1 focus:ring-[#EF9F27]/30"
+                    id="input-budget-cap"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2 px-4 bg-[#1D9E75]/10 hover:bg-[#1D9E75] hover:text-[#0D1B2A] text-[#1D9E75] font-display font-bold text-xs rounded-lg transition border border-[#1D9E75]/35 font-semibold cursor-pointer"
+                id="btn-update-budget"
+              >
+                Update Budget Parameters
+              </button>
+              {successMsg && (
+                <p className="text-center text-xs text-emerald-400 font-mono mt-2 animate-bounce flex items-center justify-center gap-1.5 font-bold">
+                  <Check size={12} /> Parameters Synchronized with Gateway!
+                </p>
+              )}
             </div>
 
-            <button
-              type="submit"
-              className="w-full py-2.5 px-4 bg-[#1D9E75]/10 hover:bg-[#1D9E75] hover:text-[#0D1B2A] text-[#1D9E75] font-display font-bold text-xs rounded-lg transition border border-[#1D9E75]/35 font-semibold cursor-pointer"
-              id="btn-update-budget"
-            >
-              Update Budget Parameters
-            </button>
-            {successMsg && (
-              <p className="text-center text-xs text-emerald-400 font-mono mt-2 animate-bounce flex items-center justify-center gap-1.5 font-bold">
-                <Check size={12} /> Parameters Synchronized with Gateway!
-              </p>
-            )}
+            {/* SECTION 2: INTERACTIVE HUMAN LABOR COST CONFIGURATION */}
+            <div className="p-4 rounded-xl bg-[#0D1B2A] border border-[#EF9F27]/40 space-y-4 shadow-lg relative">
+              <div className="flex items-center justify-between border-b border-[#1F2E40] pb-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-[#EF9F27]/15 rounded text-[#EF9F27]">
+                    <Sliders size={16} />
+                  </div>
+                  <div>
+                    <span className="text-[9.5px] font-mono font-bold text-[#EF9F27] uppercase tracking-wider block">Feature 02 • Core Benchmark</span>
+                    <h3 className="font-display font-bold text-white text-sm">Interactive Human Labor Cost Configuration</h3>
+                  </div>
+                </div>
+                <span className="text-[10px] bg-[#1D9E75]/15 text-[#1D9E75] border border-[#1D9E75]/30 px-2 py-0.5 rounded font-mono font-bold animate-pulse">
+                  Active Sync
+                </span>
+              </div>
 
-            <div className="border-t border-[#1F2E40] pt-4 mt-4">
-              <label className="text-[10px] font-mono text-[#8B9BAA] tracking-wider font-bold block mb-1.5">
-                Economic Simulation Engine (Operational Resets & Cost Bloat)
-              </label>
+              <p className="text-xs text-[#8B9BAA] leading-relaxed">
+                Configure regional wage rates and ticket handling benchmarks. Modifying these parameters dynamically re-indexes AI ROI multipliers and labor avoidance metrics across your entire GaaS ecosystem.
+              </p>
+
+              {/* Quick Benchmarks */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-mono text-[#8B9BAA] font-bold uppercase tracking-wider block">
+                  Select Corporate Wage Preset:
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  <button type="button" onClick={() => applyPreset('servicedesk')} className="px-2 py-1.5 text-[10px] font-mono rounded bg-[#162030] hover:bg-[#1F2E40] text-slate-300 border border-[#1F2E40] transition cursor-pointer">
+                    IT Service Desk ($35/hr)
+                  </button>
+                  <button type="button" onClick={() => applyPreset('fintech')} className="px-2 py-1.5 text-[10px] font-mono rounded bg-[#162030] hover:bg-[#1F2E40] text-slate-300 border border-[#1F2E40] transition cursor-pointer">
+                    FinTech ($65/hr)
+                  </button>
+                  <button type="button" onClick={() => applyPreset('healthcare')} className="px-2 py-1.5 text-[10px] font-mono rounded bg-[#162030] hover:bg-[#1F2E40] text-slate-300 border border-[#1F2E40] transition cursor-pointer">
+                    Healthcare ($55/hr)
+                  </button>
+                  <button type="button" onClick={() => applyPreset('enterprise')} className="px-2 py-1.5 text-[10px] font-mono rounded bg-[#162030] hover:bg-[#1F2E40] text-slate-300 border border-[#1F2E40] transition cursor-pointer">
+                    Enterprise ($45/hr)
+                  </button>
+                </div>
+              </div>
+
+              {/* Sliders for Rates */}
+              <div className="space-y-3 pt-2">
+                {/* L1 Rate */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="font-mono text-slate-300 flex items-center gap-1.5">
+                      <Briefcase size={12} className="text-blue-400" /> L1 Support / Triage Rate:
+                    </span>
+                    <span className="font-mono font-bold text-[#EF9F27]">${localL1}.00 / hr</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="15"
+                    max="150"
+                    step="5"
+                    value={localL1}
+                    onChange={(e) => setLocalL1(Number(e.target.value))}
+                    className="w-full accent-[#EF9F27] bg-[#162030] h-1.5 rounded-lg cursor-pointer"
+                    id="slider-l1-rate"
+                  />
+                </div>
+
+                {/* L2 Rate */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="font-mono text-slate-300 flex items-center gap-1.5">
+                      <Zap size={12} className="text-teal-400" /> L2 DevOps Engineer Rate:
+                    </span>
+                    <span className="font-mono font-bold text-[#1D9E75]">${localL2}.00 / hr</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="40"
+                    max="250"
+                    step="5"
+                    value={localL2}
+                    onChange={(e) => setLocalL2(Number(e.target.value))}
+                    className="w-full accent-[#1D9E75] bg-[#162030] h-1.5 rounded-lg cursor-pointer"
+                    id="slider-l2-rate"
+                  />
+                </div>
+
+                {/* L3 Rate */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="font-mono text-slate-300 flex items-center gap-1.5">
+                      <ShieldCheck size={12} className="text-purple-400" /> L3 SRE Architect Rate:
+                    </span>
+                    <span className="font-mono font-bold text-purple-400">${localL3}.00 / hr</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="80"
+                    max="400"
+                    step="10"
+                    value={localL3}
+                    onChange={(e) => setLocalL3(Number(e.target.value))}
+                    className="w-full accent-purple-400 bg-[#162030] h-1.5 rounded-lg cursor-pointer"
+                    id="slider-l3-rate"
+                  />
+                </div>
+
+                {/* Avg handling time */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="font-mono text-slate-300 flex items-center gap-1.5">
+                      <Calculator size={12} className="text-amber-400" /> Avg Human Handling Time per Ticket:
+                    </span>
+                    <span className="font-mono font-bold text-white">{Math.round(localAvgHrs * 60)} mins ({localAvgHrs} hrs)</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.05"
+                    max="1.50"
+                    step="0.05"
+                    value={localAvgHrs}
+                    onChange={(e) => setLocalAvgHrs(Number(e.target.value))}
+                    className="w-full accent-amber-400 bg-[#162030] h-1.5 rounded-lg cursor-pointer"
+                    id="slider-avg-hrs"
+                  />
+                </div>
+              </div>
+
+              {/* Real-time Dynamic Equivalency Preview Box */}
+              <div className="p-3 bg-[#162030] border border-[#1F2E40] rounded-lg space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-mono">
+                  <span className="text-[#8B9BAA]">Live Benchmarking (Volume: 1,000 Tasks):</span>
+                  <span className="text-emerald-400 font-bold">{calcRoi}x Net ROI Multiplier</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center pt-1 border-t border-[#1F2E40]">
+                  <div className="p-1.5 bg-[#0D1B2A] rounded">
+                    <span className="text-[9px] font-mono text-[#8B9BAA] block uppercase">Human Cost</span>
+                    <span className="text-xs font-mono font-bold text-slate-200">${calcHumanCost.toLocaleString()}</span>
+                  </div>
+                  <div className="p-1.5 bg-[#0D1B2A] rounded">
+                    <span className="text-[9px] font-mono text-[#8B9BAA] block uppercase">AI Spend</span>
+                    <span className="text-xs font-mono font-bold text-amber-400">${calcAiCost.toLocaleString()}</span>
+                  </div>
+                  <div className="p-1.5 bg-[#0D1B2A] rounded border border-emerald-500/30">
+                    <span className="text-[9px] font-mono text-emerald-400 block uppercase">Net Savings</span>
+                    <span className="text-xs font-mono font-bold text-emerald-400">${calcSavings.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveLaborConfig}
+                className="w-full py-2.5 px-4 bg-[#EF9F27] hover:bg-[#EF9F27]/90 text-slate-950 font-display font-bold text-xs rounded-lg transition font-bold cursor-pointer flex items-center justify-center gap-2 shadow-md"
+                id="btn-sync-labor-config"
+              >
+                <Check size={14} /> Synchronize Labor Wage Parameters with Global Engine
+              </button>
+              {laborSavedMsg && (
+                <p className="text-center text-xs text-emerald-400 font-mono mt-1.5 animate-bounce flex items-center justify-center gap-1.5 font-bold">
+                  <Check size={12} /> Labor Rates & ROI Multipliers Updated System-Wide!
+                </p>
+              )}
+            </div>
+
+            {/* SECTION 3: ECONOMIC SIMULATION ENGINE */}
+            <div className="p-4 rounded-xl bg-[#0D1B2A] border border-[#1F2E40] space-y-3">
+              <div className="flex items-center justify-between border-b border-[#1F2E40] pb-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-[#EF9F27]/15 rounded text-[#EF9F27]">
+                    <Sparkles size={16} />
+                  </div>
+                  <div>
+                    <span className="text-[9.5px] font-mono font-bold text-[#EF9F27] uppercase tracking-wider block">Feature 03 • Stress Testing</span>
+                    <h3 className="font-display font-bold text-white text-sm">Economic Simulation Engine</h3>
+                  </div>
+                </div>
+                <span className="text-[10px] bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded font-mono">
+                  6 Scenarios
+                </span>
+              </div>
+
+              <p className="text-xs text-[#8B9BAA] leading-relaxed">
+                Run operational stress tests comparing AI API burn rates against your configured human labor wage benchmarks.
+              </p>
+
               <div className="space-y-2">
                 <select
                   value={selectedTaskScenario}
                   onChange={(e) => setSelectedTaskScenario(e.target.value)}
-                  className="w-full text-xs font-mono bg-[#0D1B2A] border border-[#1F2E40] rounded-lg p-2 text-slate-300 focus:outline-none"
+                  className="w-full text-xs font-mono bg-[#162030] border border-[#1F2E40] rounded-lg p-2.5 text-slate-200 focus:outline-none focus:ring-1 focus:ring-[#EF9F27]/30"
                   id="select-economic-scenario"
                 >
-                  <option value="password-resets">High ROI Task Scenario: 500 Password Resets</option>
-                  <option value="context-bloat">Runaway Cost Scenario: 1M Token Context Bloat (&gt;$50 Budget Cap)</option>
+                  <option value="password-resets">High ROI Task Scenario: 500 Password Resets (@ ${localL1}/hr L1 Rate)</option>
+                  <option value="l1-triage-surge">High-Volume L1 Ticket Triage Surge: 2,500 Tickets (@ ${localL1}/hr)</option>
+                  <option value="sre-incident-remediation">Enterprise SRE Log Remediation: 50 Critical Incidents (@ ${localL3}/hr L3 Rate)</option>
+                  <option value="custom-labor-benchmark">Dynamic Labor Benchmark Test: 1,000 Tasks (Using Active Labor Config)</option>
+                  <option value="context-bloat">Runaway Cost Scenario: 1M Token Context Bloat (&gt;${sessionCap} Budget Cap)</option>
+                  <option value="infinite-loop-drain">Runaway Multi-Agent Infinite Loop ($185.00 API Burn before Kill-Switch trips)</option>
                 </select>
 
                 <button
                   type="button"
                   onClick={triggerTaskSimulation}
                   disabled={simRunning}
-                  className="w-full py-2.5 px-4 bg-gradient-to-r from-[#EF9F27] to-[#EF9F27]/90 hover:from-[#EF9F27]/90 hover:to-[#EF9F27] text-slate-900 hover:text-slate-950 font-display font-bold text-xs rounded-lg transition font-bold cursor-pointer"
+                  className="w-full py-2.5 px-4 bg-gradient-to-r from-[#EF9F27] to-[#EF9F27]/90 hover:from-[#EF9F27]/90 hover:to-[#EF9F27] text-slate-900 hover:text-slate-950 font-display font-bold text-xs rounded-lg transition font-bold cursor-pointer shadow-md"
                   id="btn-trigger-economic-sim"
                 >
                   {simRunning ? (
@@ -258,11 +567,12 @@ export default function MeasurePillar({
         </div>
 
         {/* Right Column: CFO Journey Timeline steps */}
-        <div className="lg:col-span-12 xl:col-span-7 space-y-6">
+        <div className="lg:col-span-12 xl:col-span-6 space-y-6">
           <div className="p-6 bg-[#162030] border border-[#1F2E40] rounded-xl flex flex-col justify-between">
             <div>
               <h3 className="font-display font-bold text-white text-base mb-1">
                 AI Value Meter: CFO Journey Timeline
+
               </h3>
               <p className="text-xs text-[#8B9BAA] mb-5">Workflow steps representing financial constraints and event violations.</p>
 

@@ -8,7 +8,7 @@ export type PolicyCategory = 'security' | 'ethics' | 'finance';
 export interface GoverningAgent {
   id: string;
   name: string;
-  framework: 'LangChain' | 'CrewAI' | 'AutoGen' | 'Custom API' | 'ITSM Bot';
+  framework: 'LangChain' | 'CrewAI' | 'AutoGen' | 'MCP Server' | 'MCP Client' | 'Custom API' | 'ITSM Bot';
   webhookUrl: string;
   attachedPolicyCode: string;
   status: 'NOMINAL' | 'MITIGATING' | 'ALERT';
@@ -44,6 +44,7 @@ export interface Policy {
   blastRadius: string; // e.g. "Non-Human Identity", "Database Actions"
   threshold: string;   // e.g. "Strict", "15% Shift", "$50.00 Limit"
   enabled: boolean;
+  sourceLaw?: string;
 }
 
 export interface KillSignalEvent {
@@ -82,6 +83,15 @@ export interface ValueMeterMetric {
   status: 'STABLE' | 'WARNING' | 'ALERT';
   latestViolatingCost?: number;
 }
+
+export interface LaborConfig {
+  l1Rate: number; // Level 1 Triage / Standard Support ($/hr)
+  l2Rate: number; // Level 2 DevOps / Systems Engineer ($/hr)
+  l3Rate: number; // Level 3 SRE / Enterprise Architect ($/hr)
+  auditRate: number; // Human-in-the-loop Audit Rate ($/hr)
+  avgHoursPerTask: number; // Average human handling time per task (hours)
+}
+
 
 export type AdminRole = 'SuperAdmin' | 'Admin' | 'PolicyManager' | 'Auditor' | 'Operator';
 

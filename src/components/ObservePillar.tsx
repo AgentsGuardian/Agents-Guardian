@@ -6,6 +6,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Activity, UploadCloud, Play, RefreshCw, Layers, CheckCircle, CheckCircle2, Lock } from 'lucide-react';
 import { DriftLogEvent, Policy, AdminUser } from '../types';
+import CollapsibleSection from './CollapsibleSection';
 import { 
   ResponsiveContainer, 
   LineChart, 
@@ -93,7 +94,7 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
       const deviation = isHealthy ? (Math.random() * 3 + 1).toFixed(1) : (Math.random() * 7 + 10).toFixed(1);
       const status = score < 85 ? 'WARNING' : 'NORMAL';
 
-      const draftId = `DFT-${Math.floor(Math.random() * 900) + 100}`;
+      const draftId = `DFT-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
       const newEvent: DriftLogEvent = {
         id: draftId,
         timestamp: new Date().toISOString(),
@@ -205,7 +206,7 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
     setSimulationRunning(true);
     
     setTimeout(() => {
-      const draftId = `DFT-${Math.floor(Math.random() * 900) + 100}`;
+      const draftId = `DFT-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
       const newEvent: DriftLogEvent = {
         id: draftId,
         timestamp: new Date().toISOString(),
@@ -274,11 +275,13 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
       </div>
 
       {/* Google AI Studio Observability Loop representation */}
-      <div className="bg-[#162030] rounded-xl border border-[#1F2E40] p-6 relative">
-        <h2 className="text-sm font-mono font-bold text-[#8B9BAA] tracking-wider uppercase mb-5">
-          <span className="text-[#1D9E75]">●</span> GOOGLE AI STUDIO NATIVE OBSERVABILITY LOOP
-        </h2>
-
+      <CollapsibleSection
+        title={
+          <h2 className="text-sm font-mono font-bold text-[#8B9BAA] tracking-wider uppercase flex items-center gap-2">
+            <span className="text-[#1D9E75]">●</span> GOOGLE AI STUDIO NATIVE OBSERVABILITY LOOP
+          </h2>
+        }
+      >
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 relative">
           {/* Dash line connector for desktop */}
           <div className="hidden md:block absolute top-[2.2rem] left-[12%] right-[12%] h-0.5 border-t border-dashed border-[#1F2E40] z-0" />
@@ -337,20 +340,17 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
             *Continuous Monitoring Cycle enabled by Google AI Studio Native Integration.
           </span>
         </div>
-      </div>
+      </CollapsibleSection>
 
       {/* Main Workspace */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Workbench: Baseline Guidelines Formulation */}
-        <div className="lg:col-span-12 xl:col-span-5 p-6 bg-[#162030] border border-[#1F2E40] rounded-xl flex flex-col justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Layers size={18} className="text-[#1D9E75]" />
-              <h3 className="font-display font-bold text-white text-base">Ethical Guidelines Baseline</h3>
-            </div>
-            <p className="text-xs text-[#8B9BAA] mb-5">
-              Admin Upload: Define the "Reasoning Standard" and Brand Neutrality benchmarks matching legal Compliance rules.
-            </p>
+        <CollapsibleSection
+          title="Ethical Guidelines Baseline"
+          subtitle="Admin Upload: Define the 'Reasoning Standard' and Brand Neutrality benchmarks matching legal Compliance rules."
+          icon={<Layers size={18} className="text-[#1D9E75]" />}
+          className="lg:col-span-12 xl:col-span-5 p-6 bg-[#162030] border border-[#1F2E40] rounded-xl flex flex-col justify-between"
+        >
 
             <div className="space-y-4">
               <div>
@@ -394,7 +394,6 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
                 </div>
               </div>
             </div>
-          </div>
 
           <div className="mt-6">
             <button
@@ -422,17 +421,16 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
               )}
             </button>
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Right Column */}
         <div className="lg:col-span-12 xl:col-span-7 space-y-6">
           {/* Bias & Drift Compliance Journey */}
-          <div className="p-6 bg-[#162030] border border-[#1F2E40] rounded-xl animate-fade-in-up">
-            <h3 className="font-display font-bold text-white text-base mb-1">
-              Bias & Drift Compliance Timeline
-            </h3>
-            <p className="text-xs text-[#8B9BAA] mb-5 font-sans">Historical phases of demographic drift detection and human intervention.</p>
-
+          <CollapsibleSection
+            title="Bias & Drift Compliance Timeline"
+            subtitle="Historical phases of demographic drift detection and human intervention."
+            className="p-6 bg-[#162030] border border-[#1F2E40] rounded-xl animate-fade-in-up"
+          >
             <div className="space-y-4">
               {/* Phase 1 */}
               <div className="p-3.5 bg-[#0D1B2A] rounded border border-[#1F2E40] flex gap-3.5 items-start">
@@ -467,16 +465,13 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
                 </div>
               </div>
             </div>
-          </div>
+          </CollapsibleSection>
 
           {/* Recharts Cognitive Health Chart Visual */}
-          <div className="p-6 bg-[#162030] rounded-xl border border-[#1F2E40] space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <h3 className="font-display font-medium text-slate-200 text-sm">
-                Cognitive Health Index Deviation Tracker
-              </h3>
-              
-              <div className="flex items-center gap-2">
+          <CollapsibleSection
+            title="Cognitive Health Index Deviation Tracker"
+            headerExtra={
+              <div className="flex items-center gap-2 mr-2">
                 <div className="flex items-center gap-2 bg-[#0D1B2A] px-2 py-1 border border-[#1F2E40] rounded">
                   <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest font-bold">Auto-Interval</span>
                   <select
@@ -508,8 +503,9 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
                   Interactive Trend
                 </span>
               </div>
-            </div>
-
+            }
+            className="p-6 bg-[#162030] rounded-xl border border-[#1F2E40] space-y-4"
+          >
             <div className="w-full h-52 bg-[#0D1B2A] rounded-lg border border-[#1F2E40] p-4 flex flex-col justify-between">
               <div className="w-full flex-1 min-h-0">
                 <ResponsiveContainer width="100%" height="100%">
@@ -587,18 +583,16 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
                 <span className="w-2.5 h-2.5 bg-[#E24B4A] rounded-sm" /> Critical Drift Block (Y &lt; 70)
               </span>
             </div>
-          </div>
+          </CollapsibleSection>
         </div>
       </div>
 
       {/* Google AI Studio Drift logs and Remediate triggers list */}
-      <div className="p-6 bg-[#162030] border border-[#1F2E40] rounded-xl">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h3 className="font-display font-medium text-white text-base">Google AI Studio Reasoning Sentinels Logs Feed</h3>
-            <span className="text-xs text-[#8B9BAA] block mt-0.5">Captures linguistic anomalies across custom bots</span>
-          </div>
-        </div>
+      <CollapsibleSection
+        title="Google AI Studio Reasoning Sentinels Logs Feed"
+        subtitle="Captures linguistic anomalies across custom bots"
+        className="p-6 bg-[#162030] border border-[#1F2E40] rounded-xl"
+      >
 
         <div className="space-y-4">
           {driftEvents.map((event) => (
@@ -673,7 +667,7 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
             </div>
           ))}
         </div>
-      </div>
+      </CollapsibleSection>
     </div>
   );
 }

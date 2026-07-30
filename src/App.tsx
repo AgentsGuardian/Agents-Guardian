@@ -13,11 +13,12 @@ import PolicyConfig from './components/PolicyConfig';
 import GaaSApiPillar from './components/GaaSApiPillar';
 import AdminPillar from './components/AdminPillar';
 import HelpCenter from './components/HelpCenter';
+import CustomerOnboarding from './components/CustomerOnboarding';
 import ToastNotifier from './components/ToastNotifier';
 import GaaSAccessGate from './components/GaaSAccessGate';
-import { Sliders, Palette, ChevronDown, Check, LogOut } from 'lucide-react';
+import { Sliders, Palette, ChevronDown, Check, LogOut, Users } from 'lucide-react';
 
-import { Policy, KillSignalEvent, DriftLogEvent, ValueMeterMetric, GoverningAgent, ApiRequestLog, Toast, AdminUser } from './types';
+import { Policy, KillSignalEvent, DriftLogEvent, ValueMeterMetric, GoverningAgent, ApiRequestLog, Toast, AdminUser, LaborConfig } from './types';
 import { 
   INITIAL_POLICIES, 
   INITIAL_KILL_SWITCH_EVENTS, 
@@ -29,7 +30,8 @@ import {
 const INITIAL_GOVERNED_AGENTS: GoverningAgent[] = [
   { id: 'GA-101', name: 'SalesSummarizer-CrewAI', framework: 'CrewAI', webhookUrl: 'https://internal-workflow.org/hooks/sales-bot', attachedPolicyCode: 'POL-SEC-01', status: 'NOMINAL', requestCount: 394 },
   { id: 'GA-102', name: 'AutoTrader-Langchain', framework: 'LangChain', webhookUrl: 'https://trading-node-2.net/gaas/gate', attachedPolicyCode: 'POL-FIN-01', status: 'NOMINAL', requestCount: 1242 },
-  { id: 'GA-103', name: 'AutoGen-TriageHQ', framework: 'AutoGen', webhookUrl: 'https://conversation.firm.com/api/v1', attachedPolicyCode: 'POL-ETH-01', status: 'NOMINAL', requestCount: 8905 }
+  { id: 'GA-103', name: 'AutoGen-TriageHQ', framework: 'AutoGen', webhookUrl: 'https://conversation.firm.com/api/v1', attachedPolicyCode: 'POL-ETH-01', status: 'NOMINAL', requestCount: 8905 },
+  { id: 'GA-104', name: 'Postgres-MCP-Server', framework: 'MCP Server', webhookUrl: 'https://mcp.enterprise.io/v1/tools/call', attachedPolicyCode: 'POL-SEC-01', status: 'NOMINAL', requestCount: 2150 }
 ];
 
 const INITIAL_API_LOGS: ApiRequestLog[] = [
@@ -176,6 +178,24 @@ export default function App() {
   const [valueMetrics, setValueMetrics] = useState<ValueMeterMetric[]>(INITIAL_VALUE_METRICS);
   const [budgetCap, setBudgetCap] = useState<number>(50); // Standard $50.00 Limit initial value
 
+  // Feature 2: Interactive Human Labor Cost Configuration State
+  const [laborConfig, setLaborConfig] = useState<LaborConfig>(() => {
+    const saved = localStorage.getItem('gaas_labor_config_v1');
+    return saved ? JSON.parse(saved) : {
+      l1Rate: 35, // $35/hr Level 1 Support / Triage Specialist
+      l2Rate: 75, // $75/hr Level 2 DevOps Engineer
+      l3Rate: 150, // $150/hr Level 3 SRE Architect
+      auditRate: 60, // $60/hr Human-in-the-Loop Auditor
+      avgHoursPerTask: 0.25 // 15 minutes average handling time per ticket
+    };
+  });
+
+  const handleUpdateLaborConfig = (newConfig: LaborConfig) => {
+    setLaborConfig(newConfig);
+    localStorage.setItem('gaas_labor_config_v1', JSON.stringify(newConfig));
+  };
+
+
   // Lifted Identity States
   const [users, setUsers] = useState<AdminUser[]>(() => {
     const saved = localStorage.getItem('gaas_captured_people_v1');
@@ -183,7 +203,7 @@ export default function App() {
   });
 
   const [actingUserId, setActingUserId] = useState<string>(() => {
-    return localStorage.getItem('gaas_logged_in_user_id') || 'USR-000';
+    return localStorage.getItem('gaas_logged_in_user_id') || 'USR-001';
   });
 
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
@@ -203,7 +223,10 @@ export default function App() {
   };
   
   const currentUser = useMemo(() => {
-    return users.find(u => u.id === actingUserId) || users[0] || INITIAL_ADMINS[0];
+    const found = users.find(u => u.id === actingUserId || u.email.toLowerCase().trim() === actingUserId.toLowerCase().trim());
+    if (found) return found;
+    // Return first non-suspended user or default
+    return users.find(u => u.status === 'ACTIVE') || users[0] || INITIAL_ADMINS[1];
   }, [users, actingUserId]);
 
   const setCurrentUser = (selectedVal: AdminUser) => {
@@ -287,7 +310,7 @@ export default function App() {
         const latencyMs = Math.floor(Math.random() * 420) + 12;
 
         const newLog: ApiRequestLog = {
-          id: `REQ-${Math.floor(Math.random() * 90000) + 10000}`,
+          id: `REQ-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
           timestamp: new Date().toISOString(),
           agentId: agent.id,
           agentName: agent.name,
@@ -311,7 +334,7 @@ export default function App() {
         // 2. Kill Switch / Halted state check in Background live-traffic
         if (status === 'HALTED') {
           const newHaltEvent: KillSignalEvent = {
-            id: `KG-GaaS-${Math.floor(Math.random() * 90) + 10}`,
+            id: `KG-GaaS-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
             timestamp: new Date().toISOString(),
             agentName: agent.name,
             actionCommand: 'Intercepted anomalous command thread',
@@ -558,7 +581,7 @@ export default function App() {
 
                   {/* Tenant Identity Isolation & Switch Session Controller */}
                   {currentUser.role === 'SuperAdmin' ? (
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <label className="text-[9px] text-[#8B9BAA] font-bold uppercase tracking-widest block font-mono">
                           Switch Active Identity
@@ -598,9 +621,19 @@ export default function App() {
                           </option>
                         ))}
                       </select>
+
+                      <button
+                        onClick={() => {
+                          setActiveTab('admin');
+                          setShowAppearanceMenu(false);
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-[#1D9E75]/15 hover:bg-[#1D9E75]/25 border border-[#1D9E75]/35 text-[#1D9E75] text-[10px] font-mono font-bold rounded-lg transition-all cursor-pointer"
+                      >
+                        <Users size={12} /> View All Registered User Profiles ({users.length})
+                      </button>
                     </div>
                   ) : (
-                    <div className="p-3 bg-black/40 border border-zinc-800/80 rounded-xl space-y-1.5">
+                    <div className="p-3 bg-black/40 border border-zinc-800/80 rounded-xl space-y-2">
                       <div className="flex items-center justify-between text-[9px] font-mono font-bold uppercase tracking-wider text-teal-400">
                         <span className="flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></span>
@@ -611,8 +644,19 @@ export default function App() {
                         </span>
                       </div>
                       <p className="text-[10px] font-mono text-zinc-400 leading-relaxed">
-                        Dedicated customer instance locked to <strong className="text-white">{currentUser.name}</strong>. Global identity switching and SuperAdmin impersonation are restricted by security policy.
+                        Dedicated customer instance locked to <strong className="text-white">{currentUser.name}</strong> ({currentUser.role}). Global identity switching is restricted by policy.
                       </p>
+                      {currentUser.role === 'Admin' && (
+                        <button
+                          onClick={() => {
+                            setActiveTab('admin');
+                            setShowAppearanceMenu(false);
+                          }}
+                          className="w-full flex items-center justify-center gap-1.5 px-2 py-1 bg-teal-950/30 hover:bg-teal-900/40 border border-teal-500/30 text-teal-300 text-[9.5px] font-mono font-bold rounded transition-all cursor-pointer mt-1"
+                        >
+                          <Users size={11} /> View Registered User Directory ({users.length})
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -723,6 +767,7 @@ export default function App() {
             overallCognitiveHealth={overallCognitiveHealth}
             apiLogs={apiLogs}
             currentUser={currentUser}
+            governedAgents={governedAgents}
           />
         )}
 
@@ -753,6 +798,8 @@ export default function App() {
             onAddMetricEvent={handleAddMetricEvent}
             budgetCap={budgetCap}
             onUpdateBudgetCap={setBudgetCap}
+            laborConfig={laborConfig}
+            onUpdateLaborConfig={handleUpdateLaborConfig}
           />
         )}
 
@@ -794,6 +841,17 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'onboarding' && (
+          <CustomerOnboarding
+            currentUser={currentUser}
+            addToast={addToast}
+            onNavigateTab={setActiveTab}
+            budgetCap={budgetCap}
+            laborConfig={laborConfig}
+            policies={policies}
+          />
+        )}
+
         {activeTab === 'help' && (
           <HelpCenter 
             policies={policies}
@@ -808,6 +866,7 @@ export default function App() {
             users={users}
             budgetCap={budgetCap}
             latencyThreshold={latencyThreshold}
+            laborConfig={laborConfig}
           />
         )}
       </main>

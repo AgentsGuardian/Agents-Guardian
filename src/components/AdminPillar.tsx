@@ -75,6 +75,7 @@ export default function AdminPillar({
 
   // User list searches
   const [searchQuery, setSearchQuery] = useState('');
+  const [inspectedUser, setInspectedUser] = useState<AdminUser | null>(null);
   
   // Create user form
   const [newName, setNewName] = useState('');
@@ -598,7 +599,16 @@ export default function AdminPillar({
                             {user.lastLogin}
                           </td>
                           <td className="p-3 text-right pr-4">
-                            <div className="flex items-center justify-end gap-2">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {/* View Full Profile Inspector button */}
+                              <button
+                                onClick={() => setInspectedUser(user)}
+                                className="text-[10px] font-bold font-mono text-cyan-400 bg-cyan-950/30 border border-cyan-500/30 hover:bg-cyan-900/50 px-2 py-1 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                                title="View Registered User Profile & Security Details"
+                              >
+                                <Eye size={11} /> Details
+                              </button>
+
                               {/* Suspend toggler */}
                               <button
                                 onClick={() => handleToggleUserStatus(user.id)}
@@ -1394,6 +1404,204 @@ export default function AdminPillar({
         </div>
       </div>
     )}
+
+      {/* REGISTERED USER PROFILE INSPECTOR MODAL FOR SUPER ADMIN */}
+      {inspectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#0C121D] border border-[#1F2E40] w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-5 bg-[#090E17] border-b border-[#1F2E40] flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#1D9E75]/20 border border-[#1D9E75]/40 flex items-center justify-center text-[#1D9E75] font-mono font-black text-sm">
+                  {inspectedUser.name.substring(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-white font-sans">{inspectedUser.name}</h3>
+                    <span className="text-[10px] font-mono bg-cyan-950/60 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.5 rounded">
+                      {inspectedUser.id}
+                    </span>
+                  </div>
+                  <p className="text-xs text-zinc-400 font-mono">{inspectedUser.email}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setInspectedUser(null)}
+                className="text-zinc-400 hover:text-white p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6 font-mono text-xs">
+              {/* Overview Badges Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 bg-[#111E2E] border border-[#1F2E40] rounded-xl space-y-1">
+                  <span className="text-[9px] text-zinc-500 uppercase font-bold">Role Privilege</span>
+                  <div className="text-xs font-bold text-[#1D9E75] flex items-center gap-1">
+                    <Shield size={12} /> {inspectedUser.role}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-[#111E2E] border border-[#1F2E40] rounded-xl space-y-1">
+                  <span className="text-[9px] text-zinc-500 uppercase font-bold">Account Status</span>
+                  <div>
+                    {inspectedUser.status === 'ACTIVE' ? (
+                      <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                        <Check size={12} /> ACTIVE
+                      </span>
+                    ) : (
+                      <span className="text-xs font-bold text-rose-400 flex items-center gap-1">
+                        <AlertTriangle size={12} /> SUSPENDED
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-[#111E2E] border border-[#1F2E40] rounded-xl space-y-1">
+                  <span className="text-[9px] text-zinc-500 uppercase font-bold">MFA Hardware</span>
+                  <div className="text-xs font-bold text-teal-300 flex items-center gap-1">
+                    <Key size={12} /> {inspectedUser.mfaEnabled ? 'Enforced' : 'Optional'}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-[#111E2E] border border-[#1F2E40] rounded-xl space-y-1">
+                  <span className="text-[9px] text-zinc-500 uppercase font-bold">Last Activity</span>
+                  <div className="text-[11px] font-bold text-zinc-300 truncate">
+                    {inspectedUser.lastLogin}
+                  </div>
+                </div>
+              </div>
+
+              {/* Detailed Technical Metadata */}
+              <div className="bg-[#090E17] border border-[#1F2E40] rounded-xl p-4 space-y-3">
+                <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+                  <Fingerprint size={14} className="text-cyan-400" /> Administrative Security Profile
+                </h4>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px] text-zinc-400">
+                  <div>
+                    <span className="text-zinc-550 block text-[9.5px]">Registration Identity Provider:</span>
+                    <span className="text-white font-bold">
+                      {inspectedUser.email.endsWith('@gmail.com') ? 'Google OAuth 2.0 / SSO' : 'Corporate Identity Provider (GaaS)'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-zinc-550 block text-[9.5px]">Master Tenant Isolation Key:</span>
+                    <span className="text-cyan-300 font-bold">
+                      {`tenant-org-${inspectedUser.id.toLowerCase()}-sec`}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-zinc-550 block text-[9.5px]">Assigned Clearance Level:</span>
+                    <span className="text-emerald-400 font-bold">
+                      {inspectedUser.role === 'SuperAdmin' ? 'Level 5 (Root Control)' : inspectedUser.role === 'Admin' ? 'Level 4 (Policy Write)' : 'Level 2 (Operator/Audit)'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-zinc-550 block text-[9.5px]">Session Token Rotation:</span>
+                    <span className="text-zinc-300 font-bold">Automated 4-Hour OAuth Refresh</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Permissions Matrix Checklist for this user */}
+              <div className="bg-[#090E17] border border-[#1F2E40] rounded-xl p-4 space-y-3">
+                <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+                  <Lock size={14} className="text-[#1D9E75]" /> Effective Role Permissions Matrix
+                </h4>
+
+                {(() => {
+                  const perm = permissions.find(p => p.role === inspectedUser.role) || {
+                    configureKillSwitch: false,
+                    modifyPolicies: false,
+                    viewFinancialMetrics: false,
+                    updateGatewaySLAs: false,
+                    manageUsers: false
+                  };
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                      <div className="flex items-center justify-between p-2 bg-black/40 rounded border border-zinc-900">
+                        <span>Kill-Switch Execution:</span>
+                        <span className={perm.configureKillSwitch ? "text-emerald-400 font-bold" : "text-zinc-600"}>
+                          {perm.configureKillSwitch ? '✓ ALLOWED' : '✕ DENIED'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2 bg-black/40 rounded border border-zinc-900">
+                        <span>Policy Configuration:</span>
+                        <span className={perm.modifyPolicies ? "text-emerald-400 font-bold" : "text-zinc-600"}>
+                          {perm.modifyPolicies ? '✓ ALLOWED' : '✕ DENIED'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2 bg-black/40 rounded border border-zinc-900">
+                        <span>Financial Value Metrics:</span>
+                        <span className={perm.viewFinancialMetrics ? "text-emerald-400 font-bold" : "text-zinc-600"}>
+                          {perm.viewFinancialMetrics ? '✓ ALLOWED' : '✕ DENIED'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2 bg-black/40 rounded border border-zinc-900">
+                        <span>User & Credential Mgmt:</span>
+                        <span className={perm.manageUsers ? "text-emerald-400 font-bold" : "text-zinc-600"}>
+                          {perm.manageUsers ? '✓ ALLOWED' : '✕ DENIED'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Quick Admin Actions inside modal */}
+              {currentUser.role === 'SuperAdmin' && (
+                <div className="pt-2 border-t border-[#1F2E40] flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Change Role:</span>
+                    <select
+                      value={inspectedUser.role}
+                      onChange={(e) => {
+                        handleUserRoleChange(inspectedUser.id, e.target.value as AdminRole);
+                        setInspectedUser(prev => prev ? { ...prev, role: e.target.value as AdminRole } : null);
+                      }}
+                      className="bg-[#111E2E] border border-[#1F2E40] text-xs font-bold text-white rounded px-2.5 py-1 focus:outline-none cursor-pointer"
+                    >
+                      <option value="SuperAdmin">SuperAdmin</option>
+                      <option value="Admin">Admin</option>
+                      <option value="PolicyManager">PolicyManager</option>
+                      <option value="Auditor">Auditor</option>
+                      <option value="Operator">Operator</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        handleToggleUserStatus(inspectedUser.id);
+                        setInspectedUser(prev => prev ? { ...prev, status: prev.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE' } : null);
+                      }}
+                      className="px-3 py-1.5 rounded text-xs font-bold border cursor-pointer transition-colors bg-zinc-900 hover:bg-zinc-800 text-amber-300 border-amber-500/30"
+                    >
+                      {inspectedUser.status === 'ACTIVE' ? 'Suspend Account' : 'Re-Activate Account'}
+                    </button>
+
+                    <button
+                      onClick={() => setInspectedUser(null)}
+                      className="px-4 py-1.5 rounded text-xs font-bold bg-[#1D9E75] hover:bg-[#15805d] text-white transition-colors cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
