@@ -107,13 +107,16 @@ const ToastItem = ({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
 };
 
 export default function ToastNotifier({ toasts, onRemoveToast }: ToastNotifierProps) {
+  // Cap active toast stack to maximum 2 visible toasts
+  const visibleToasts = toasts.slice(-2);
+
   return (
     <div 
-      className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 lg:top-6 lg:bottom-auto z-50 pointer-events-none flex flex-col gap-3 max-w-sm w-full px-4 sm:px-0"
+      className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 pointer-events-none flex flex-col-reverse gap-3 max-w-sm w-full px-4 sm:px-0"
       id="toast-global-notifier-container"
     >
       <AnimatePresence mode="popLayout">
-        {toasts.map(toast => (
+        {visibleToasts.map(toast => (
           <ToastItem key={toast.id} toast={toast} onRemove={onRemoveToast} />
         ))}
       </AnimatePresence>

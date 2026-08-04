@@ -3,11 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Shield, Play, Terminal, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { KillSignalEvent, Policy } from '../types';
 import { SIMULATION_TRIGGER_TEMPLATES, TaskTrigger } from '../data';
 import CollapsibleSection from './CollapsibleSection';
+import ConfirmationModal from './ConfirmationModal';
 
 interface SecurePillarProps {
   killEvents: KillSignalEvent[];
@@ -24,6 +25,16 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
   const [currentLatency, setCurrentLatency] = useState<number>(0);
   const [simLogResult, setSimLogResult] = useState<string>('');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
+
+  const timersRef = useRef<NodeJS.Timeout[]>([]);
+
+  useEffect(() => {
+    return () => {
+      // Clean up background simulation timers on unmount to prevent memory leaks/tab freezes
+      timersRef.current.forEach(clearTimeout);
+    };
+  }, []);
 
   // Sync state if template changes
   const handleTemplateSelect = (tmpl: TaskTrigger) => {
@@ -39,23 +50,20 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
     setSimulationStep(1); // AGENT ACTION
     setSimLogResult('Initializing Agent process inside sandboxed zone...');
     
-    // Step-by-step execution timeline:
-    // Step 1: AGENT ACTION (0-850ms)
-    // Step 2: AG INTERCEPT (850-1700ms)
-    // Step 3: EVALUATE (1700-2800ms)
-    // Step 4: KILL SIGNAL / PROTOCOL HALT (2100ms+)
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
 
-    setTimeout(() => {
+    const t1 = setTimeout(() => {
       setSimulationStep(2); // AG INTERCEPT
       setSimLogResult(prev => prev + '\n[Google AI Studio Gateway] API Intercept: Intercepting Action Fabric CLI command packet...');
     }, 850);
 
-    setTimeout(() => {
+    const t2 = setTimeout(() => {
       setSimulationStep(3); // EVALUATE
       setSimLogResult(prev => prev + '\n[Policy Engine] Evaluating Policy-As-Code limits matching "Non-Human Identity" blast radius...');
     }, 1700);
 
-    setTimeout(() => {
+    const t3 = setTimeout(() => {
       setSimulationStep(4); // KILL SIGNAL
       const finalLatency = Math.floor(Math.random() * 30) + 35; // 35 - 65 ms
       setCurrentLatency(finalLatency);
@@ -80,8 +88,10 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
       onTriggerKillEvent(simulatedEvent);
       setIsSimulating(false);
       setSimulationStep(4);
-      setSimLogResult(prev => prev + `\n\n🛑 [PROTOCOL HALT INITIATED] \nLatency speed: ${finalLatency}ms (SLA <100ms target passed)\nSecurity Review Required Flag dispatched to Enterprise IT Compliance Gateway.\nImmutable Annex IV Ledger entry generated: ${annexIVHash}`);
+      setSimLogResult(prev => prev + `\n\n🛑 [PROTOCOL HALT INITIATED] \nLatency speed: ${finalLatency}ms (SLA <35ms target passed)\nSecurity Review Required Flag dispatched to Enterprise IT Compliance Gateway.\nImmutable Annex IV Ledger entry generated: ${annexIVHash}`);
     }, 2800);
+
+    timersRef.current.push(t1, t2, t3);
   };
 
   return (
@@ -104,14 +114,14 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
             </h1>
             <p className="text-[#8B9BAA] text-sm max-w-xl mt-1">
               Guarantees zero-trust active threat containment. Intercepts headless requests, 
-              evaluates policies-as-code, and revokes credentials in less than 100 milliseconds.
+              evaluates policies-as-code, and revokes credentials with &lt;35ms SLA target.
             </p>
           </div>
         </div>
         <div className="flex gap-3">
           <button 
             type="button"
-            onClick={onClearLogs}
+            onClick={() => setShowClearConfirm(true)}
             className="px-3.5 py-1.5 border border-[#1F2E40] text-[#8B9BAA] font-mono text-xs rounded-lg hover:bg-[#0D1B2A] hover:text-[#F0EEE6] transition flex items-center gap-2 cursor-pointer"
           >
             <RefreshCw size={14} /> Clear Ledger Logs
@@ -176,7 +186,7 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
             </div>
             <h4 className="font-display font-medium text-[#F0EEE6] mt-2.5 text-xs">Kill Signal</h4>
             <p className="text-[11px] text-[#E24B4A] mt-1 leading-snug font-bold">
-              Protocol HALT in &lt;100ms. Token revoked.
+              Protocol HALT in &lt;35ms Target. Token revoked.
             </p>
           </div>
         </div>
@@ -259,7 +269,7 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
               ) : (
                 <>
                   <Play size={14} />
-                  Trigger Threat Payload ({selectedTemplate.name})
+                  Run Simulated Threat Test ({selectedTemplate.name})
                 </>
               )}
             </button>
@@ -424,6 +434,22 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
           </div>
         </div>
       </CollapsibleSection>
+
+      <ConfirmationModal
+        isOpen={showClearConfirm}
+        onClose={() => setShowClearConfirm(false)}
+        onConfirm={onClearLogs}
+        title="Wipe Intercepted Audit Ledger?"
+        description="This action will clear the current local ledger view of intercepted threat events. Cryptographic hashes registered in Annex IV storage remain immutably preserved."
+        confirmLabel="Clear Audit Ledger"
+        cancelLabel="Keep Ledger Logs"
+        severity="warning"
+        badgeText="CLEAR AUDIT LOGS"
+        detailsList={[
+          `${killEvents.length} active event logs will be cleared from view`,
+          "Cryptographic hashes remain preserved in global audit storage"
+        ]}
+      />
     </div>
   );
 }

@@ -218,6 +218,14 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
         logsDetails: 'Drift Simulation: 60 days in, Google AI Studio Native Sentinel detects an automated 15.0% shift in response sentiment toward specific low-income customer demographic tiers. Response tone has passive-helpful deviations.'
       };
       onAddDriftEvent(newEvent);
+      if (addToast) {
+        addToast({
+          type: 'warning',
+          title: '⚠️ 15% Demographic Drift Test Triggered',
+          message: 'Google AI Studio Sentinel flagged a 15.0% sentiment shift in Loan-Application-Bots. Phase 2 Drift Event recorded in Compliance Timeline.',
+          duration: 6000
+        });
+      }
       setSimulationRunning(false);
     }, 1200);
   };
@@ -267,7 +275,7 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
               </>
             ) : (
               <>
-                <Play size={13} /> Inject 15% Drift Model
+                <Play size={13} /> Run Drift Simulation Test
               </>
             )}
           </button>
@@ -417,7 +425,7 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
                   <CheckCircle2 size={14} /> Baseline Synchronized!
                 </>
               ) : (
-                'Synchronize Ethical Baseline'
+                'Upload Ethical Guidelines'
               )}
             </button>
           </div>

@@ -256,7 +256,7 @@ export default function Overview({
           </p>
           <div className="mt-4 flex items-center justify-between border-t border-[#1F2E40] pt-3">
             <span className="text-xs text-[#8B9BAA] font-mono uppercase">Av. Response</span>
-            <span className="text-xs font-mono text-[#F0EEE6] font-bold">{avgLatency}ms (Required &lt;100ms)</span>
+            <span className="text-xs font-mono text-[#F0EEE6] font-bold">{avgLatency}ms (&lt;35ms Target)</span>
           </div>
           <div className="mt-1 pb-1 flex justify-end">
             <span className="text-[10px] text-[#1D9E75] font-mono flex items-center gap-1 group-hover:underline">
@@ -508,7 +508,7 @@ export default function Overview({
                     <span
                       className={`text-[9px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${bgGlow} shrink-0`}
                     >
-                      {agent.status}
+                      {score < 60 ? 'HALT ALERT' : score < 85 ? 'ALERT' : agent.status}
                     </span>
                   </div>
 
@@ -937,7 +937,7 @@ export default function Overview({
               <div className="space-y-1.5">
                 <h4 className="font-display font-semibold text-[#F0EEE6] text-sm">Deterministic Gateways</h4>
                 <p className="text-xs text-[#8B9BAA] leading-relaxed">
-                  98.2% of headless script executions check policies and halt in **&lt;100ms** to prevent payload write breaches.
+                  98.2% of headless script executions check policies and halt in **&lt;35ms Target** to prevent payload write breaches.
                 </p>
                 <div className="flex items-center gap-1 text-[10px] text-[#1D9E75] font-mono">
                   <CheckCircle2 size={12} /> Annex IV Compliant Ledger Enabled

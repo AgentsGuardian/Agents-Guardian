@@ -16,6 +16,8 @@ import HelpCenter from './components/HelpCenter';
 import CustomerOnboarding from './components/CustomerOnboarding';
 import ToastNotifier from './components/ToastNotifier';
 import GaaSAccessGate from './components/GaaSAccessGate';
+import NotificationCenter from './components/NotificationCenter';
+import { useGovernanceStore } from './store/useGovernanceStore';
 import { Sliders, Palette, ChevronDown, Check, LogOut, Users } from 'lucide-react';
 
 import { Policy, KillSignalEvent, DriftLogEvent, ValueMeterMetric, GoverningAgent, ApiRequestLog, Toast, AdminUser, LaborConfig } from './types';
@@ -65,12 +67,55 @@ const INITIAL_API_LOGS: ApiRequestLog[] = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<string>('overview');
+  const [activeTab, setActiveTabState] = useState<string>(() => {
+    const hash = window.location.hash.replace('#', '').trim();
+    if (hash && ['overview', 'security', 'observe', 'measure', 'policy', 'gaas', 'admin', 'onboarding', 'help'].includes(hash)) {
+      return hash;
+    }
+    return 'overview';
+  });
+
+  const setActiveTab = (tab: string) => {
+    setActiveTabState(tab);
+    window.location.hash = tab;
+  };
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '').trim();
+      if (hash && ['overview', 'security', 'observe', 'measure', 'policy', 'gaas', 'admin', 'onboarding', 'help'].includes(hash)) {
+        setActiveTabState(hash);
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
   
   // Theme state and selector options
-  const [activeTheme, setActiveTheme] = useState<string>('emerald');
-  const [activeBg, setActiveBg] = useState<string>('charcoal');
+  const [activeTheme, setActiveTheme] = useState<string>(() => {
+    return localStorage.getItem('gaas_active_theme_v1') || 'emerald';
+  });
+  const [activeBg, setActiveBg] = useState<string>(() => {
+    const saved = localStorage.getItem('gaas_active_bg_v1');
+    return saved === 'light' ? 'light' : 'dark';
+  });
   const [showAppearanceMenu, setShowAppearanceMenu] = useState<boolean>(false);
+
+  useEffect(() => {
+    localStorage.setItem('gaas_active_theme_v1', activeTheme);
+  }, [activeTheme]);
+
+  useEffect(() => {
+    localStorage.setItem('gaas_active_bg_v1', activeBg);
+    if (activeBg === 'light') {
+      document.documentElement.classList.add('light-theme');
+      document.documentElement.classList.remove('dark-theme');
+    } else {
+      document.documentElement.classList.add('dark-theme');
+      document.documentElement.classList.remove('light-theme');
+    }
+  }, [activeBg]);
 
   const themeOptions = useMemo(() => [
     { id: 'emerald', name: 'Emerald Sentinel', primary: '#1D9E75', rgb: '29, 158, 117', dark: '#0F6E56' },
@@ -82,15 +127,12 @@ export default function App() {
   ], []);
 
   const bgOptions = useMemo(() => [
-    { id: 'charcoal', name: 'Cyber Charcoal', primary: '#090e17', cardBg: '#111e2e', border: '#1f2e40', primaryRgb: '17, 30, 46' },
-    { id: 'obsidian', name: 'Pitch Obsidian', primary: '#030303', cardBg: '#09090c', border: '#17171d', primaryRgb: '9, 9, 12' },
-    { id: 'carbon', name: 'Carbon Jet', primary: '#0e0f12', cardBg: '#15171c', border: '#252932', primaryRgb: '21, 23, 28' },
-    { id: 'forest', name: 'Forest Shadow', primary: '#040806', cardBg: '#09120e', border: '#13241b', primaryRgb: '9, 18, 14' }
+    { id: 'dark', name: 'Dark Mode', shortName: 'Dark Mode', icon: '🌙', isLight: false },
+    { id: 'light', name: 'Light Mode', shortName: 'Light Mode', icon: '☀️', isLight: true }
   ], []);
 
   useEffect(() => {
     const selected = themeOptions.find(t => t.id === activeTheme) || themeOptions[0];
-    const selectedBg = bgOptions.find(b => b.id === activeBg) || bgOptions[0];
 
     let styleEl = document.getElementById('dynamic-theme-overrides');
     if (!styleEl) {
@@ -108,25 +150,10 @@ export default function App() {
         --color-brand-teal-dark: ${selected.dark} !important;
       }
 
-      /* Dynamically override application container backgrounds */
-      body, .min-h-screen, html, #root {
-        background-color: ${selectedBg.primary} !important;
-      }
-
-      /* Dynamically override card and panel backgrounds to matchselectedBg */
-      .bg-\\[\\#162030\\], .bg-\\[\\#111E2E\\], .bg-\\[\\#09090B\\], .bg-\\[\\#0d1b2a\\], .bg-zinc-950, .bg-\\[\\#0D1B2A\\], .bg-\\[\\#1E1214\\] {
-        background-color: ${selectedBg.cardBg} !important;
-      }
-
-      /* Dynamically override border lines to match selectedBg */
-      .border-\\[\\#1F2E40\\], .border-zinc-900, .border-zinc-850, .border-zinc-800, .border-zinc-700 {
-        border-color: ${selectedBg.border} !important;
-      }
-
       /* Base overrides for tailwind color values */
-      .text-\\[\\#1D9E75\\] { color: ${selected.primary} !important; }
-      .bg-\\[\\#1D9E75\\] { background-color: ${selected.primary} !important; }
-      .border-\\[\\#1D9E75\\] { border-color: ${selected.primary} !important; }
+      .text-\[\#1D9E75\] { color: ${selected.primary} !important; }
+      .bg-\[\#1D9E75\] { background-color: ${selected.primary} !important; }
+      .border-\[\#1D9E75\] { border-color: ${selected.primary} !important; }
 
       /* Alpha transparency class variations */
       .bg-\\[\\#1D9E75\\]\\/5 { background-color: rgba(${selected.rgb}, 0.05) !important; }
@@ -172,6 +199,16 @@ export default function App() {
   }, [activeTheme, themeOptions, activeBg, bgOptions]);
 
   // Data management states
+  const {
+    notifications,
+    addNotification,
+    markAllNotificationsRead,
+    clearAllNotifications,
+    markNotificationRead,
+    disableAlertsGlobally,
+    setDisableAlertsGlobally
+  } = useGovernanceStore();
+
   const [policies, setPolicies] = useState<Policy[]>(INITIAL_POLICIES);
   const [killEvents, setKillEvents] = useState<KillSignalEvent[]>(INITIAL_KILL_SWITCH_EVENTS);
   const [driftEvents, setDriftEvents] = useState<DriftLogEvent[]>(INITIAL_DRIFT_EVENTS);
@@ -267,13 +304,39 @@ export default function App() {
 
   // Toast notification states
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [disableAlertsGlobally, setDisableAlertsGlobally] = useState<boolean>(false);
 
   const disableAlertsRef = React.useRef(disableAlertsGlobally);
   disableAlertsRef.current = disableAlertsGlobally;
 
   const addToast = (t: Omit<Toast, 'id' | 'timestamp'>) => {
-    // If alerts are globally disabled, suppress background warnings and danger alerts (e.g., SLA breaches, kill switches)
+    let category: 'Security' | 'SLA' | 'Policy' | 'System' | 'Audit' = 'System';
+    let targetTab: string | undefined = undefined;
+
+    if (t.title.includes('SLA') || t.message.includes('SLA') || t.title.includes('Latency')) {
+      category = 'SLA';
+      targetTab = 'gaas';
+    } else if (t.title.includes('Policy') || t.title.includes('Law') || t.message.includes('policy')) {
+      category = 'Policy';
+      targetTab = 'policy';
+    } else if (t.title.includes('Halt') || t.title.includes('Kill') || t.title.includes('Threat') || t.title.includes('Security')) {
+      category = 'Security';
+      targetTab = 'security';
+    } else if (t.title.includes('Drift') || t.title.includes('Sentiment')) {
+      category = 'Audit';
+      targetTab = 'observe';
+    } else if (t.title.includes('Handshake') || t.title.includes('Onboarding')) {
+      category = 'Audit';
+      targetTab = 'onboarding';
+    }
+
+    addNotification({
+      type: t.type,
+      category,
+      title: t.title,
+      message: t.message,
+      targetTab
+    });
+
     const isMuteOrRestoreToast = t.title.includes('Notifications Muted') || t.title.includes('Notifications Restored');
     if (disableAlertsRef.current && (t.type === 'danger' || t.type === 'warning') && !isMuteOrRestoreToast) {
       console.log(`[Alert Suppressed] ${t.title}: ${t.message}`);
@@ -528,230 +591,246 @@ export default function App() {
             </div>
           </div>
 
-          {/* Top Right: Active security session dropdown click trigger */}
-          <div className="relative shrink-0 z-20">
-            <button
-              onClick={() => setShowAppearanceMenu(!showAppearanceMenu)}
-              className="flex items-center gap-3 bg-black/40 px-3.5 py-1.5 rounded-lg border border-[#1F2E40] hover:border-[--theme-primary]/40 transition-all shadow-inner text-left cursor-pointer select-none group"
-            >
-              <div className="flex items-center gap-2 flex-row">
-                <div className="relative">
-                  <span className="absolute bottom-0 right-0 w-2 h-2 bg-emerald-500 rounded-full border border-black animate-pulse" />
-                  <div className="h-7 w-7 rounded-md bg-[--theme-primary]/15 border border-[--theme-primary]/30 flex items-center justify-center font-mono text-xs font-black text-[--theme-primary]">
-                    {currentUser.name.substring(0,2).toUpperCase()}
-                  </div>
-                </div>
-                <div className="leading-none pr-1.5">
-                  <span className="text-[8px] text-zinc-500 font-mono tracking-widest uppercase block mb-1 font-bold group-hover:text-zinc-400 transition-colors">
-                    SECURE ACTIVE SESSION
-                  </span>
-                  <span className="text-[11px] font-sans font-bold text-slate-100 group-hover:text-[--theme-primary] transition-colors">
-                    {currentUser.name} ({currentUser.role})
-                  </span>
-                </div>
-                <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-250 ${showAppearanceMenu ? 'rotate-180 text-[--theme-primary]' : ''}`} />
-              </div>
-            </button>
+          {/* Top Right: Notification Center & Active security session dropdown */}
+          <div className="flex items-center gap-3 shrink-0">
+            <NotificationCenter
+              notifications={notifications}
+              onMarkAllRead={markAllNotificationsRead}
+              onClearAll={clearAllNotifications}
+              onMarkRead={markNotificationRead}
+              disableAlerts={disableAlertsGlobally}
+              onToggleDisableAlerts={setDisableAlertsGlobally}
+              onNavigateTab={(tab) => setActiveTab(tab)}
+            />
 
-            {/* Custom Interactive Profile & Personalization Sub-Menu Popup */}
-            {showAppearanceMenu && (
-              <>
-                {/* Click outside overlay to close the window overlay */}
-                <div 
-                  className="fixed inset-0 z-30 cursor-default"
-                  onClick={() => setShowAppearanceMenu(false)}
-                />
-                <div className="absolute right-0 mt-2.5 w-80 bg-[#111E2E] border border-[#1F2E40] rounded-xl shadow-2xl p-4 z-40 space-y-4 animate-in fade-in slide-in-from-top-2 duration-150">
-                  {/* Account detail header */}
-                  <div className="flex items-center gap-3 pb-3 border-b border-[#1F2E40]/60">
-                    <div className="h-9 w-9 rounded-md bg-[--theme-primary]/15 border border-[--theme-primary]/30 flex items-center justify-center font-mono text-xs font-black text-[--theme-primary]">
+            <div className="relative">
+              <button
+                onClick={() => setShowAppearanceMenu(!showAppearanceMenu)}
+                className="flex items-center gap-3 bg-black/40 px-3.5 py-1.5 rounded-lg border border-[#1F2E40] hover:border-[--theme-primary]/40 transition-all shadow-inner text-left cursor-pointer select-none group"
+              >
+                <div className="flex items-center gap-2 flex-row">
+                  <div className="relative">
+                    <span className="absolute bottom-0 right-0 w-2 h-2 bg-emerald-500 rounded-full border border-black animate-pulse" />
+                    <div className="h-7 w-7 rounded-md bg-[--theme-primary]/15 border border-[--theme-primary]/30 flex items-center justify-center font-mono text-xs font-black text-[--theme-primary]">
                       {currentUser.name.substring(0,2).toUpperCase()}
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <span className="text-[8px] text-zinc-500 font-mono tracking-widest uppercase block font-black leading-none mb-1">
-                        Active Administrator
-                      </span>
-                      <h4 className="text-xs font-bold text-slate-105 truncate">{currentUser.name}</h4>
-                      <p className="text-[9px] font-mono text-zinc-400 truncate mb-1.5">{currentUser.email}</p>
-                      <span className="text-[9px] text-[--theme-primary] font-mono uppercase bg-[--theme-primary]/10 px-1.5 py-0.5 rounded border border-[--theme-primary]/25">
-                        {currentUser.role}
-                      </span>
-                    </div>
                   </div>
+                  <div className="leading-none pr-1.5">
+                    <span className="text-[8px] text-zinc-500 font-mono tracking-widest uppercase block mb-1 font-bold group-hover:text-zinc-400 transition-colors">
+                      SECURE ACTIVE SESSION
+                    </span>
+                    <span className="text-[11px] font-sans font-bold text-slate-100 group-hover:text-[--theme-primary] transition-colors">
+                      {currentUser.name} ({currentUser.role})
+                    </span>
+                  </div>
+                  <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-250 ${showAppearanceMenu ? 'rotate-180 text-[--theme-primary]' : ''}`} />
+                </div>
+              </button>
 
-                  {/* Tenant Identity Isolation & Switch Session Controller */}
-                  {currentUser.role === 'SuperAdmin' ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[9px] text-[#8B9BAA] font-bold uppercase tracking-widest block font-mono">
-                          Switch Active Identity
-                        </label>
-                        <span className="text-[8px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1 rounded font-mono">
-                          SuperAdmin Privilege
+              {/* Custom Interactive Profile & Personalization Sub-Menu Popup */}
+              {showAppearanceMenu && (
+                <>
+                  {/* Click outside overlay to close the window overlay */}
+                  <div 
+                    className="fixed inset-0 z-30 cursor-default"
+                    onClick={() => setShowAppearanceMenu(false)}
+                  />
+                  <div className="absolute right-0 mt-2.5 w-76 sm:w-80 bg-[#111E2E] border border-[#1F2E40] rounded-xl shadow-2xl p-4 z-40 space-y-4 animate-in fade-in slide-in-from-top-2 duration-150">
+                    {/* Account detail header */}
+                    <div className="flex items-center gap-3 pb-3 border-b border-[#1F2E40]/60">
+                      <div className="h-9 w-9 rounded-md bg-[--theme-primary]/15 border border-[--theme-primary]/30 flex items-center justify-center font-mono text-xs font-black text-[--theme-primary]">
+                        {currentUser.name.substring(0,2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[8px] text-zinc-500 font-mono tracking-widest uppercase block font-black leading-none mb-1">
+                          Active Administrator
+                        </span>
+                        <h4 className="text-xs font-bold text-slate-105 truncate">{currentUser.name}</h4>
+                        <p className="text-[9px] font-mono text-zinc-400 truncate mb-1.5">{currentUser.email}</p>
+                        <span className="text-[9px] text-[--theme-primary] font-mono uppercase bg-[--theme-primary]/10 px-1.5 py-0.5 rounded border border-[--theme-primary]/25">
+                          {currentUser.role}
                         </span>
                       </div>
-                      <select
-                        value={currentUser.id}
-                        onChange={(e) => {
-                          const selected = users.find(u => u.id === e.target.value);
-                          if (selected) {
-                            if (selected.status === 'SUSPENDED') {
-                              addToast({
-                                type: 'danger',
-                                title: '❌ Authentication Error',
-                                message: `Administrative account for "${selected.name}" is currently SUSPENDED. Access token generation halted.`,
-                                duration: 6000
-                              });
-                              return;
-                            }
-                            setCurrentUser(selected);
-                            addToast({
-                              type: 'success',
-                              title: '🔐 Active Session Swapped',
-                              message: `Successfully authenticated as: ${selected.name} (${selected.role}). Gateway encryption tokens recompiled.`
-                            });
-                          }
-                        }}
-                        className="w-full text-xs font-sans font-bold bg-black/60 border border-[#1F2E40] rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-[--theme-primary] hover:border-zinc-700 transition-colors cursor-pointer"
-                      >
-                        {users.map(u => (
-                          <option key={u.id} value={u.id} className="bg-[#111E2E] text-xs text-slate-300">
-                            {u.email === 'mritunjoysingh@gmail.com' ? '👑 ' : u.role === 'SuperAdmin' ? '💎 ' : '👤 '} 
-                            {u.name} ({u.role})
-                          </option>
-                        ))}
-                      </select>
-
-                      <button
-                        onClick={() => {
-                          setActiveTab('admin');
-                          setShowAppearanceMenu(false);
-                        }}
-                        className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-[#1D9E75]/15 hover:bg-[#1D9E75]/25 border border-[#1D9E75]/35 text-[#1D9E75] text-[10px] font-mono font-bold rounded-lg transition-all cursor-pointer"
-                      >
-                        <Users size={12} /> View All Registered User Profiles ({users.length})
-                      </button>
                     </div>
-                  ) : (
-                    <div className="p-3 bg-black/40 border border-zinc-800/80 rounded-xl space-y-2">
-                      <div className="flex items-center justify-between text-[9px] font-mono font-bold uppercase tracking-wider text-teal-400">
-                        <span className="flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></span>
-                          Tenant Isolation Active
-                        </span>
-                        <span className="text-[8px] bg-teal-500/10 border border-teal-500/20 px-1.5 py-0.5 rounded text-teal-300">
-                          LOCKED
-                        </span>
-                      </div>
-                      <p className="text-[10px] font-mono text-zinc-400 leading-relaxed">
-                        Dedicated customer instance locked to <strong className="text-white">{currentUser.name}</strong> ({currentUser.role}). Global identity switching is restricted by policy.
-                      </p>
-                      {currentUser.role === 'Admin' && (
+
+                    {/* Tenant Identity Isolation & Switch Session Controller */}
+                    {currentUser.role === 'SuperAdmin' ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[9px] text-[#8B9BAA] font-bold uppercase tracking-widest block font-mono">
+                            Switch Active Identity
+                          </label>
+                          <span className="text-[8px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1 rounded font-mono">
+                            SuperAdmin Privilege
+                          </span>
+                        </div>
+                        <select
+                          value={currentUser.id}
+                          onChange={(e) => {
+                            const selected = users.find(u => u.id === e.target.value);
+                            if (selected) {
+                              if (selected.status === 'SUSPENDED') {
+                                addToast({
+                                  type: 'danger',
+                                  title: '❌ Authentication Error',
+                                  message: `Administrative account for "${selected.name}" is currently SUSPENDED. Access token generation halted.`,
+                                  duration: 6000
+                                });
+                                return;
+                              }
+                              setCurrentUser(selected);
+                              addToast({
+                                type: 'success',
+                                title: '🔐 Active Session Swapped',
+                                message: `Successfully authenticated as: ${selected.name} (${selected.role}). Gateway encryption tokens recompiled.`
+                              });
+                            }
+                          }}
+                          className="w-full text-xs font-sans font-bold bg-black/60 border border-[#1F2E40] rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-[--theme-primary] hover:border-zinc-700 transition-colors cursor-pointer"
+                        >
+                          {users.map(u => (
+                            <option key={u.id} value={u.id} className="bg-[#111E2E] text-xs text-slate-300">
+                              {u.email === 'mritunjoysingh@gmail.com' ? '👑 ' : u.role === 'SuperAdmin' ? '💎 ' : '👤 '} 
+                              {u.name} ({u.role})
+                            </option>
+                          ))}
+                        </select>
+
                         <button
                           onClick={() => {
                             setActiveTab('admin');
                             setShowAppearanceMenu(false);
                           }}
-                          className="w-full flex items-center justify-center gap-1.5 px-2 py-1 bg-teal-950/30 hover:bg-teal-900/40 border border-teal-500/30 text-teal-300 text-[9.5px] font-mono font-bold rounded transition-all cursor-pointer mt-1"
+                          className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-[#1D9E75]/15 hover:bg-[#1D9E75]/25 border border-[#1D9E75]/35 text-[#1D9E75] text-[10px] font-mono font-bold rounded-lg transition-all cursor-pointer"
                         >
-                          <Users size={11} /> View Registered User Directory ({users.length})
+                          <Users size={12} /> View All Registered User Profiles ({users.length})
                         </button>
-                      )}
-                    </div>
-                  )}
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-black/40 border border-zinc-800/80 rounded-xl space-y-2">
+                        <div className="flex items-center justify-between text-[9px] font-mono font-bold uppercase tracking-wider text-teal-400">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></span>
+                            Tenant Isolation Active
+                          </span>
+                          <span className="text-[8px] bg-teal-500/10 border border-teal-500/20 px-1.5 py-0.5 rounded text-teal-300">
+                            LOCKED
+                          </span>
+                        </div>
+                        <p className="text-[10px] font-mono text-zinc-400 leading-relaxed">
+                          Dedicated customer instance locked to <strong className="text-white">{currentUser.name}</strong> ({currentUser.role}). Global identity switching is restricted by policy.
+                        </p>
+                        {currentUser.role === 'Admin' && (
+                          <button
+                            onClick={() => {
+                              setActiveTab('admin');
+                              setShowAppearanceMenu(false);
+                            }}
+                            className="w-full flex items-center justify-center gap-1.5 px-2 py-1 bg-teal-950/30 hover:bg-teal-900/40 border border-teal-500/30 text-teal-300 text-[9.5px] font-mono font-bold rounded transition-all cursor-pointer mt-1"
+                          >
+                            <Users size={11} /> View Registered User Directory ({users.length})
+                          </button>
+                        )}
+                      </div>
+                    )}
 
-                  {/* System Theme Accent Color Picker */}
-                  <div className="space-y-2 pt-3 border-t border-[#1F2E40]/50">
-                    <div className="flex items-center gap-1.5 font-mono select-none">
-                      <Sliders size={12} className="text-[--theme-primary]" />
-                      <span className="text-[9px] text-[#8B9BAA] font-bold uppercase tracking-widest block font-bold">
-                        System Theme Accent
+                    {/* Simplified Theme & Contrast Section */}
+                    <div className="space-y-3 pt-3 border-t border-[#1F2E40]/50">
+                      <div className="flex items-center justify-between font-mono select-none">
+                        <span className="text-[9.5px] text-[#8B9BAA] font-bold uppercase tracking-widest flex items-center gap-1.5">
+                          <Palette size={12} className="text-[--theme-primary]" /> Theme & Contrast
+                        </span>
+                        <span className="text-[8.5px] font-mono px-1.5 py-0.2 rounded bg-black/40 text-zinc-300 border border-zinc-800">
+                          {bgOptions.find(b => b.id === activeBg)?.isLight ? '☀️ Light' : '🌙 Dark'}
+                        </span>
+                      </div>
+
+                      {/* Display Mode Toggle */}
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {bgOptions.map((bg) => (
+                          <button
+                            key={bg.id}
+                            type="button"
+                            onClick={() => {
+                              setActiveBg(bg.id);
+                              addToast({
+                                type: 'success',
+                                title: bg.isLight ? '☀️ Light Theme Applied' : '🌙 Dark Theme Applied',
+                                message: `Display environment remapped to ${bg.name} theme with calibrated contrast.`
+                              });
+                            }}
+                            className={`px-2.5 py-2 rounded-lg border flex items-center justify-between transition-all cursor-pointer text-[10px] font-mono font-bold leading-none ${
+                              activeBg === bg.id 
+                                ? 'border-[--theme-primary] bg-[--theme-primary]/15 text-white shadow' 
+                                : 'border-zinc-800 hover:border-zinc-700 bg-black/30 text-zinc-400 hover:text-zinc-200'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <span className="text-xs">{bg.icon}</span>
+                              <span>{bg.shortName}</span>
+                            </span>
+                            {activeBg === bg.id && <Check size={12} className="text-[--theme-primary]" />}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Accent Palette Selector */}
+                      <div className="space-y-1.5">
+                        <span className="text-[8.5px] text-zinc-400 font-mono font-bold uppercase tracking-wider block">
+                          Accent Color:
+                        </span>
+                        <div className="grid grid-cols-6 gap-1.5">
+                          {themeOptions.map((theme) => (
+                            <button
+                              key={theme.id}
+                              type="button"
+                              title={theme.name}
+                              onClick={() => {
+                                setActiveTheme(theme.id);
+                                addToast({
+                                  type: 'success',
+                                  title: '🎨 Accent Color Applied',
+                                  message: `System accent updated to "${theme.name}".`
+                                });
+                              }}
+                              className={`h-6 rounded-md border flex items-center justify-center transition-all cursor-pointer hover:scale-105 active:scale-95 ${
+                                activeTheme === theme.id 
+                                  ? 'border-white scale-105 shadow bg-white/10' 
+                                  : 'border-zinc-800 hover:border-zinc-700 bg-black/20'
+                              }`}
+                            >
+                              <span 
+                                className="w-3.5 h-3.5 rounded-full inline-block shadow-inner" 
+                                style={{ backgroundColor: theme.primary }}
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Active theme code designation */}
+                    <div className="text-[9.5px] text-zinc-500 font-mono flex justify-between items-center select-none pt-2 border-t border-[#1F2E40]/50">
+                      <span>Active Theme:</span>
+                      <span className="text-zinc-300 font-bold uppercase tracking-wider">
+                        {themeOptions.find(t => t.id === activeTheme)?.name.split(' ')[0]} ({bgOptions.find(b => b.id === activeBg)?.shortName})
                       </span>
                     </div>
-                    <div className="grid grid-cols-6 gap-1.5 pt-0.5">
-                      {themeOptions.map((theme) => (
-                        <button
-                          key={theme.id}
-                          title={theme.name}
-                          onClick={() => {
-                            setActiveTheme(theme.id);
-                            addToast({
-                              type: 'success',
-                              title: '🎨 Style Palette Applied',
-                              message: `Sovereign Gateway color space recalibrated to "${theme.name}". Active styles hot-swapped.`
-                            });
-                          }}
-                          className={`h-5.5 w-full rounded border flex items-center justify-center transition-all cursor-pointer hover:scale-105 active:scale-95 ${
-                            activeTheme === theme.id 
-                              ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.15)] bg-slate-100/10' 
-                              : 'border-zinc-800 hover:border-zinc-700 bg-black/20'
-                          }`}
-                        >
-                          <span 
-                            className="w-3 h-3 rounded-full inline-block" 
-                            style={{ backgroundColor: theme.primary }}
-                          />
-                        </button>
-                      ))}
+
+                    {/* Sign Out Trigger Button */}
+                    <div className="pt-2 border-t border-[#1F2E40]/55">
+                      <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-950/20 hover:bg-red-950/40 border border-red-500/20 hover:border-red-500/40 text-red-400 text-[10.5px] font-mono font-bold rounded-lg transition-all cursor-pointer transform active:scale-98"
+                        type="button"
+                      >
+                        <LogOut size={12} className="text-red-400" /> TERMINATE SECURITY SESSION
+                      </button>
                     </div>
                   </div>
-
-                  {/* App Background options picker */}
-                  <div className="space-y-2 pt-3 border-t border-[#1F2E40]/50">
-                    <div className="flex items-center gap-1.5 font-mono select-none">
-                      <Palette size={12} className="text-[--theme-primary]" />
-                      <span className="text-[9px] text-[#8B9BAA] font-bold uppercase tracking-widest block font-bold">
-                        App Background Color
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 pt-0.5">
-                      {bgOptions.map((bg) => (
-                        <button
-                          key={bg.id}
-                          title={bg.name}
-                          onClick={() => {
-                            setActiveBg(bg.id);
-                            addToast({
-                              type: 'success',
-                              title: '🎬 Background Restyled',
-                              message: `Display environment remapped to ${bg.name} theme.`
-                            });
-                          }}
-                          className={`h-7.5 px-2 rounded border flex items-center justify-between transition-all cursor-pointer hover:scale-102 active:scale-98 text-[9px] font-mono leading-none ${
-                            activeBg === bg.id 
-                              ? 'border-[--theme-primary] bg-black/60 font-black text-white shadow-md' 
-                              : 'border-zinc-850 hover:border-zinc-700 bg-black/10 text-zinc-550'
-                          }`}
-                          style={{ backgroundColor: bg.cardBg }}
-                        >
-                          <span>{bg.name.split(' ')[0]}</span>
-                          {activeBg === bg.id && <Check size={10} className="text-[--theme-primary]" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Active theme code designation */}
-                  <div className="text-[9.5px] text-zinc-500 font-mono flex justify-between items-center select-none pt-2 border-t border-[#1F2E40]/50">
-                    <span>Active Theme:</span>
-                    <span className="text-zinc-300 font-bold uppercase tracking-wider">
-                      {themeOptions.find(t => t.id === activeTheme)?.name.split(' ')[0]}
-                    </span>
-                  </div>
-
-                  {/* Sign Out Trigger Button */}
-                  <div className="pt-2 border-t border-[#1F2E40]/55">
-                    <button
-                      onClick={handleLogout}
-                      className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-950/20 hover:bg-red-950/40 border border-red-500/20 hover:border-red-500/40 text-red-400 text-[10.5px] font-mono font-bold rounded-lg transition-all cursor-pointer transform active:scale-98"
-                      type="button"
-                    >
-                      <LogOut size={12} className="text-red-400" /> TERMINATE SECURITY SESSION
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
         </div>
         

@@ -159,7 +159,15 @@ export default function CustomerOnboarding({
   laborConfig,
   policies = []
 }: CustomerOnboardingProps) {
-  const [activeSetupStep, setActiveSetupStep] = useState<number>(1);
+  const [activeSetupStep, setActiveSetupStep] = useState<number>(() => {
+    const saved = localStorage.getItem('gaas_onboarding_step_v1');
+    return saved ? parseInt(saved, 10) : 1;
+  });
+
+  React.useEffect(() => {
+    localStorage.setItem('gaas_onboarding_step_v1', activeSetupStep.toString());
+  }, [activeSetupStep]);
+
   const [testPayload, setTestPayload] = useState<string>(
     '{"agent_id": "Agent-Production-Node", "intent": "Analyze quarterly budget ledger and execute database query", "approximate_cost": 0.02}'
   );
@@ -184,6 +192,11 @@ Ask me anything about:
   ]);
   const [inputQuery, setInputQuery] = useState<string>('');
   const [isThinking, setIsThinking] = useState<boolean>(false);
+
+  const [personaMode, setPersonaMode] = useState<'dev' | 'ciso'>('dev');
+  const [isVerified, setIsVerified] = useState<boolean>(() => {
+    return localStorage.getItem('gaas_onboarding_verified_v1') === 'true';
+  });
 
   // Handle running the sandbox test handshake
   const handleRunSandboxTest = () => {
@@ -221,10 +234,12 @@ Latency: 14ms
 Signature: RSA-4096-VERIFIED
 Telemetry: Heartbeat recorded in Observability Stream
 Budget Cap Status: OK ($${budgetCap}.00 remaining)`);
+        setIsVerified(true);
+        localStorage.setItem('gaas_onboarding_verified_v1', 'true');
         addToast({
           type: 'success',
           title: '⚡ Handshake Verification Success',
-          message: 'GaaS Gateway returned 200 OK signature. Client handshake verified.'
+          message: 'GaaS Gateway returned 200 OK signature. Client handshake verified & active.'
         });
       }
     }, 900);
@@ -432,7 +447,32 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0 relative z-10">
           <div className="flex items-center gap-2 py-1.5 px-4 bg-black/60 border border-[#1F2E40] rounded-xl font-mono text-xs">
-            <span className="text-teal-400 animate-pulse font-extrabold font-mono">●</span> INTEGRATION STATUS: <span className="text-[#1D9E75] font-bold">NOMINAL</span>
+            <span className="text-teal-400 animate-pulse font-extrabold font-mono">●</span> INTEGRATION STATUS: <span className="text-[#1D9E75] font-bold">{isVerified ? 'ACTIVE & VERIFIED' : 'NOMINAL'}</span>
+          </div>
+          {/* Persona Toggle */}
+          <div className="flex items-center gap-1.5 bg-black/80 p-1 rounded-xl border border-zinc-800">
+            <button
+              type="button"
+              onClick={() => setPersonaMode('dev')}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                personaMode === 'dev'
+                  ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40 shadow'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              Developer (Code/SDKs)
+            </button>
+            <button
+              type="button"
+              onClick={() => setPersonaMode('ciso')}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                personaMode === 'ciso'
+                  ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              CISO & Compliance
+            </button>
           </div>
           <span className="text-[10px] text-zinc-500 font-mono">Tenant: {currentUser.email}</span>
         </div>
@@ -727,7 +767,7 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
                     AgentsGuardian scans outbound transactions across three core vectors: <strong>Security</strong>, <strong>Ethics & Bias</strong>, and <strong>Financial Spending Caps</strong>.
                   </p>
                   <p>
-                    ⚖️ <strong>EU AI Act & SB-1047 Ingestion:</strong> Use the <strong>"Translate Legal Act"</strong> compiler in the Policy Engine to automatically convert compliance PDFs into active code rules.
+                    ⚖️ <strong>EU AI Act & SB-1047 Ingestion:</strong> Use the <strong>"Import Regulatory Framework"</strong> compiler in the Policy Engine to automatically convert compliance PDFs into active code rules.
                   </p>
                 </div>
 
@@ -803,6 +843,25 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
             {/* STEP 5: VERIFICATION SANDBOX */}
             {activeSetupStep === 5 && (
               <div className="space-y-4 animate-in fade-in duration-200">
+                {isVerified && (
+                  <div className="p-4 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 flex items-center justify-between gap-4 shadow-lg animate-in fade-in duration-300">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle2 size={24} className="text-emerald-400 shrink-0" />
+                      <div>
+                        <h4 className="font-bold text-xs uppercase tracking-wider text-emerald-200 font-mono flex items-center gap-2">
+                          Integration Active & Verified
+                        </h4>
+                        <p className="text-[11px] text-emerald-300/80 mt-0.5 font-sans">
+                          Your GaaS proxy gateway handshake is fully verified and actively bound to tenant <span className="font-mono text-white">{currentUser.email}</span>.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-bold rounded border border-emerald-500/30 shrink-0 uppercase tracking-widest">
+                      ● LIVE VERIFIED
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-3 border-b border-zinc-900 pb-3">
                   <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/25 text-blue-400 shrink-0">
                     <Terminal size={18} />

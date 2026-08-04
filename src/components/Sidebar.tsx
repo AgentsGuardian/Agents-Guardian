@@ -6,6 +6,7 @@
 import React from 'react';
 import { Shield, Radio, Activity, Coins, Sliders, Menu, X, Landmark, Cpu, Settings, Users, Fingerprint, HelpCircle, ChevronLeft, ChevronRight, Rocket } from 'lucide-react';
 import { AdminUser, Toast } from '../types';
+import AgentsGuardianLogo from './Logo';
 
 interface SidebarProps {
   activeTab: string;
@@ -60,14 +61,7 @@ export default function Sidebar({
         </button>
 
         <div className="flex items-center gap-2.5 min-w-0">
-          <svg viewBox="0 0 30 30" className="w-8 h-8 flex-shrink-0" fill="none">
-            <path d="M15 2L27 8.5V21.5L15 28L3 21.5V8.5Z" fill="#1D9E75" stroke="#0F6E56" strokeWidth="1"/>
-            <text x="15" y="19" textAnchor="middle" fontSize="11" fontWeight="700" fill="white" fontFamily="sans-serif">G</text>
-          </svg>
-          <div className="truncate">
-            <span className="font-display font-bold tracking-tight text-[#F0EEE6] block text-sm sm:text-base leading-tight">Agents<span className="text-[#1D9E75]">Guardian</span></span>
-            <span className="text-[8px] sm:text-[9px] text-[#1D9E75] font-mono uppercase tracking-widest block font-bold truncate">GOVERNANCE CORE OS</span>
-          </div>
+          <AgentsGuardianLogo size="sm" subtitle="GOVERNANCE CORE OS" />
         </div>
       </div>
 
@@ -89,21 +83,7 @@ export default function Sidebar({
         {/* Header Logo */}
         <div className={`p-4 md:p-5 border-b border-zinc-800 bg-zinc-950 flex ${isCollapsed ? 'flex-col gap-4' : 'flex-row'} items-center justify-between`}>
           <div className={`flex items-center ${isCollapsed ? 'justify-center w-full' : 'gap-3.5 min-w-0'}`}>
-            <svg viewBox="0 0 30 30" className="w-10 h-10 flex-shrink-0" fill="none">
-              <path d="M15 2L27 8.5V21.5L15 28L3 21.5V8.5Z" fill="#1D9E75" stroke="#0F6E56" strokeWidth="1"/>
-              <text x="15" y="19" textAnchor="middle" fontSize="11" fontWeight="700" fill="white" fontFamily="sans-serif">G</text>
-            </svg>
-            {!isCollapsed && (
-              <div className="truncate animate-in fade-in duration-200">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-display font-extrabold text-[20px] tracking-tight text-white leading-none">Agents<span className="text-teal-400">Guardian</span></span>
-                  <span className="text-[9px] bg-teal-500/10 text-teal-450 border border-teal-500/20 px-1 py-0.2 rounded font-mono uppercase">GaaS</span>
-                </div>
-                <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest block font-bold mt-1">
-                  Sovereign Governance OS
-                </span>
-              </div>
-            )}
+            <AgentsGuardianLogo size="md" iconOnly={isCollapsed} subtitle="Sovereign Governance OS" />
           </div>
           
           <button 

@@ -13,7 +13,7 @@ export const INITIAL_POLICIES: Policy[] = [
     description: 'Intercept and block headless actions modifying the production customer database without matching ERP compliance context approval keys.',
     category: 'security',
     blastRadius: 'Non-Human Identity',
-    threshold: 'Zero-Trust (HALT <100ms)',
+    threshold: 'Zero-Trust (HALT <35ms Target)',
     enabled: true
   },
   {

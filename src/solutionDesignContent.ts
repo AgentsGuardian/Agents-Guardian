@@ -1,199 +1,231 @@
-export const SOLUTION_DESIGN_MARKDOWN_CONTENT = `# Solution Design Document: AgentsGuardian
-**Enterprise AI Governance, Real-Time Guardrails, and Economic Assurance Platform**
+export const SOLUTION_DESIGN_MARKDOWN_CONTENT = `# AgentsGuardian: Comprehensive End-to-End System Specification & Remediation Blueprint
+
+**Enterprise AI Governance, Real-Time Guardrails, and Sovereign Operating System Specification**
+*Version: 2.1 — Post-Advisory Review Baseline (Reflects Complete Audit Analysis & Actionable Roadmap)*
 
 ---
 
-This document outlines the end-to-end technical, architectural, and visual designs of the **AgentsGuardian** platform—an enterprise-grade AI Governance-as-a-Service (GaaS) platform built to intercept, secure, evaluate, and trace autonomous AI agent execution loops under zero-trust conditions.
+## Executive Summary & Audit Baseline
+
+Following an in-depth 35-page UX and Functionality Review of the **AgentsGuardian Sovereign Governance OS** (evaluating 45+ interactive functions across 10 system modules, auth flows, and cross-cutting components), this specification document defines the complete architectural blueprint and systematic remediation plan for the platform.
+
+### Diagnostic Audit Summary
+- **Total Audit Findings**: 77 findings (60 UX/Design issues + 17 Functional defects)
+- **Primary Strengths**: Strong, distinctive security visual identity; clear 4-pillar conceptual framework; live threat simulators (Kill-Switch, Sandbox Handshake, Legal Act Synthesis); interactive wage sliders; and fast demo account switching.
+- **Key System Risks & Friction Points**:
+  1. **Tab-Freezing Renderer Lock**: Mount-time main-thread locks on the Kill-Switch module causing intermittent 30s+ browser tab freezes.
+  2. **Unconfirmed Destructive Actions**: One-click wipe of audit ledgers (\`Clear Ledger Logs\`), user revocations, and total shield disabling (\`Dry-Run Bypass Guard\`) without confirmation modals or undo windows.
+  3. **Cognitive Translation Tax**: Pervasive invented vocabulary ("Administrative Codecard Password", "TLS Encrypted Hydration", "Dispatch Key", "Gateway Tunnel").
+  4. **Data & SLA Contradictions**: 4 conflicting SLA latency promises (35ms, <40ms, <100ms, <100ms Target); contradictory status badges (e.g. \`0%\` health labelled \`NOMINAL\`); unformatted monetary figures; raw unrendered markdown (\`**bold**\` asterisks).
+  5. **Notification Overlay Collisions**: Toasts rendering directly over primary header action CTAs (\`Register New Policy\`) and intercepting clicks.
 
 ---
 
-## 1. Executive Summary
+## 1. Global System Standards & Quality Architecture
 
-As enterprise adoption of autonomous agentic systems grows, organizations face unprecedented risks: unaligned decision-making, demographic/sentiment drift, runaway token expenditures, and vulnerable identity access tokens. 
+To eliminate data drift, cognitive friction, and data integrity errors across all 10 modules, AgentsGuardian enforces five global technical standards:
 
-**AgentsGuardian** serves as a security gateway, cognitive auditor, and financial throttle. Operating as a proxy layer over agent telemetry, the solution intercepts agent actions in real-time, matching them against cryptographic policies, auditing behavioral patterns, enforcing budget boundaries, and maintaining an immutable annex-compliant audit trail.
+### 1.1 SLA & Latency Standard
+- **Single Source of Truth**: All components reference a single constant \`GUARANTEED_SLA_MS = 35\` (Target: \`<35ms\`).
+- **Eliminated Variations**: Obsoleted former hardcoded figures (\`<40ms\`, \`<100ms\`).
+- **SLA Breach Rule**: Any authorized request exceeding 35ms is explicitly tagged with an inline tooltip: *"Authorized (Slow — SLA Breach: Exceeded 35ms Target)"*.
+
+### 1.2 Universal Currency & Number Formatter
+- **Currency Standard**: All monetary values use a central \`formatCurrency(amount: number)\` helper:
+  - Formats with commas and exactly two decimal places (e.g. \`$8,707.50\`, \`$1,344.00\`, \`$42.50\`).
+  - Prohibits truncated decimals like \`$8,707.5\` or missing thousand separators.
+- **Precision Standard**: Percentages format to 1 decimal place (e.g. \`95.2%\`); ROI multipliers format to 2 decimal places (e.g. \`17.40x\`).
+
+### 1.3 Locale-Aware Date & Timestamp Standard
+- **Full Timestamps**: Standardized as \`MMM DD, YYYY · HH:mm:ss\` (e.g., \`Jul 31, 2026 · 14:05:22\`).
+- **Eliminated Ambiguities**: Removed relative "tomorrow" dates caused by UTC offsets and ambiguous \`DD/MM/YYYY\` vs \`MM/DD/YYYY\` formats.
+
+### 1.4 Unified Transaction ID Factory
+- **Immutable Ledger Format**: All ledger entries, simulated events, and live API logs generate IDs using a single factory format: \`KG-GAAS-<TIMESTAMP_SUFFIX>-<ID>\` (e.g., \`KG-GAAS-804\` or \`KG-GAAS-2026-104\`).
+
+### 1.5 Status Derivation Engine
+- **Cohesive Status Logic**: Badges and gauges calculate status using a single rule:
+  - \`HEALTHY / NOMINAL\`: Health $\\ge 85\%$ and 0 active halts.
+  - \`EVALUATING / WARNING\`: Health $60-84\%$ or warning flags present.
+  - \`HALT ALERT / CRITICAL\`: Health $< 60\%$ or active policy halt.
+- **Contradiction Fix**: Prohibits displaying a \`NOMINAL\` badge next to a \`0%\` or \`HALT ALERT\` gauge.
 
 ---
 
-## 2. Product Architecture & Operational Sectioning
+## 2. Terminology Freeze & Plain-Language Dictionary
 
-Architected directly around the core vectors of enterprise agent governance, AgentsGuardian cleanly separates core administrative operations from user manual and customer onboarding functions into dedicated sections:
+To eliminate cognitive load and "security theater" technobabble, all user-facing copy is frozen and mapped to approved plain-English terms:
+
+| Legacy UI Term | Approved Plain-English Term | Rationale & User Impact |
+| :--- | :--- | :--- |
+| \`ADMINISTRATIVE CODECARD PASSWORD\` | **Password** | Standard credential label; removes pre-filled placeholder dots. |
+| \`AUTHENTICATE SESSION SECURITY\` | **Sign In** | Clear, action-oriented primary button. |
+| \`GENERATE ADMINISTRATIVE LICENSE KEY\` | **Create Account** | Describes user outcome rather than internal license artifact. |
+| \`Enroll administrator license key\` | **Create Account** | Replaces hardware-licensing vocabulary. |
+| \`GaaS Credentials Recovery · "Dispatch Key"\` | **Reset Password** / **Send Reset Link** | Industry-standard password recovery wording. |
+| \`GATEWAY TUNNEL: ADMIN // MULTI-AGENT SHIELD\` | **Settings & System Administration** | Replaces technobabble breadcrumb with plain section header. |
+| \`SYNCHRONIZE ETHICAL BASELINE\` | **Upload Ethical Guidelines** | Replaces jargon with direct file upload CTA. |
+| \`Submit Record to Ledger\` | **Create Policy** | Standard form completion button. |
+| \`Inject 15% Drift Model\` | **Run Drift Simulation Test** | Clarifies that action is a safe test simulation, not sabotage. |
+| \`TLS ENCRYPTED HYDRATION\` | *[Deleted]* | Removes meaningless pseudo-security footer text. |
+| \`TRIGGER THREAT PAYLOAD (HEADLESS DB RECORD ERASURE)\` | **Run Simulated Threat Test (Sandbox)** | Explicitly frames destructive-looking test button as safe sandbox. |
+| \`Translate Legal Act (PDF)\` | **Import Regulatory Framework (PDF)** | Focuses on legal-to-policy compliance compilation. |
+
+---
+
+## 3. Phased System Remediation Roadmap
+
+The remediation strategy is structured into three prioritized execution phases:
 
 \`\`\`
-                            [ AGENT Telemetry & API Calls ]
-                                          │
-                        ┌─────────────────┴─────────────────┐
-                        ▼                                   ▼
-              [ Active Gateway Proxy ]             [ Live Interceptor Engine ]
-                        │                                   │
-       ┌────────────────┼────────────────┐                  │
-       ▼                ▼                ▼                  ▼
-┌─────────────┐  ┌─────────────┐  ┌──────────────┐   ┌──────────────┐
-│  SECURE     │  │  OBSERVE    │  │  MEASURE     │   │  POLICY      │
-│  Pillar     │  │  Pillar     │  │  Pillar      │   │  ENGINE      │
-├─────────────┤  ├─────────────┤  ├──────────────┤   ├──────────────┤
-│ Intercepts  │  │ Cognitive   │  │ Economic     │   │ Blast Radii  │
-│ Kill-Switch │  │ Bias/Drift  │  │ ROI Tracker  │   │ Rules Matrix │
-└─────────────┘  └─────────────┘  └──────────────┘   └──────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       AGENTSGUARDIAN REMEDIATION ROADMAP                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+  │
+  ├─► PHASE 1: NOW — Stability, Safety & Data Integrity (P0 Critical)
+  │     ├── Fix Kill-Switch tab-freezing mount-time renderer lock
+  │     ├── Add Type-to-Confirm & Confirmation Modals for Destructive CTAs
+  │     ├── Implement Visible Inline Validation Errors on all forms
+  │     ├── Add Account & Sign-Out Dropdown Menu to Session Chip
+  │     ├── Parse and render clean Markdown (strip raw ** asterisks)
+  │     └── Move Toast Container away from Action CTAs & Cap Stack Size
+  │
+  ├─► PHASE 2: NEXT — Language, Trust & Onboarding (P1 High)
+  │     ├── Execute Terminology Pass across all 10 modules
+  │     ├── Reconcile SLA constants, Currency formatting, and Timestamps
+  │     ├── Add Onboarding Wizard Completion State & Persistence
+  │     ├── Reconcile Agent Health Gauge vs Card Badge Status Logic
+  │     └── Add Clear "Demo Mode" Labels to Auth Account Picker
+  │
+  └─► PHASE 3: LATER — Architecture, Hash Routing & Polish (P2 Medium)
+        ├── Implement Hash-Based URL Routing (#overview, #secure, #admin, etc.)
+        ├── Unify Central State Store (useGovernanceStore)
+        ├── Move Marketing Hero to First-Run & Collapse Explainers
+        └── Add Quiet-by-Default Notification Center behind Header Bell Icon
 \`\`\`
 
-### Modular System Organization
-1. **User & Access Management Section (\`AdminPillar.tsx\`)**: Dedicated IAM governance suite managing federated single sign-on (SSO), active operator session switching, session idle limits, SSL certificate pinning, and role-based permissions (SuperAdmin, PolicyManager, Operator, Auditor).
-2. **Tactical Command Base / Overview (\`Overview.tsx\`)**: High-level execution analytics featuring:
-   * **30-Day Execution Activity & Anomaly Heatmap**: Rolling 30-day calendar-style grid tracking daily execution density, policy interception spikes, and compliance rates.
-   * **Governed Agent Health Gauges**: Real-time SVG radial gauges calculating agent health scores based on authorized versus halted API request ratios.
-3. **Help Center & Customer Onboarding Suite (\`HelpCenter.tsx\` & \`CustomerOnboarding.tsx\`)**: Dedicated onboarding, documentation, and support suite separated into specialized tabs:
-   * **Tab 1: System Core Manual (\`docs\`)**: Interactive breakdowns of the 3 Core Pillars (Secure, Observe, Measure), Policy Engine, GaaS Webhook APIs, and Admin IAM.
-   * **Tab 2: Interactive Walkthrough Video Tour (\`video\`)**: Interactive simulated tour equipped with a **Laser Target Pointer & Crosshair Overlay**, pulse ring reticles, synchronized speech synthesis voice narration, and high-fidelity fullscreen presentation mode.
-   * **Tab 3: Customer Onboarding Suite (\`CustomerOnboarding.tsx\`)**: 5-step client onboarding protocol with API key exchange, zero-code proxy setup (\`OPENAI_BASE_URL\`), Python/Node.js/MCP SDK initializers, policy alignment, labor wage calibration, and an interactive test sandbox handshake.
-   * **Tab 4: Active Threat Interceptor Sandbox (\`simulator\`)**: Interactive step-by-step intrusion testing playground demonstrating live threat detection, connection dropping, and prompt realignment.
-   * **Tab 5: Searchable Knowledge Base & FAQ (\`faq\`)**: Comprehensive category-filtered query system with direct "Ask Copilot" escalation links.
-   * **Tab 6: Automated Support Copilot (\`copilot\`)**: Telemetry-aware GenAI assistant (\`/api/copilot\`) synthesizing active user IAM roles, budget caps ($50.00 default), regional wage rates, and drift metrics with client-side semantic fallback.
+---
+
+## 4. Phase 1 Technical Specifications (NOW — Stability & Safety)
+
+### 4.1 Fix Kill-Switch Tab Freeze (\`SecurePillar.tsx\`)
+- **Root Cause**: Component mount logic triggered unthrottled synchronous render loops and heavy state re-calculations on initialization.
+- **Specification**:
+  1. Wrap terminal stream logs and canvas particle renders in \`requestAnimationFrame\` and \`useMemo\` hooks.
+  2. Lazy-load scenario template previews on user interaction rather than on component mount.
+  3. Ensure main thread stays unblocked under 16ms per frame (60 FPS rendering target).
+
+### 4.2 Destructive Action Confirmation Modals (\`ModalDialog.tsx\`)
+- **Requirement**: Any action capable of erasing logs, revoking access, or disabling platform safety shields must present an explicit confirmation dialog.
+- **Destructive Actions Covered**:
+  1. \`Clear Ledger Logs\` (Kill-Switch): Requires clicking *"Clear Logs"* -> Confirmation Modal: *"Are you sure you want to clear the audit log ledger? This action cannot be undone."*
+  2. \`REVOKE / SUSPEND User\` (IAM): Requires Confirmation Modal showing target user email and role.
+  3. \`Clear Custom Registrations\` (IAM): Requires Confirmation Modal.
+  4. \`Dry-Run Bypass Guard\` (Platform Config): Requires a **Type-to-Confirm Dialog** requiring user to type \`BYPASS\` + SuperAdmin authorization + a **15-Minute Auto-Revert Timer** with a persistent top banner.
+  5. \`Remove Law\` (Policy Engine): Requires Confirmation Modal listing affected rule count before purging.
+
+### 4.3 Visible Inline Form Validation
+- **Requirement**: Forms submitting empty or invalid data must never fail silently.
+- **Specification**:
+  - \`PolicyConfig.tsx\`: If Policy Name is empty, display explicit red error text: *"Policy Name is required"*, focus input field, and prevent submit.
+  - \`AdminPillar.tsx\` / Auth Forms: Validate email format (\`user@domain.com\`) and minimum password length (8 chars) with visible inline message blocks.
+
+### 4.4 Account & Sign-Out Menu (\`App.tsx\` / \`Sidebar.tsx\`)
+- **Specification**:
+  - The top-right session chip (displaying user avatar, name, and role) becomes a fully interactive button.
+  - Clicking opens an Account Dropdown Menu with:
+    - User Profile & Email summary
+    - Active IAM Role Badge
+    - **Switch Role** shortcut
+    - **Sign Out** button (clears active session token and redirects to Sign-In page).
+
+### 4.5 Markdown Parsing Utility (\`utils.ts\`)
+- **Specification**: Replaces raw unrendered markdown strings (\`**Kill-Switch**\`) across all 5+ affected components with a clean rendering function \`renderMarkdownText(text: string)\` that strips syntax tokens or renders proper HTML \`<strong>\` tags.
+
+### 4.6 Toast Notification Positioning & Stack Capping (\`ToastNotifier.tsx\`)
+- **Specification**:
+  - Move toast container to **Bottom-Right** (\`bottom-6 right-6\`), away from top header action buttons.
+  - Limit active toast stack to a maximum of **2 visible toasts** at any time.
+  - Fix toast mislabel bug where success toasts were assigned the red \`SLA VIOLATION\` tag.
 
 ---
 
-## 3. Core Functional Pillars & Tactical Visual Analytics
+## 5. Phase 2 Technical Specifications (NEXT — Language & Trust)
 
-### Pillar 1: Deterministic Interception (Secure)
-Responsible for synchronous intercept loops. Matches incoming parsed JSON goals from agent scripts against local rules before letting the query reach the model.
-* **Reactive Interceptor Engine**: A multi-step sandbox simulating ingestion, real-time vigilance, risk evaluation, and immediate automatic termination (Kill-Switch).
-* **Annex IV Ledger**: A strict ledger recording latency and validation state, with cryptographically secure indexing for regulatory audits.
+### 5.1 Terminology & Microcopy Sweep
+- Apply the Plain-Language Dictionary across all 10 module components.
+- Standardize all section headers, button labels, modal titles, and empty state descriptions.
 
-### Pillar 2: Cognitive Drift & Bias Auditing (Observe)
-Analyzes response patterns asynchronously to detect compliance drift.
-* **Lighthouse Cognitive Evaluator**: Monitors shift ratios in agent language representing demographic or geographic bias (e.g., automated response variance for low-income clients).
-* **Compliance Timeline**: Chronological capture of evaluation stages, drift benchmarks, and automated alignment procedures.
-* **Role-Based Auditor Restrictions**: Auditor roles operate in read-only mode with simulation injection toggles locked and protected by padlock indicators.
+### 5.2 Customer Onboarding Completion & State Persistence (\`CustomerOnboarding.tsx\`)
+- **Specification**:
+  - Track completed wizard steps in persistent storage (\`ag_onboarding_completed_steps\`).
+  - Upon completing Step 5 (Sandbox Verification), mark onboarding as **100% COMPLETE** and render a green *"Integration Active & Verified"* banner.
+  - Provide persona-split view toggles: **Developer Integration (Code/SDKs)** vs **Admin & CISO Compliance (Policies/ROI)**.
 
-### Pillar 3: Economic Budget Guarding & Interactive Labor Value Meter (Measure)
-Performs automated cost throttling and dynamic human labor avoidance valuation.
-* **CFO Journey Timeline**: Coordinates task tracking and financial boundaries against enterprise budget caps.
-* **Feature 02: Interactive Human Labor Cost Configuration**: Regional wage rate sliders ($35/hr L1 Support, $75/hr L2 DevOps, $150/hr L3 SRE, $60/hr Security Auditor) and ticket handling benchmarks that compute Net Cost Avoidance ($ Savings) and ROI Multipliers across agent tasks in real-time.
-* **Feature 03: Economic Simulation Engine**: 6 operational stress test scenarios (High ROI Password Resets, L1 Ticket Triage Surge, Enterprise SRE Incident Remediation, Dynamic Custom Labor Benchmark Test, 1M Token Context Bloat, and Runaway Multi-Agent Infinite Loop Drain) that model API burn rates vs human labor savings.
-
-### Overview Analytics: 30-Day Execution Activity & Anomaly Heatmap
-Integrated directly into the Overview tab (\`Overview.tsx\`):
-* **30-Day Calendar Heatmap Grid**: A 7-column calendar matrix representing a 30-day rolling execution window.
-* **Dual View Modes**:
-  * **Activity Volume**: Visualizes request volume density using a 5-tier emerald heat scale (Level 0: Quiet \`#0D1B2A\` to Level 4: Peak \`#1D9E75\`).
-  * **Anomaly Frequency**: Visualizes policy interception frequency using a high-contrast amber-to-crimson spectrum (\`#6B1D1D\` for high-halt days).
-* **Day Inspector Card**: Displays deep telemetry for any selected day, including total executed requests, policy intercepts, dominant agent node, and summary key highlights, with a direct deep link to Sentinel intercept logs.
-* **30D Summary Bar**: Calculates total 30-day executions, policy interception counts, overall compliance percentage, and peak activity date.
-
-### Overview Analytics: Governed Agent Health Gauges
-* **Dynamic Radial SVG Gauges**: Displays live health percentages per governed agent node calculated as:
-  $$\\text{Health Score (\\%)} = \\left(\\frac{\\text{Authorized API Requests}}{\\text{Total Logged Requests}}\\right) \\times 100$$
-* **Status Threshold Color Coding**: Color-coded gauges transition between Teal (\`HEALTHY\`, $\\ge 85\\%$), Amber (\`EVALUATING\`, $60-84\\%$), and Crimson (\`HALT ALERT\`, $< 60\\%$).
-* **Authorized vs Halted Ratio Bars**: Micro visual progress bars comparing authorized calls against policy-blocked calls.
-
-### Regulatory Compliance Translation (Law-to-Gateway Translation Engine)
-To bridge the gap between human legal frameworks and autonomous machine execution, AgentsGuardian implements a zero-trust legal compliance parser:
-* **Legal Act Ingestion**: Operators can select preloaded presets (such as EU AI Act, California SB-1047, Colorado SB 24-205, or US Executive Order 14110) or drag-and-drop custom compliance text/PDF documents.
-* **Three-Pillar Extraction**: Parsed legal obligations are compiled into 3 specific cryptographic rule payloads, mapping directly to our core pillars: Security (Secure), Ethics (Observe), and Finance (Measure) gateways, ensuring full end-to-end alignment.
-* **Active Regulatory Framework Lifecycle Manager**: Tracks active regulatory frameworks currently in force on the active ledger. Provides compliance officers with high-level auditing and the ability to instantly purge or retire any law (along with its entire compiled rule tree) with a single click.
+### 5.3 Reconciled Agent Health Gauges & Status Logic (\`Overview.tsx\`)
+- **Specification**:
+  - Ensure radial SVG gauges and card status badges query the central \`getStatusBadge()\` engine.
+  - Replace ambiguous \`0%\` + \`NOMINAL\` states with synchronized \`0%\` + \`HALT ALERT\` visual indicators.
 
 ---
 
-## 4. Advanced System Capabilities & Innovations
+## 6. Phase 3 Technical Specifications (LATER — Architecture & Polish)
 
-### 1. Customer Onboarding & SDK Integration Protocol (\`CustomerOnboarding.tsx\`)
-A streamlined 5-step integration protocol enabling enterprises to onboard client codebases in under 10 minutes:
-* **Step 1: Security Handshake & Authenticated Key Exchange**: Generates production \`AG_PROD_KEY\` strings and environment binding variables.
-* **Step 2: Zero-Code Proxy Redirect & Multi-Framework SDKs**:
-  * **Zero-Code OpenAI Proxy**: Setting \`OPENAI_BASE_URL="https://api.agentguardian.io/v1/proxy"\` transparently proxies completions with sub-25ms latency.
-  * **Python SDK**: \`pip install agent-guardian-sdk\` with \`GuardianClient\` and \`ShieldMiddleware\` for LangChain and CrewAI.
-  * **Node.js / TypeScript SDK**: \`npm install @agent-guardian/node-sdk\` with \`GuardianProxy\`.
-  * **Model Context Protocol (MCP) Intercept Gateway**: Wraps MCP tool requests in a zero-trust interception handler.
-* **Step 3: Policy Posture & Wage Calibration**: Connects active policies to regional labor wage sliders ($35/$75/$150/hr).
-* **Step 4: Telemetry Heartbeat Pipe**: Configures live telemetry streams to feed the 30-Day Heatmap and Agent Health Gauges.
-* **Step 5: Interactive Sandbox Test Handshake**: Live test playground verifying payload evaluation, returning 200 OK nominal signatures or 403 FORBIDDEN policy interception warnings.
+### 6.1 Hash-Based URL Routing (\`App.tsx\`)
+- **Specification**:
+  - Sync active tab with browser window location hash (\`#overview\`, \`#secure\`, \`#observe\`, \`#measure\`, \`#gaas\`, \`#policy\`, \`#admin\`, \`#onboarding\`, \`#help\`).
+  - Supports deep-linking, browser Back/Forward navigation, and page refreshes without losing user context.
 
-### 2. Laser Target Pointer & Crosshair Overlay System
-In the Walkthrough Video Tour (\`HelpCenter.tsx\`), a dynamic visual guidance overlay renders a high-contrast red laser pointer reticle (\`bg-red-500 shadow-[0_0_15px_#f87171]\`), targeted crosshairs (\`w-12 h-12 border-red-500/80 rounded-full animate-ping\`), pulse rings, and focal coordinate tracking.
-* **Voice Narration Synchronization**: Coordinates with \`SpeechSynthesisUtterance\` browser audio to voice over focused sub-features in 8-second intervals as the laser reticle transitions smoothly across UI components.
-* **Immersive Fullscreen View**: Toggleable high-fidelity mode (\`fixed inset-0 z-[9999]\`) expanding captions, control decks, and scanline overlays.
+### 6.2 Unified Governance Central Store (\`useGovernanceStore\`)
+- **Specification**:
+  - Consolidate active user sessions, agent ledgers, policies, and telemetry events into a single reactive store, preventing data drift between reloads.
 
-### 3. Multi-Agent Bulk Controls & High-Precision Filtering
-Located within the GaaS / APIs panel (\`GaaSApiPillar.tsx\`):
-* **Real-Time Agent Search**: Text filtering across agent names, underlying frameworks (\`crewai\`, \`langchain\`, \`autogen\`), and active ledger states (\`NOMINAL\` vs \`HALTED\`).
-* **Bulk Operation Utility Belt**: Master Selection Checkbox and card selection controls allowing operators to invoke **🚨 Bulk Halt** (bulk-revoking keys) or **🛡️ Bulk Resume** commands across multiple agent nodes simultaneously.
-* **Governed Agents JSON Export**: One-click **Export Agents Status (JSON)** utility that outputs a complete JSON snapshot of all enrolled agents, including request counts, ledger statuses, framework ecosystems, and attached policy details.
-
-### 4. Telemetry-Aware Automated Support Copilot
-Integrated into Tab 6 of the Help Center and Customer Onboarding:
-* **Server-Side GenAI Endpoint (\`/api/copilot\`)**: Ingests real-time telemetry including session IAM roles, budget caps ($50.00 default), regional labor wage rates, and drift scores.
-* **Client-Side Semantic Reasoning Fallback**: Automatically takes over during offline or preview states to answer questions on system states, Kill-Switch mechanics, 30-Day Heatmap analytics, SDK setup, and labor cost formulas.
+### 6.3 Notification Center
+- **Specification**:
+  - Add a Bell Icon in the top header displaying a notification drawer for non-urgent system events, keeping ambient toast noise quiet by default.
 
 ---
 
-## 5. Component Map & Directory Layout
+## 7. Component Map & Architecture Directory
 
 \`\`\`
 src/
-├── App.tsx                   # Main State Coordinator & SLA Polling Engine
-├── types.ts                  # Pure TypeScript Interfaces & Enums
-├── data.ts                   # Seed Data & Initial Schema Structures
-├── solutionDesignContent.ts # Comprehensive Solution Design Blueprint Content
+├── App.tsx                   # Main State Coordinator, Hash Router & Global Modals
+├── types.ts                  # Pure TypeScript Interfaces, Enums & Status Derivation Rules
+├── data.ts                   # Seed Data & Standardized Formatters
+├── solutionDesignContent.ts  # End-to-End Specification & Technical Blueprint (This File)
 └── components/
-    ├── Sidebar.tsx           # Multi-pillar navigation control & port status
-    ├── Overview.tsx          # 30-Day Heatmap, Agent Health Gauges & Unified Lifecycle
-    ├── CustomerOnboarding.tsx# 5-step customer onboarding guide & copilot assistant
-    ├── SecurePillar.tsx      # Real-time Kill-Switch simulator & Intercept log
-    ├── ObservePillar.tsx     # Bias evaluator, guideline loader, & drift injector
-    ├── MeasurePillar.tsx     # Budgeting console, labor sliders & Economic simulations
-    ├── PolicyConfig.tsx      # Legal Act PDF parser, framework manager & rule index
-    ├── GaaSApiPillar.tsx     # Agent search, bulk halt/resume & SLA calibrator
-    ├── AdminPillar.tsx       # User & Access Management (SSO IAM, Session Switcher)
-    ├── HelpCenter.tsx        # User Guide, System Manual, Video Tour, FAQ & Copilot
-    └── ToastNotifier.tsx     # Floating multi-tier event notifications system
+    ├── Sidebar.tsx           # Multi-pillar Navigation, Collapsed Tooltips & Port Status
+    ├── Overview.tsx          # 30-Day Heatmap, Reconciled Health Gauges & Lifecycle Feed
+    ├── CustomerOnboarding.tsx# 5-Step Integration Wizard, Step Persistence & Copilot
+    ├── SecurePillar.tsx      # Throttled Kill-Switch Simulator, Ledger & Confirmation Modals
+    ├── ObservePillar.tsx     # Bias Evaluator, Guidelines Loader & Drift Simulation Test
+    ├── MeasurePillar.tsx     # CFO Budget Console, Wage Sliders & Economic Stress Tests
+    ├── PolicyConfig.tsx      # Regulatory Act Ingestion, Rule Index & Form Validation
+    ├── GaaSApiPillar.tsx     # Agent Search, Bulk Operations & Webhook Tester Sandbox
+    ├── AdminPillar.tsx       # User & IAM Management, Role Matrix & Dry-Run Bypass Guard
+    ├── HelpCenter.tsx        # System Manual, Video Tour with Laser Reticle, FAQ & Copilot
+    └── ToastNotifier.tsx     # Relocated Bottom-Right Notification System (Max Stack: 2)
 \`\`\`
 
 ---
 
-## 6. Key Interactive Workflows & Verification
+## 8. Verification & Acceptance Criteria
 
-### Test Case A: 30-Day Heatmap & Governed Agent Health Gauges (\`Overview.tsx\`)
-1. Navigate to the **Overview** tab.
-2. Observe the **Governed Agent Health Gauges** card grid displaying real-time radial health scores and authorized/halted ratio bars.
-3. Locate the **30-Day Execution Activity & Anomaly Heatmap** component.
-4. Toggle between **Activity Volume** (emerald density) and **Anomaly Frequency** (crimson interception density) view modes.
-5. Click on any individual day square in the 7-column calendar matrix to inspect detailed daily telemetry (executed requests, intercepts, dominant agent, and summary points) in the **Day Inspector Card**.
-
-### Test Case B: Customer Onboarding Guide & Sandbox Handshake (\`CustomerOnboarding.tsx\`)
-1. Navigate to the **Help Center** or **Customer Onboarding** section.
-2. Step through the 5 setup tabs (Keys, Proxy/SDK, Policies, Telemetry, Sandbox Test).
-3. Switch between Python, Node.js, and cURL tabs to verify pre-populated, copyable code snippets containing active session tenant API keys.
-4. On **Step 5: Sandbox Test**, click **Execute Test Handshake** to run a live telemetry verification request and inspect the returned 200 OK signature or 403 FORBIDDEN warning.
-
-### Test Case C: Walkthrough Video Tour & Laser Target Pointer (\`HelpCenter.tsx\`)
-1. In the **Help Center**, select **Tab 2: Walkthrough Video Tour**.
-2. Click the **Play Video** button.
-3. Observe the **Laser Target Pointer Reticle & Crosshair Overlay** animate smoothly across UI feature areas while synchronized speech synthesis narrates the feature breakdown.
-4. Click the **Fullscreen** toggle to inspect the immersive presentation view.
-
-### Test Case D: Interactive Labor Cost Benchmarks & Economic Scenarios (\`MeasurePillar.tsx\`)
-1. Navigate to **Pillar 3: Measure**.
-2. Under **Feature 02**, adjust the hourly labor wage sliders (L1 Support, L2 DevOps, L3 SRE) or select preset industry benchmarks (FinTech, Enterprise).
-3. Observe real-time updates to Net Cost Avoidance ($) and ROI Multipliers.
-4. Under **Feature 03**, run the **Runaway Multi-Agent Infinite Loop Drain** stress test to verify automated CFO budget cap throttling ($50.00 ceiling).
-
-### Test Case E: High-Precision Search, Bulk Controls & JSON Status Export (\`GaaSApiPillar.tsx\`)
-1. Navigate to the **GaaS / APIs** tab.
-2. Type \`crewai\` into the agent search field to filter matching agent cards.
-3. Check the **Master Selection Checkbox** in the bulk actions belt.
-4. Click **🚨 Halt Selected** to bulk-revoke developer keys and shift status to HALTED. Verify with **🛡️ Bulk Resume**.
-5. Click **Export Agents Status (JSON)** in the Governed Agents header to download the status payload containing request counts, ledger statuses, and policy mappings.
-
-### Test Case F: Legal Act PDF Ingestion & Framework Purging (\`PolicyConfig.tsx\`)
-1. Navigate to the **Policy Config** tab and click **Translate Legal Act (PDF)**.
-2. Ingest a legal preset (e.g., **EU AI Act**). Confirm policies are compiled into Security, Ethics, and Finance pillars.
-3. Scroll down to **Active Regulatory Frameworks** and click **Remove Law** to purge the framework and its rule tree cleanly from the active ledger.
+| Feature / Module | Verification Test Procedure | Expected Outcome |
+| :--- | :--- | :--- |
+| **Kill-Switch Mount** | Click "Kill-Switch" in sidebar navigation on cold boot. | Instant smooth mount under 100ms with zero tab freeze or main thread lock. |
+| **Destructive Modals** | Click "Clear Ledger Logs", "REVOKE User", or "Dry-Run Bypass Guard". | Confirmation modal appears. Action executes ONLY upon explicit user confirmation. |
+| **Inline Form Validation** | In Policy Config, click "Submit Record to Ledger" with empty name. | Red error message "Policy Name is required" appears next to field. Form does not submit. |
+| **Sign-Out Menu** | Click user session chip in top right corner. | Account menu opens with role summary, role switch, and functional "Sign Out" button. |
+| **Markdown Cleanliness** | Inspect Overview, Kill-Switch, and GaaS copy. | All text renders clean without literal \`**\` asterisks. |
+| **30-Day Heatmap** | In Overview, toggle between "Activity Volume" and "Anomaly Frequency". | Heatmap grid updates colors dynamically; clicking a day loads telemetry details card. |
+| **Onboarding Wizard** | Complete Steps 1 through 5 in Customer Onboarding. | Step progress persists; Step 5 renders green "Integration Complete" banner upon success. |
+| **Download Blueprint** | In Help Center, click "Download Blueprint (.MD)". | Downloads \`AgentsGuardian_Solution_Design.md\` containing this specification. |
 
 ---
 
-## 7. System Styling & Security Access Controls
-
-* **Dark "Hex-Coal" Visual Theme**: Primary canvas \`#090e17\`, Panel card \`#162030\` with border \`#1F2E40\`. Accent colors: Energetic Green (\`#1D9E75\`) for Nominal states, Warning Amber (\`#EF9F27\`), and Crimson (\`#E24B4A\`) for Halts.
-* **Role-Gated Blueprint Specification Download**: Downloading this Solution Design Document (\`.md\`) is restricted to the Workspace Owner (\`mritunjoysingh@gmail.com\`) or verified \`SuperAdmin\` session profiles. Read-only Auditor profiles display a classified restriction gate with instructions to switch sessions.
+*This specification serves as the formal baseline contract for all technical engineering, UI/UX refinements, and quality assurance tests across the AgentsGuardian Sovereign Governance OS platform.*
 `;
+
 

@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { Sliders, Plus, Shield, Activity, Coins, ToggleLeft, ToggleRight, Trash2, CheckCircle2, Search, UploadCloud, Scale, FileText, Check, Loader2, AlertCircle, ArrowRight, Sparkles } from 'lucide-react';
 import { Policy, PolicyCategory } from '../types';
+import ConfirmationModal from './ConfirmationModal';
 
 interface PolicyConfigProps {
   policies: Policy[];
@@ -23,6 +24,13 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
   const [newRadius, setNewRadius] = useState<string>('Sandbox Container');
   const [newThreshold, setNewThreshold] = useState<string>('Enforce instantly');
   const [success, setSuccess] = useState<boolean>(false);
+
+  // Inline form errors
+  const [formError, setFormError] = useState<{ name?: string; desc?: string } | null>(null);
+
+  // Delete modal states
+  const [policyToDelete, setPolicyToDelete] = useState<Policy | null>(null);
+  const [lawToRemove, setLawToRemove] = useState<string | null>(null);
 
   // Legal compliance parser states
   const [showLawParser, setShowLawParser] = useState<boolean>(false);
@@ -46,7 +54,21 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName || !newDesc) return;
+    const errors: { name?: string; desc?: string } = {};
+
+    if (!newName.trim()) {
+      errors.name = 'Policy Name is required';
+    }
+    if (!newDesc.trim()) {
+      errors.desc = 'Description / Constraint Logic rules are required';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormError(errors);
+      return;
+    }
+
+    setFormError(null);
 
     const newObj: Policy = {
       id: newCode,
@@ -54,8 +76,8 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
       name: newName,
       description: newDesc,
       category: newCat,
-      blastRadius: newRadius,
-      threshold: newThreshold,
+      blastRadius: newRadius || 'Sandbox Container',
+      threshold: newThreshold || 'Enforce instantly',
       enabled: true
     };
 
@@ -458,7 +480,7 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
             className={`px-4 py-2.5 ${showLawParser ? 'bg-[#9333EA] border-[#C084FC]/30 text-white shadow-[#9333EA]/20' : 'bg-[#1F2E40] border-[#2A3E56] text-[#F0EEE6] hover:bg-[#2A3E56]'} border font-display font-bold text-xs rounded-lg transition shadow-md flex items-center gap-1.5 cursor-pointer`}
             id="btn-trigger-law-parser"
           >
-            <Scale size={14} /> Translate Legal Act (PDF)
+            <Scale size={14} /> Import Regulatory Framework (PDF)
           </button>
 
           <button
@@ -802,15 +824,22 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             <div>
-              <label className="text-[#8B9BAA] block mb-1">Policy Name</label>
+              <label className="text-[#8B9BAA] block mb-1">Policy Name *</label>
               <input 
                 type="text" 
                 value={newName} 
-                onChange={(e) => setNewName(e.target.value)}
+                onChange={(e) => {
+                  setNewName(e.target.value);
+                  if (formError?.name) setFormError(prev => prev ? { ...prev, name: undefined } : null);
+                }}
                 placeholder="e.g. Purge Command Validation Core"
-                className="w-full bg-[#0D1B2A] border border-[#1F2E40] rounded p-2.5 text-slate-205 font-mono focus:outline-none focus:ring-1 focus:ring-[#1D9E75]/35" 
-                required
+                className={`w-full bg-[#0D1B2A] border rounded p-2.5 text-slate-205 font-mono focus:outline-none ${formError?.name ? 'border-red-500 focus:ring-1 focus:ring-red-500' : 'border-[#1F2E40] focus:ring-1 focus:ring-[#1D9E75]/35'}`} 
               />
+              {formError?.name && (
+                <span className="text-[10px] text-red-400 font-mono mt-1 block font-bold flex items-center gap-1">
+                  <AlertCircle size={10} /> {formError.name}
+                </span>
+              )}
             </div>
 
             <div>
@@ -821,20 +850,26 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
                 onChange={(e) => setNewThreshold(e.target.value)}
                 placeholder="e.g. Halt on budget spike past $25"
                 className="w-full bg-[#0D1B2A] border border-[#1F2E40] rounded p-2.5 text-slate-205 font-mono focus:outline-none focus:ring-1 focus:ring-[#1D9E75]/35" 
-                required
               />
             </div>
           </div>
 
           <div className="text-xs">
-            <label className="text-[#8B9BAA] block mb-1">Description / Constraint Logic rules</label>
+            <label className="text-[#8B9BAA] block mb-1">Description / Constraint Logic rules *</label>
             <textarea 
               value={newDesc} 
-              onChange={(e) => setNewDesc(e.target.value)}
+              onChange={(e) => {
+                setNewDesc(e.target.value);
+                if (formError?.desc) setFormError(prev => prev ? { ...prev, desc: undefined } : null);
+              }}
               placeholder="Provide exact rules for the Policy Interceptor to evaluate."
-              className="w-full h-20 bg-[#0D1B2A] border border-[#1F2E40] rounded p-2.5 text-slate-200 font-mono focus:outline-none focus:ring-1 focus:ring-[#1D9E75]/35" 
-              required
+              className={`w-full h-20 bg-[#0D1B2A] border rounded p-2.5 text-slate-200 font-mono focus:outline-none ${formError?.desc ? 'border-red-500 focus:ring-1 focus:ring-red-500' : 'border-[#1F2E40] focus:ring-1 focus:ring-[#1D9E75]/35'}`} 
             />
+            {formError?.desc && (
+              <span className="text-[10px] text-red-400 font-mono mt-1 block font-bold flex items-center gap-1">
+                <AlertCircle size={10} /> {formError.desc}
+              </span>
+            )}
           </div>
 
           <div className="flex justify-end gap-3 text-xs font-mono mt-2">
@@ -850,7 +885,7 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
               className="px-4 py-2 bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white rounded shadow font-medium cursor-pointer"
               id="btn-register-policy-submit"
             >
-              Submit Record to Ledger
+              Create Policy
             </button>
           </div>
         </form>
@@ -936,10 +971,7 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
                     </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        const toDelete = policies.filter(p => p.sourceLaw === lawName);
-                        toDelete.forEach(p => onDeletePolicy(p.id));
-                      }}
+                      onClick={() => setLawToRemove(lawName)}
                       className="px-2 py-1 bg-red-950/20 hover:bg-red-500/10 hover:text-[#E24B4A] text-zinc-500 border border-transparent hover:border-red-500/20 rounded transition text-[10px] font-mono flex items-center gap-1 cursor-pointer select-none font-bold"
                       title={`Remove entire ${lawName} framework`}
                     >
@@ -1100,7 +1132,7 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
               </button>
 
               <button
-                onClick={() => onDeletePolicy(policy.id)}
+                onClick={() => setPolicyToDelete(policy)}
                 className="p-2 hover:bg-red-500/10 hover:text-[#E24B4A] text-[#556070] border border-transparent rounded transition cursor-pointer"
                 title="Delete policy"
               >
@@ -1110,6 +1142,52 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
           </div>
         )))}
       </div>
+
+      {/* Confirmation Modal: Delete Individual Policy */}
+      <ConfirmationModal
+        isOpen={Boolean(policyToDelete)}
+        onClose={() => setPolicyToDelete(null)}
+        onConfirm={() => {
+          if (policyToDelete) {
+            onDeletePolicy(policyToDelete.id);
+            setPolicyToDelete(null);
+          }
+        }}
+        title={`Purge Policy ${policyToDelete?.code}?`}
+        description={`This will permanently remove policy "${policyToDelete?.name}" from gateway intercept rules. Connected AI agents will no longer be evaluated against this rule.`}
+        confirmLabel="Purge Policy"
+        cancelLabel="Cancel"
+        severity="danger"
+        badgeText="POLICY PURGE"
+        detailsList={[
+          `Code: ${policyToDelete?.code}`,
+          `Category: ${policyToDelete?.category}`,
+          `Blast Radius: ${policyToDelete?.blastRadius}`
+        ]}
+      />
+
+      {/* Confirmation Modal: Remove Law Framework */}
+      <ConfirmationModal
+        isOpen={Boolean(lawToRemove)}
+        onClose={() => setLawToRemove(null)}
+        onConfirm={() => {
+          if (lawToRemove) {
+            const toDelete = policies.filter(p => p.sourceLaw === lawToRemove);
+            toDelete.forEach(p => onDeletePolicy(p.id));
+            setLawToRemove(null);
+          }
+        }}
+        title={`Remove ${lawToRemove} Legal Framework?`}
+        description={`This action will delete all active enforcement rules mapped from ${lawToRemove}. API gateway proxy nodes will no longer enforce these statutory constraints.`}
+        confirmLabel={`Purge ${lawToRemove} Framework`}
+        cancelLabel="Keep Legal Framework"
+        severity="danger"
+        badgeText="LEGAL FRAMEWORK REMOVAL"
+        detailsList={[
+          `Framework: ${lawToRemove}`,
+          `Rules Affected: ${policies.filter(p => p.sourceLaw === lawToRemove).length} active policy rules`
+        ]}
+      />
     </div>
   );
 }

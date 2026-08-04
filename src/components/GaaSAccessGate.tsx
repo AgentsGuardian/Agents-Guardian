@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { Shield, Lock, Eye, EyeOff, User, Mail, Briefcase, Landmark, CheckCircle2, Server, Star, HelpCircle, Activity } from 'lucide-react';
 import { motion } from 'motion/react';
 import { AdminUser, AdminRole } from '../types';
+import AgentsGuardianLogo from './Logo';
 
 interface GaaSAccessGateProps {
   users: AdminUser[];
@@ -206,20 +207,7 @@ export default function GaaSAccessGate({
           </div>
 
           <div className="space-y-6 relative z-10">
-            <div className="flex items-center gap-3">
-              <svg viewBox="0 0 30 30" className="w-10 h-10 flex-shrink-0" fill="none">
-                <path d="M15 2L27 8.5V21.5L15 28L3 21.5V8.5Z" fill="#1D9E75" stroke="#0F6E56" strokeWidth="1"/>
-                <text x="15" y="19" textAnchor="middle" fontSize="11" fontWeight="700" fill="white" fontFamily="sans-serif">G</text>
-              </svg>
-              <div>
-                <h1 className="font-display font-extrabold text-[22px] tracking-tight text-white leading-none">
-                  Agents<span className="text-teal-400">Guardian</span>
-                </h1>
-                <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest block font-bold mt-1">
-                  Sovereign Governance OS
-                </span>
-              </div>
-            </div>
+            <AgentsGuardianLogo size="lg" subtitle="Sovereign Governance OS" />
 
             <div className="pt-6 border-t border-[#1F2E40]/60 space-y-4">
               <div className="flex gap-3">
@@ -607,7 +595,7 @@ export default function GaaSAccessGate({
                 id="sumbit-auth-credentials-btn"
               >
                 <Shield size={14} className="text-white" />
-                {isLoginView ? 'Authenticate Session Security' : 'Generate Administrative License Key'}
+                {isLoginView ? 'Sign In' : 'Create Account'}
               </button>
             </div>
 
@@ -617,7 +605,7 @@ export default function GaaSAccessGate({
           <div className="mt-6 pt-5 border-t border-[#1F2E40]/40 flex items-center justify-between text-[11px] text-zinc-500 font-mono">
             <span className="flex items-center gap-1.5 leading-none">
               <span className="h-2 w-2 rounded-full bg-teal-500/30 block animate-pulse"></span>
-              TLS ENCRYPTED HYDRATION
+              SECURE TLS ENCRYPTED CONNECTION
             </span>
             <span className="text-[11px] text-zinc-500">
               GaaS-SYS-AUTH_v4.1
@@ -1032,7 +1020,7 @@ export default function GaaSAccessGate({
                     }}
                     className="flex-1 py-2 rounded-lg bg-teal-500 hover:bg-teal-400 text-white text-xs font-bold transition-colors cursor-pointer"
                   >
-                    Dispatch Key
+                    Send Password Reset Link
                   </button>
                 </div>
               </div>

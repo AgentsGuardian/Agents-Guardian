@@ -393,7 +393,7 @@ export default function HelpCenter({
       title: "6. Client Environment Integration & Zero-Code Proxy",
       start: 125,
       end: 150,
-      label: "ONBOARDING & ZERO-CODE GATEWAY PROXY",
+      label: "CLIENT INTEGRATION & ZERO-CODE PROXY",
       badge: "CLIENT INTEGRATION",
       narrator: "Finally, configuring AgentsGuardian in your production client environment is seamless. Integrate via our Zero-Code Proxy by setting your OPENAI_BASE_URL to our gateway, or drop in our Native TypeScript or Python SDK wrapper with just three lines of code. Thank you for watching!",
       screenshotType: "gaas"
@@ -523,7 +523,7 @@ export default function HelpCenter({
     } else if (currentSeg.id === 'gaas') {
       if (segTime < 8) {
         return {
-          title: 'Production Client Environment Onboarding',
+          title: 'Production Client Environment Integration',
           description: 'Zero-friction setup for production LLM client applications.',
           top: '8%',
           left: '8%'
@@ -796,8 +796,8 @@ export default function HelpCenter({
     {
       id: 'auditor-read-only-restrictions',
       category: 'drift',
-      question: "Why is the 'Inject 15% Drift Model' button locked under my active session?",
-      answer: "Under federated IAM security norms, users logged in as 'Auditor' are restricted to read-only compliance access. To safeguard production systems against accidental simulation injections or unintended drift logs, the 'Inject 15% Drift Model' option on the Observability Sentinel board displays a padlock and is fully disabled. To play with this or any other interactive threat/drift simulation, swap your administrative user session to 'SuperAdmin' or 'PolicyManager' via the profile catalog dropdown on the outer right header banner.",
+      question: "Why is the 'Run Drift Simulation Test' button locked under my active session?",
+      answer: "Under federated IAM security norms, users logged in as 'Auditor' are restricted to read-only compliance access. To safeguard production systems against accidental simulation injections or unintended drift logs, the 'Run Drift Simulation Test' option on the Observability Sentinel board displays a padlock and is fully disabled. To play with this or any other interactive threat/drift simulation, swap your administrative user session to 'SuperAdmin' or 'PolicyManager' via the profile catalog dropdown on the outer right header banner.",
       keywords: ['inject drift locked', 'auditor restriction', '15% drift model', 'simulation lock', 'read-only role', 'security policy']
     },
     {
@@ -838,8 +838,8 @@ export default function HelpCenter({
     {
       id: 'regulatory-pdf-translation',
       category: 'drift',
-      question: "How do I translate compliance PDFs or legal frameworks into active policy rules?",
-      answer: "By navigating to the 'Policy Config' tab and clicking 'Translate Legal Act (PDF)' in the header, you can upload compliance documents/PDFs or choose presets (e.g., EU AI Act, California SB-1047). The system's ingestion engine parses these documents and synthesizes three distinct rules precisely separated across our visual ledger under their appropriate categories: Security Pillar (Secure), Ethics Pillar (Observe), and Finance Pillar (Measure) columns. This eliminates manual configuration errors.",
+      question: "How do I import compliance PDFs or legal frameworks into active policy rules?",
+      answer: "By navigating to the 'Policy Config' tab and clicking 'Import Regulatory Framework (PDF)' in the header, you can upload compliance documents/PDFs or choose presets (e.g., EU AI Act, California SB-1047). The system's ingestion engine parses these documents and synthesizes three distinct rules precisely separated across our visual ledger under their appropriate categories: Security Pillar (Secure), Ethics Pillar (Observe), and Finance Pillar (Measure) columns. This eliminates manual configuration errors.",
       keywords: ['pdf translation', 'legal translation', 'eu ai act', 'sb-1047', 'pillar separation', 'compliance rules', 'compliance ingestion', 'regulatory rules']
     },
     {
@@ -866,9 +866,9 @@ export default function HelpCenter({
     {
       id: 'customer-onboarding-suite-faq',
       category: 'api',
-      question: "How do I onboard my customer application codebase to AgentsGuardian GaaS?",
-      answer: "Navigate to the 'Customer Onboarding' section (or Tab 3 in Help Center). The 5-step calibration protocol guides you through: 1) Security Handshake & Key Exchange (copying AG_PROD_KEY to your .env); 2) Zero-Code Proxy Redirect (setting OPENAI_BASE_URL) or native Python/Node.js/MCP SDK setup; 3) Policy Posture & Labor Wage Calibration ($35/$75/$150/hr); 4) Telemetry Pipe Configuration; and 5) Interactive Sandbox Test Handshake verification returning live 200 OK or 403 FORBIDDEN results.",
-      keywords: ['customer onboarding', 'client onboarding', 'sdk integration', '5-step calibration', 'openai_base_url', 'sandbox test', 'onboarding copilot']
+      question: "How do I integrate my client application codebase with AgentsGuardian GaaS?",
+      answer: "Navigate to the 'GaaS / APIs' section or Threat Interceptor Sandbox in the Help Center. The integration protocol guides you through: 1) Security Handshake & Key Exchange (copying AG_PROD_KEY to your .env); 2) Zero-Code Proxy Redirect (setting OPENAI_BASE_URL) or native Python/Node.js/MCP SDK setup; 3) Policy Posture & Labor Wage Calibration ($35/$75/$150/hr); 4) Telemetry Pipe Configuration; and 5) Interactive Sandbox Test Handshake verification returning live 200 OK or 403 FORBIDDEN results.",
+      keywords: ['client integration', 'sdk integration', '5-step calibration', 'openai_base_url', 'sandbox test', 'integration copilot']
     }
   ], []);
 
@@ -957,7 +957,7 @@ AgentsGuardian provides comprehensive, role-gated documentation across multiple 
 
 1. **System Core Manual & User Guide (Tab 1)**: Interactive breakdowns of all 4 Core Pillars (**Secure**, **Observe**, **Measure**, **Admin IAM**), Policy Engine, and GaaS APIs.
 2. **Downloadable Solution Design Blueprint (.md)**: Located at the bottom of the Help Center. Workspace Owners (\`mritunjoysingh@gmail.com\`) and SuperAdmins can download the complete **AgentsGuardian Solution Design Document (.md)** mapping architectural pillars, threat templates, telemetry pipelines, and test cases. Read-only Auditor profiles display a classified restriction gate with instructions to switch sessions.
-3. **Customer Onboarding Suite (Tab 3)**: A 5-step integration guide with copyable Python, Node.js, cURL, and MCP SDK initializers and an active test sandbox.`;
+3. **Interactive Threat Interceptor Sandbox**: Test sandbox initializers and live verification protocol.`;
       } else if (query.includes('nominal') || query.includes('status')) {
         replyText = `### SYSTEM STATE: **GAAS NOMINAL**
 The **GAAS NOMINAL** state is the ultimate operational safety index. It signifies that your multi-agent ecosystem is operating securely and completely within pre-allocated corporate bounds.
@@ -1017,12 +1017,12 @@ The GaaS system supports 3 key categories of policy rules:
 **Assigning Blast Radius:**
 Each policy defines a specific **Blast Radius** (*Non-Human Identity*, *Database Actions*, *Outbound Telemetry*). This classifies the impact level and helps incident response teams easily trace breach triggers.`;
       } else if (query.includes('implementation') || query.includes('onboard') || query.includes('how to implement') || query.includes('setup') || query.includes('curl') || query.includes('api') || query.includes('integrate') || query.includes('code') || query.includes('sdk') || query.includes('step')) {
-        replyText = `### ONBOARDING & IMPLEMENTATION: **5-STEP GAAS CLIENT INTEGRATION PROTOCOL**
+        replyText = `### CLIENT INTEGRATION: **5-STEP GAAS CLIENT INTEGRATION PROTOCOL**
 
 To integrate Agent Guardian (GaaS) into your client codebase, follow these 5 steps:
 
 **Step 1: Security Handshake & Authenticated Key Exchange**
-- Generate your client API token in the **Client Onboarding Guide (Tab 2)**.
+- Generate your client API token in the **GaaS / APIs** tab.
 - Securely store your \`AG_PROD_KEY\` in your server environment variables.
 
 **Step 2: Outbound Proxy / Zero-Code Integration**
@@ -1049,12 +1049,12 @@ is_valid, report = shield.inspect_packet({
 - Pipe execution heartbeats with sub-10ms latency for live drift & ROI tracking.
 
 **Step 5: Testing & Dynamic Sandbox Verification**
-- Run local handshake verification:
+- Run local handshake verification in the **Threat Interceptor Sandbox**:
 \`\`\`bash
 npx @agent-guardian/cli test-handshake --apiKey=ag_prod_${currentUser.id.substring(0,8)}_enc
 \`\`\`
 
-Navigate to **Tab 2: Client Onboarding Guide** in the Help Center to view interactive code generators for Python, Node.js, and curl!`;
+Navigate to the **GaaS / APIs** tab or Threat Interceptor Sandbox in the Help Center to view interactive code generators!`;
         isCode = true;
       } else if (query.includes('search') || query.includes('filter') || query.includes('find') || query.includes('agent list') || query.includes('bulk') || query.includes('checkbox') || query.includes('halt') || query.includes('resume')) {
         replyText = `### UX: **HIGH-PRECISION SEARCH & MULTI-AGENT BULK CONTROLS**
@@ -1215,18 +1215,6 @@ Here is the specific analysis for your query: *"**${text}**"*.
         </button>
 
         <button
-          onClick={() => onNavigateTab('onboarding')}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-t-lg text-xs font-bold transition-all relative shrink-0 cursor-pointer text-zinc-400 hover:text-white hover:bg-zinc-900/30"
-          id="tab-btn-implementation"
-        >
-          <Sliders size={14} className="text-zinc-500" />
-          2. Customer Onboarding
-          <span className="ml-1 text-[8.5px] bg-[#1D9E75]/15 text-[#1D9E75] border border-[#1D9E75]/25 px-1.5 py-0.2 rounded leading-none font-bold">
-            Dedicated Section 🚀
-          </span>
-        </button>
-
-        <button
           onClick={() => setActiveTab('video')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-t-lg text-xs font-bold transition-all relative shrink-0 cursor-pointer ${
             activeTab === 'video' 
@@ -1236,7 +1224,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
           id="tab-btn-video"
         >
           <Video size={14} className={activeTab === 'video' ? 'text-blue-400' : 'text-zinc-500'} />
-          3. Complete Video Tour
+          2. Complete Video Tour
           <span className="ml-1 text-[8.5px] bg-blue-500/15 text-blue-400 border border-blue-500/25 px-1.5 py-0.2 rounded leading-none font-bold animate-pulse">
             Product Walkthrough
           </span>
@@ -1252,7 +1240,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
           id="tab-btn-simulator"
         >
           <Terminal size={14} className={activeTab === 'simulator' ? 'text-blue-400' : 'text-zinc-500'} />
-          4. Threat Interceptor Sandbox
+          3. Threat Interceptor Sandbox
           <span className="ml-1 text-[8.5px] bg-red-500/15 text-red-540 border border-red-500/25 px-1 py-0.2 rounded leading-none">
             Interactive
           </span>
@@ -1268,7 +1256,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
           id="tab-btn-faq"
         >
           <BookMarked size={14} className={activeTab === 'faq' ? 'text-blue-400' : 'text-zinc-500'} />
-          5. Knowledge Base & FAQ
+          4. Knowledge Base & FAQ
         </button>
 
         <button
@@ -1281,7 +1269,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
           id="tab-btn-copilot"
         >
           <MessageSquare size={14} className={activeTab === 'copilot' ? 'text-blue-400' : 'text-zinc-500'} />
-          6. Automated Support Copilot
+          5. Automated Support Copilot
           <span className="ml-1 text-[8.5px] bg-teal-500/15 text-teal-450 border border-teal-500/25 px-1 py-0.2 rounded leading-none font-bold animate-pulse">
             Live
           </span>
@@ -1476,7 +1464,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
                       onClick={() => onNavigateTab('policies')}
                       className="text-[10px] text-zinc-400 hover:text-indigo-400 font-mono flex items-center gap-1 transition-colors cursor-pointer"
                     >
-                      Translate Legal PDF →
+                      Import Regulatory Framework →
                     </button>
                   </div>
                   <h3 className="text-sm font-bold text-slate-105">🛡️ Regulatory Ingestion, Three-Pillar Separation, and Law Purging</h3>
@@ -1675,26 +1663,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
           </div>
         )}
 
-        {/* TAB: NEW CLIENT IMPLEMENTATION & ONBOARDING GUIDE */}
-        {activeTab === 'implementation' && (
-          <div className="p-8 rounded-2xl bg-zinc-950 border border-zinc-850 text-center max-w-xl mx-auto my-8 space-y-4 shadow-2xl">
-            <div className="w-14 h-14 rounded-full bg-teal-500/10 border border-teal-500/25 flex items-center justify-center mx-auto text-teal-400">
-              <Rocket size={28} />
-            </div>
-            <h3 className="text-lg font-bold text-white font-display">🚀 Customer Onboarding & Integration Suite</h3>
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              Customer Onboarding & SDK setup is now separated into its own top-level section in the navigation menu for an enhanced user experience and focused workflow.
-            </p>
-            <button
-              onClick={() => onNavigateTab('onboarding')}
-              className="px-5 py-2.5 bg-teal-550/20 hover:bg-teal-500/30 border border-teal-500/40 text-teal-300 text-xs font-mono font-bold rounded-lg transition-all cursor-pointer inline-flex items-center gap-2"
-            >
-              Open 🚀 Customer Onboarding Section →
-            </button>
-          </div>
-        )}
 
-        {/* TAB: WALKTHROUGH VIDEO TOUR */}
 
         {/* TAB: WALKTHROUGH VIDEO TOUR */}
         {activeTab === 'video' && (
@@ -2476,7 +2445,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
                 </div>
 
                 <div className="p-4 rounded-xl border border-dashed border-zinc-850 bg-black/20 text-center space-y-2.5">
-                  <h5 className="text-[11.5px] font-bold text-slate-105 font-sans">Required onboarding assistance?</h5>
+                  <h5 className="text-[11.5px] font-bold text-slate-105 font-sans">Required integration assistance?</h5>
                   <p className="text-[10px] text-zinc-500 leading-relaxed">
                     Chat directly with our custom automated GaaS support agent located on the support copilot panel!
                   </p>
@@ -2820,7 +2789,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
                 {[
                   'How do I export Governed Agent Status (JSON)?',
                   'How do I use Model Context Protocol (MCP) with GaaS?',
-                  'How do I implement Client Onboarding & SDKs?',
+                  'How do I integrate Client SDKs & Zero-Code Proxy?',
                   'What does "GAAS NOMINAL" mean?',
                   'Does Threat Interceptor use Kill-Switch?',
                   'How do Labor Wage Sliders & ROI work?',

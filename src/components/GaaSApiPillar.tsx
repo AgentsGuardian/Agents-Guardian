@@ -666,7 +666,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
         <div className="flex gap-2.5 bg-zinc-950 p-2.5 rounded-lg border border-zinc-900 shrink-0">
           <div className="text-right font-mono text-xs pr-2.5 border-r border-zinc-800">
             <span className="text-[10px] text-zinc-500 block">SLA GUARANTEE</span>
-            <span className="text-emerald-400 font-bold">&lt; 100ms Target</span>
+            <span className="text-emerald-400 font-bold">&lt; 35ms Target</span>
           </div>
           <div className="text-left font-mono text-xs pl-2.5">
             <span className="text-[10px] text-zinc-500 block">GATEWAY STATUS</span>

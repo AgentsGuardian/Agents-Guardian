@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Users, Key, ShieldAlert, SlidersHorizontal, Plus, Trash2, 
   Fingerprint, Globe, Check, AlertTriangle, ShieldCheck, 
@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { AdminUser, AdminRole, RolePermission, GlobalAdminSettings } from '../types';
 import { RefreshCw, Link2, LogOut, BellOff } from 'lucide-react';
+import ConfirmationModal from './ConfirmationModal';
 
 interface AdminPillarProps {
   currentUser: AdminUser;
@@ -37,10 +38,19 @@ export default function AdminPillar({
   disableAlertsGlobally, 
   setDisableAlertsGlobally 
 }: AdminPillarProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'iam' | 'roles' | 'settings' | 'registry'>('registry');
+  const [activeSubTab, setActiveSubTab] = useState<'iam' | 'roles' | 'settings' | 'registry'>('iam');
   
   // React State
   const [permissions, setPermissions] = useState<RolePermission[]>(INITIAL_PERMISSIONS);
+
+  // Confirmation modal states
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<AdminUser | null>(null);
+  const [statusConfirmUser, setStatusConfirmUser] = useState<AdminUser | null>(null);
+  const [showBypassModal, setShowBypassModal] = useState<boolean>(false);
+  const [bypassTimerSeconds, setBypassTimerSeconds] = useState<number | null>(null);
+
+  // Inline Form Error State
+  const [createUserError, setCreateUserError] = useState<{ name?: string; email?: string } | null>(null);
 
   const isDevelopmentTeam = (email: string) => {
     return email.toLowerCase().trim() === 'mritunjoysingh@gmail.com';
@@ -281,27 +291,59 @@ export default function AdminPillar({
     }));
   };
 
-  const handleToggleGlobalSetting = (key: keyof Pick<GlobalAdminSettings, 'bypassPolicyGuard' | 'mfaEnforcement' | 'disableAlertsGlobally'>) => {
-    const newVal = !settings[key];
-    setSettings(prev => ({ ...prev, [key]: newVal }));
+  // 15-minute auto-revert timer for policy bypass guardrail
+  useEffect(() => {
+    if (!settings.bypassPolicyGuard || bypassTimerSeconds === null) return;
+    if (bypassTimerSeconds <= 0) {
+      setSettings(prev => ({ ...prev, bypassPolicyGuard: false }));
+      setBypassTimerSeconds(null);
+      addToast({
+        type: 'success',
+        title: '🛡️ Policy Shield Auto-Restored',
+        message: 'The 15-minute bypass window expired. Sovereign Gateway protection has automatically re-engaged.',
+        duration: 8000
+      });
+      return;
+    }
+    const timer = setInterval(() => {
+      setBypassTimerSeconds(prev => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [settings.bypassPolicyGuard, bypassTimerSeconds, addToast]);
 
+  const confirmEnableBypass = () => {
+    setSettings(prev => ({ ...prev, bypassPolicyGuard: true }));
+    setBypassTimerSeconds(900); // 15-minute auto-revert window (900 seconds)
+    addToast({
+      type: 'danger',
+      title: '⚠️ CRITICAL: Policy Shield Bypassed!',
+      message: 'All active agent governance guardrails have been disabled. A 15-minute auto-revert timer is active.',
+      duration: 8000
+    });
+  };
+
+  const handleToggleGlobalSetting = (key: keyof Pick<GlobalAdminSettings, 'bypassPolicyGuard' | 'mfaEnforcement' | 'disableAlertsGlobally'>) => {
     if (key === 'bypassPolicyGuard') {
-      if (newVal) {
-        addToast({
-          type: 'danger',
-          title: '⚠️ CRITICAL: Policy Shield Bypassed!',
-          message: 'All active agent governance guardrails have been disabled (Dry-Run active). Intercept telemetry is muted.',
-          duration: 8000
-        });
+      if (!settings.bypassPolicyGuard) {
+        setShowBypassModal(true);
+        return;
       } else {
+        setSettings(prev => ({ ...prev, bypassPolicyGuard: false }));
+        setBypassTimerSeconds(null);
         addToast({
           type: 'success',
           title: 'Shield Protection Restored',
           message: 'Gateway proxy rules are now fully operational and enforcing active policy intercept limits.',
           duration: 5000
         });
+        return;
       }
-    } else if (key === 'disableAlertsGlobally') {
+    }
+
+    const newVal = !settings[key];
+    setSettings(prev => ({ ...prev, [key]: newVal }));
+
+    if (key === 'disableAlertsGlobally') {
       setDisableAlertsGlobally(newVal);
       addToast({
         type: newVal ? 'warning' : 'success',
@@ -611,7 +653,13 @@ export default function AdminPillar({
 
                               {/* Suspend toggler */}
                               <button
-                                onClick={() => handleToggleUserStatus(user.id)}
+                                onClick={() => {
+                                  if (user.email === 'mritunjoysingh@gmail.com') {
+                                    handleToggleUserStatus(user.id);
+                                  } else {
+                                    setStatusConfirmUser(user);
+                                  }
+                                }}
                                 disabled={!currentRolePerms.manageUsers}
                                 className={`text-[10px] font-bold uppercase transition-all px-2 py-1 rounded cursor-pointer border ${
                                   !currentRolePerms.manageUsers
@@ -627,7 +675,13 @@ export default function AdminPillar({
 
                               {/* Delete credential button */}
                               <button
-                                onClick={() => handleDeleteUser(user.id, user.name)}
+                                onClick={() => {
+                                  if (user.email === 'mritunjoysingh@gmail.com') {
+                                    handleDeleteUser(user.id, user.name);
+                                  } else {
+                                    setDeleteConfirmUser(user);
+                                  }
+                                }}
                                 disabled={!currentRolePerms.manageUsers}
                                 className={`p-1 px-1.5 bg-zinc-950 border border-zinc-850 rounded transition-colors ${
                                   !currentRolePerms.manageUsers
@@ -1602,6 +1656,72 @@ export default function AdminPillar({
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal: Delete User Credentials */}
+      <ConfirmationModal
+        isOpen={Boolean(deleteConfirmUser)}
+        onClose={() => setDeleteConfirmUser(null)}
+        onConfirm={() => {
+          if (deleteConfirmUser) {
+            handleDeleteUser(deleteConfirmUser.id, deleteConfirmUser.name);
+            setDeleteConfirmUser(null);
+          }
+        }}
+        title={`Revoke Credentials for ${deleteConfirmUser?.name}?`}
+        description={`This will permanently remove administrative credentials for ${deleteConfirmUser?.email}. Access token authorization will be immediately terminated across all active sessions.`}
+        confirmLabel="Revoke Credentials"
+        cancelLabel="Keep User Account"
+        severity="danger"
+        badgeText="PERMANENT DELETION"
+        detailsList={[
+          `User: ${deleteConfirmUser?.name} (${deleteConfirmUser?.email})`,
+          `Role: ${deleteConfirmUser?.role}`,
+          "Active OAuth session tokens will be invalidated immediately"
+        ]}
+      />
+
+      {/* Confirmation Modal: Toggle User Account Status */}
+      <ConfirmationModal
+        isOpen={Boolean(statusConfirmUser)}
+        onClose={() => setStatusConfirmUser(null)}
+        onConfirm={() => {
+          if (statusConfirmUser) {
+            handleToggleUserStatus(statusConfirmUser.id);
+            setStatusConfirmUser(null);
+          }
+        }}
+        title={`${statusConfirmUser?.status === 'ACTIVE' ? 'Suspend' : 'Re-Activate'} Account for ${statusConfirmUser?.name}?`}
+        description={statusConfirmUser?.status === 'ACTIVE'
+          ? `Suspending ${statusConfirmUser?.name} (${statusConfirmUser?.email}) will temporarily block API key creation and system configuration changes.`
+          : `Re-activating ${statusConfirmUser?.name} will restore account access permissions.`
+        }
+        confirmLabel={statusConfirmUser?.status === 'ACTIVE' ? 'Suspend Account' : 'Re-Activate Account'}
+        cancelLabel="Cancel"
+        severity={statusConfirmUser?.status === 'ACTIVE' ? 'warning' : 'info'}
+        badgeText="ACCOUNT ACCESS UPDATE"
+      />
+
+      {/* Confirmation Modal: Bypass Policy Guard */}
+      <ConfirmationModal
+        isOpen={showBypassModal}
+        onClose={() => setShowBypassModal(false)}
+        onConfirm={() => {
+          confirmEnableBypass();
+          setShowBypassModal(false);
+        }}
+        title="⚠️ Bypass Active Policy Guardrails?"
+        description="Bypassing policy guardrails puts the Gateway into Dry-Run mode. Real-time interceptors and kill-switches will BE DISABLED for all connected AI agents. A 15-minute auto-revert window will automatically re-engage protection if left active."
+        confirmLabel="BYPASS GUARDRAILS"
+        cancelLabel="Keep Guardrails Active"
+        typeToConfirm="BYPASS"
+        severity="danger"
+        badgeText="SECURITY BYPASS CRITICAL"
+        detailsList={[
+          "All active policy interceptors will be set to DRY-RUN mode",
+          "Automated kill-switch signals will be suppressed",
+          "15-minute auto-revert timer will automatically re-engage protection"
+        ]}
+      />
     </div>
   );
 }
