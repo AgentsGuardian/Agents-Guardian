@@ -270,7 +270,7 @@ AgentsGuardian operates as an inline reverse proxy with synchronous blocking cap
 
 ### 3. AI-Powered Regulatory Compliance Translation
 Rather than manually composing complex JSON security configurations, AgentsGuardian includes an **automated legal text parser**:
-* **Compliance Ingest**: Ingests official PDF texts or international presets (such as the *EU AI Act 2024*, *California SB-1047*, or *US Executive Order 14110*).
+* **Compliance Ingest**: Ingests official PDF texts or international presets (such as the *EU AI Act (Annex IV & Art. 12)*, *California SB 53 (2025 Enacted)*, or *US Federal Executive AI Policy Framework*).
 * **Obligation Extraction**: Employs deep text reasoning to parse structural liabilities, converting them into machine-actionable guardrails.
 * **Three-Pillar Separation**: Synthesized rules are cleanly segregated and displayed under their respective columns: Security Pillar (Secure), Ethics Pillar (Observe), and Finance Pillar (Measure) cards. This ensures immediate clarity regarding which legal obligation protects which operational vector.
 * **Dynamic Revocation (Cascade Deletes)**: Tracks active laws and their generated rules on the ledger. Compliance officers can retire a law instantly with a single click of the red **"Remove Law"** button. This performs a clean cascade purge, deleting the framework and all of its compiled rules from the system instantly, eliminating compliance bloat and stale rules.
@@ -309,7 +309,7 @@ The following block diagram demonstrates the network topology and relationship b
 │   │  ┌──────────────┐      ┌──────────────────────────────┐      ┌─────────────┐  │
 │   ├──┤ PDF Ingest   ├─────►│ Regulatory Parser (GenAI)    ├─────►│ Policy Laws │  │
 │   │  └──────────────┘      │ - Decodes human legal texts  │      │ - EU AI Act │  │
-│   │                        │ - Extracts real obligations  │      │ - SB-1047   │  │
+│   │                        │ - Extracts real obligations  │      │ - CA SB 53  │  │
 │   │                        └──────────────┬───────────────┘      └─────────────┘  │
 │   │                                       ▼ (Separation and Sorting)              │
 │   │                                       │                                       │

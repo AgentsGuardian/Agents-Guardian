@@ -4,6 +4,7 @@
  */
 
 import { Policy, KillSignalEvent, DriftLogEvent, ValueMeterMetric, AdminUser } from './types';
+import { GUARANTEED_SLA_MS } from './utils';
 
 export const INITIAL_POLICIES: Policy[] = [
   {
@@ -13,7 +14,7 @@ export const INITIAL_POLICIES: Policy[] = [
     description: 'Intercept and block headless actions modifying the production customer database without matching ERP compliance context approval keys.',
     category: 'security',
     blastRadius: 'Non-Human Identity',
-    threshold: 'Zero-Trust (HALT <35ms Target)',
+    threshold: `Zero-Trust (HALT <${GUARANTEED_SLA_MS}ms Target)`,
     enabled: true
   },
   {
@@ -195,7 +196,7 @@ export const SIMULATION_TRIGGER_TEMPLATES: TaskTrigger[] = [
     actionType: 'Database Deletion',
     description: 'Autonomous worker attempts purge of inactive user databases without registered ERP compliance validation code credentials.',
     rawJson: `{\n  "action": "bulk_db_delete",\n  "table": "customer_leads_production",\n  "record_count": 14050,\n  "security_context": {\n    "non_human_identity": "Agent-Support-Bot-4",\n    "execution_mode": "headless_scheduler",\n    "erp_compliance_approval": false\n  }\n}`,
-    expectedResult: 'Kill-Switch triggers instantly (<100ms), blocks DB write, generates immutable audit log.'
+    expectedResult: `Kill-Switch triggers instantly (<${GUARANTEED_SLA_MS}ms), blocks DB write, generates immutable audit log.`
   },
   {
     id: 'trig-sec-bash-vuln',

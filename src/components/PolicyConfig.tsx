@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { Sliders, Plus, Shield, Activity, Coins, ToggleLeft, ToggleRight, Trash2, CheckCircle2, Search, UploadCloud, Scale, FileText, Check, Loader2, AlertCircle, ArrowRight, Sparkles } from 'lucide-react';
 import { Policy, PolicyCategory } from '../types';
+import { generateTransactionId } from '../utils';
 import ConfirmationModal from './ConfirmationModal';
 
 interface PolicyConfigProps {
@@ -107,8 +108,8 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
         {
           id: "POL-EU-01",
           code: "POL-SEC-EU",
-          name: "GPAI Risk Assessment Protocol (EU Art. 9)",
-          description: "Mandates continuous risk evaluations for General Purpose AI systems. Secure gateway blocks model executions failing strict runtime sandbox container boundaries.",
+          name: "GPAI Technical Documentation & Risk Protocol (EU Annex IV & Art. 9)",
+          description: "Mandates technical documentation under Annex IV and continuous risk evaluations for GPAI systems. Secure gateway blocks model executions failing strict runtime sandbox container boundaries.",
           category: "security",
           blastRadius: "Global Gateway",
           threshold: "Halt instantly",
@@ -117,11 +118,11 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
         {
           id: "POL-EU-02",
           code: "POL-ETH-EU",
-          name: "Algorithmic Bias Audit Sentinel (EU Art. 10)",
-          description: "Requires representative data sets and active drift scoring. Ethical sentinel audits model responses and alerts compliance operators of potential demographic bias.",
+          name: "Record-Keeping & Logging Sentinel (EU Art. 12)",
+          description: "Implements mandatory record-keeping and automated event logging pursuant to EU AI Act Article 12. Audits model responses, logging incidents to avoid maximum statutory penalties up to €35M / 7% global turnover.",
           category: "ethics",
           blastRadius: "Agent Container",
-          threshold: "Warn on drift >70%",
+          threshold: "Log & Audit",
           enabled: true
         },
         {
@@ -135,13 +136,13 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
           enabled: true
         }
       ];
-    } else if (act.includes("executive") || act.includes("eo 14110") || act.includes("federal") || act.includes("us")) {
+    } else if (act.includes("executive") || act.includes("federal") || act.includes("us") || act.includes("2025")) {
       return [
         {
           id: "POL-US-01",
           code: "POL-SEC-US",
-          name: "Dual-Use Foundation Safety (US Sec. 4.1)",
-          description: "Enforces strict security red-teaming standards. Interceptor halts outbound system shell invocations and requires cryptographic signature validations.",
+          name: "Dual-Use Foundation Safety (US Federal AI Posture 2025)",
+          description: "Enforces national AI red-teaming standards under the current 2025 Executive Order Framework (superseding revoked EO 14110). Interceptor halts outbound system shell invocations and validates agent payloads.",
           category: "security",
           blastRadius: "Global Gateway",
           threshold: "Enforce instantly",
@@ -150,8 +151,8 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
         {
           id: "POL-US-02",
           code: "POL-ETH-US",
-          name: "Civil Rights Discrimination Shield (US Sec. 7)",
-          description: "Prevents unfair algorithmic outputs in high-stakes environments. Ethic engine audits model sentiment and blocks disparate impacts on protected groups.",
+          name: "Civil Rights & Algorithmic Guardrails (US Federal AI 2025)",
+          description: "Prevents unfair algorithmic outputs in high-stakes operational environments. Ethic engine audits model sentiment and blocks disparate impacts on protected groups.",
           category: "ethics",
           blastRadius: "Agent Container",
           threshold: "Reject on violation",
@@ -160,21 +161,21 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
         {
           id: "POL-US-03",
           code: "POL-FIN-US",
-          name: "Sovereign Resource Allocation Caps (US Sec. 5.2)",
-          description: "Enforces national computing resource management. Restricts recursive agent reasoning loops from exceeding enterprise budget caps.",
+          name: "Federal Compute Allocation Caps (US Federal AI 2025)",
+          description: "Enforces enterprise computing resource management. Restricts recursive agent reasoning loops from exceeding enterprise budget caps.",
           category: "finance",
           blastRadius: "API Node",
           threshold: "Halt past budget",
           enabled: true
         }
       ];
-    } else if (act.includes("1047") || act.includes("california") || act.includes("sb-1047")) {
+    } else if (act.includes("sb53") || act.includes("sb-53") || act.includes("53") || act.includes("california") || act.includes("sb-1047") || act.includes("1047")) {
       return [
         {
           id: "POL-CA-01",
           code: "POL-SEC-CA",
-          name: "Frontier Model Safe Harbor (CA Sec. 22603)",
-          description: "Requires developer capability to execute an immediate Full Shutdown (Kill-Switch) of autonomous agents displaying hazardous capability levels.",
+          name: "Frontier Model Transparency & Safety (CA SB 53, 2025 Enacted)",
+          description: "Implements California's 2025 enacted frontier-model statute (replacing vetoed SB-1047). Mandates developer emergency shutdown / kill-switch capability and incident reporting.",
           category: "security",
           blastRadius: "Global Gateway",
           threshold: "Halt instantly",
@@ -183,8 +184,8 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
         {
           id: "POL-CA-02",
           code: "POL-ETH-CA",
-          name: "Critical Harm Evaluation Sentinel (CA Sec. 22604)",
-          description: "Performs continuous testing for biological, chemical, or systemic cyberattacks. Sentinel automatically quarantines agents attempting raw system network access.",
+          name: "Critical Harm Risk Protocol (CA SB 53)",
+          description: "Performs continuous testing for biological, chemical, or systemic cyberattack capabilities under California SB 53. Sentinel automatically quarantines agents attempting unauthorized system network access.",
           category: "ethics",
           blastRadius: "Agent Container",
           threshold: "Isolate & Halt",
@@ -193,7 +194,7 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
         {
           id: "POL-CA-03",
           code: "POL-FIN-CA",
-          name: "Frontier Audit Budget Safeguard (CA Sec. 22605)",
+          name: "Frontier Compliance Audit Cap (CA SB 53)",
           description: "Limits compliance-related computational expenses. Restricts unmoderated retrieval calls to protect active operational budget thresholds.",
           category: "finance",
           blastRadius: "API Node",
@@ -206,8 +207,8 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
         {
           id: "POL-CO-01",
           code: "POL-SEC-CO",
-          name: "Deployer Algorithmic Risk Manager (CO SB 24-205)",
-          description: "Requires deployers of high-risk systems to establish continuous risk mitigation logs. Validates security intercept logs every 24 hours.",
+          name: "Deployer Risk Tracking (CO SB 24-205 • Delayed to June 2026)",
+          description: "Tracks risk mitigation requirements under Colorado SB 24-205 (amended and framed under tracking status with enforcement delayed to June 2026). Validates security logs periodically.",
           category: "security",
           blastRadius: "Global Gateway",
           threshold: "Log transactions",
@@ -216,8 +217,8 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
         {
           id: "POL-CO-02",
           code: "POL-ETH-CO",
-          name: "Consumer Discrimination Protection (CO SB 24-205)",
-          description: "Mitigates algorithmic discrimination against consumers. Audits output language alignment scores and flags deviations under Colorado consumer protection rules.",
+          name: "Consumer Bias Monitoring (CO SB 24-205)",
+          description: "Tracks algorithmic discrimination risks in consumer decisioning. Audits output language alignment scores under Colorado's updated June 2026 framework.",
           category: "ethics",
           blastRadius: "Agent Container",
           threshold: "Flag & Notify",
@@ -271,7 +272,7 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
       const normalizedAct = (filename || preset || "Custom Compliance Directive").replace(/[_-]/g, ' ');
       return [
         {
-          id: "POL-GEN-SEC-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+          id: generateTransactionId('POL-GEN-SEC'),
           code: "POL-SEC-GEN",
           name: `Secure Shield Alignment: ${normalizedAct}`,
           description: `Outbound gateway intercepts and filters unauthorized system executions to protect local infrastructure under the guidelines of ${normalizedAct}.`,
@@ -281,7 +282,7 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
           enabled: true
         },
         {
-          id: "POL-GEN-ETH-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+          id: generateTransactionId('POL-GEN-ETH'),
           code: "POL-ETH-GEN",
           name: `Ethical Compliance Sentinel: ${normalizedAct}`,
           description: `Active sentinel continuously evaluates model response alignments and cognitive drift levels to satisfy compliance audits for ${normalizedAct}.`,
@@ -291,7 +292,7 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
           enabled: true
         },
         {
-          id: "POL-GEN-FIN-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+          id: generateTransactionId('POL-GEN-FIN'),
           code: "POL-FIN-GEN",
           name: `Financial Guardrail Cap: ${normalizedAct}`,
           description: `Implements the Spend Guardrail protocol to halt recursive agent conversations or bloated context transmissions under ${normalizedAct}.`,
@@ -394,10 +395,10 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
     if (!generatedPolicies) return;
     
     const sourceLawName = selectedPreset ? (
-      selectedPreset === 'eu-ai-act' ? 'EU AI Act 2024' : 
-      selectedPreset === 'us-executive-order' ? 'US EO 14110' : 
-      selectedPreset === 'ca-sb1047' ? 'California SB-1047' : 
-      selectedPreset === 'co-sb-205' ? 'Colorado SB 24-205' : 'Act Preset'
+      selectedPreset === 'eu-ai-act' ? 'EU AI Act (Annex IV & Art. 12)' : 
+      selectedPreset === 'us-executive-order' ? 'US Federal AI Framework (2025)' : 
+      selectedPreset === 'ca-sb53' || selectedPreset === 'ca-sb1047' ? 'CA SB 53 (2025 Enacted)' : 
+      selectedPreset === 'co-sb-205' ? 'Colorado SB 24-205 (Tracking - June 2026)' : 'Act Preset'
     ) : (uploadingFile || 'Custom Act Document');
 
     generatedPolicies.forEach(policy => {
@@ -530,28 +531,28 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
             <div className="flex flex-wrap gap-1.5">
               <span className="text-[10px] font-mono text-[#556070] font-semibold self-center mr-1">Law Presets:</span>
               <button
-                onClick={() => handlePresetSelect('eu-ai-act', 'EU AI Act 2024')}
+                onClick={() => handlePresetSelect('eu-ai-act', 'EU AI Act (Annex IV & Art. 12)')}
                 className={`px-2.5 py-1 text-[11px] font-mono rounded-md border transition cursor-pointer ${selectedPreset === 'eu-ai-act' ? 'bg-[#9333EA]/20 border-[#C084FC]/50 text-[#D8B4FE]' : 'bg-[#0D1B2A]/40 border-[#1F2E40] text-[#8B9BAA] hover:border-[#556070]'}`}
               >
                 🇪🇺 EU AI Act
               </button>
               <button
-                onClick={() => handlePresetSelect('us-executive-order', 'US EO 14110')}
+                onClick={() => handlePresetSelect('us-executive-order', 'US Federal AI Framework (2025)')}
                 className={`px-2.5 py-1 text-[11px] font-mono rounded-md border transition cursor-pointer ${selectedPreset === 'us-executive-order' ? 'bg-[#9333EA]/20 border-[#C084FC]/50 text-[#D8B4FE]' : 'bg-[#0D1B2A]/40 border-[#1F2E40] text-[#8B9BAA] hover:border-[#556070]'}`}
               >
-                🇺🇸 US EO
+                🇺🇸 US Federal AI
               </button>
               <button
-                onClick={() => handlePresetSelect('ca-sb1047', 'California SB-1047')}
-                className={`px-2.5 py-1 text-[11px] font-mono rounded-md border transition cursor-pointer ${selectedPreset === 'ca-sb1047' ? 'bg-[#9333EA]/20 border-[#C084FC]/50 text-[#D8B4FE]' : 'bg-[#0D1B2A]/40 border-[#1F2E40] text-[#8B9BAA] hover:border-[#556070]'}`}
+                onClick={() => handlePresetSelect('ca-sb53', 'CA SB 53 (2025 Enacted)')}
+                className={`px-2.5 py-1 text-[11px] font-mono rounded-md border transition cursor-pointer ${selectedPreset === 'ca-sb53' || selectedPreset === 'ca-sb1047' ? 'bg-[#9333EA]/20 border-[#C084FC]/50 text-[#D8B4FE]' : 'bg-[#0D1B2A]/40 border-[#1F2E40] text-[#8B9BAA] hover:border-[#556070]'}`}
               >
-                🐻 CA SB-1047
+                🐻 CA SB 53 (2025)
               </button>
               <button
-                onClick={() => handlePresetSelect('co-sb-205', 'Colorado SB 24-205')}
+                onClick={() => handlePresetSelect('co-sb-205', 'Colorado SB 24-205 (Tracking)')}
                 className={`px-2.5 py-1 text-[11px] font-mono rounded-md border transition cursor-pointer ${selectedPreset === 'co-sb-205' ? 'bg-[#9333EA]/20 border-[#C084FC]/50 text-[#D8B4FE]' : 'bg-[#0D1B2A]/40 border-[#1F2E40] text-[#8B9BAA] hover:border-[#556070]'}`}
               >
-                🏔️ CO SB-205
+                🏔️ CO SB 24-205
               </button>
             </div>
           </div>
@@ -594,10 +595,10 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
                     <span className="text-[#8B9BAA] truncate">Source:</span>
                     <span className="text-white truncate font-semibold">
                       {uploadingFile || (
-                        selectedPreset === 'eu-ai-act' ? 'EU AI Act 2024' : 
-                        selectedPreset === 'us-executive-order' ? 'US EO 14110' : 
-                        selectedPreset === 'ca-sb1047' ? 'California SB-1047' : 
-                        selectedPreset === 'co-sb-205' ? 'Colorado SB 24-205' : 'Act Preset'
+                        selectedPreset === 'eu-ai-act' ? 'EU AI Act (Annex IV Docs & Art. 12 Logs)' : 
+                        selectedPreset === 'us-executive-order' ? 'US Federal AI Posture (Post-EO 14110)' : 
+                        selectedPreset === 'ca-sb53' || selectedPreset === 'ca-sb1047' ? 'CA SB 53 (2025 Enacted Statute)' : 
+                        selectedPreset === 'co-sb-205' ? 'Colorado SB 24-205 (Tracking - June 2026)' : 'Act Preset'
                       )}
                     </span>
                   </div>

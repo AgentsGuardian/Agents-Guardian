@@ -19,6 +19,7 @@ interface SidebarProps {
   addToast: (t: Omit<Toast, 'id' | 'timestamp'>) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  governanceMode?: 'setup' | 'active';
 }
 
 export default function Sidebar({ 
@@ -31,7 +32,8 @@ export default function Sidebar({
   users,
   addToast,
   isCollapsed,
-  onToggleCollapse
+  onToggleCollapse,
+  governanceMode = 'setup'
 }: SidebarProps) {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -42,8 +44,8 @@ export default function Sidebar({
     { id: 'measure', name: '▦ Value Meter', icon: Coins, description: 'Economic Process & ROI', badge: 'ERP Cost Sync', badgeStyle: 'bg-[#EF9F27]/12 text-[#EF9F27] border-[#EF9F27]/30' },
     { id: 'gaas', name: '⬢ GaaS / APIs', icon: Cpu, description: 'Multi-Framework Core REST', badge: 'REST Webhook', badgeStyle: 'bg-teal-500/15 text-teal-450 border-teal-500/20' },
     { id: 'policies', name: 'Policy Engine', icon: Sliders, description: 'Configure Blast Radii', badge: `${policiesCount} Rules`, badgeStyle: 'bg-zinc-800/50 text-zinc-400 border-zinc-800' },
+    { id: 'onboarding', name: '🚀 Customer Onboarding', icon: Rocket, description: '5-Step Integration & SDK Setup', badge: governanceMode === 'setup' ? 'SETUP MODE' : 'ACTIVE SETUP', badgeStyle: governanceMode === 'setup' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse' : 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
     { id: 'admin', name: '⚙ Setting & IAM', icon: Settings, description: 'Enterprise Access Control', badge: 'Admin Shield', badgeStyle: 'bg-indigo-550/15 text-indigo-400 border-indigo-500/20' },
-    { id: 'onboarding', name: '🚀 Customer Onboarding', icon: Rocket, description: '5-Step Integration & SDKs', badge: 'SDK & Proxy', badgeStyle: 'bg-teal-500/15 text-teal-300 border-teal-500/25' },
     { id: 'help', name: '❖ User Guide & Help', icon: HelpCircle, description: 'Docs, Video & AI Copilot', badge: 'Docs & Help', badgeStyle: 'bg-blue-500/15 text-blue-400 border-blue-500/25' },
   ];
 

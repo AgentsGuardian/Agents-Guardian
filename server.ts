@@ -144,7 +144,7 @@ is_valid, report = shield.inspect_packet({
 - Configure regional labor wage sliders ($35/hr L1, $75/hr L2, $150/hr L3) and set your **$${budgetCap}.00 Session Budget Cap**.
 
 **Step 4: Real-Time Telemetry Sentinel**
-- Pipe execution heartbeats with sub-10ms latency for live drift & ROI tracking.
+- Pipe execution heartbeats with sub-10ms deterministic authorization and sub-100ms semantic threat scanning for live drift & ROI tracking.
 
 **Step 5: Testing & Dynamic Sandbox Verification**
 - Run local handshake verification:
@@ -313,8 +313,8 @@ Return ONLY a valid raw JSON array containing exactly these 3 objects. Do not in
         {
           id: "POL-EU-01",
           code: "POL-SEC-EU",
-          name: "GPAI Risk Assessment Protocol (EU Art. 9)",
-          description: "Mandates continuous risk evaluations for General Purpose AI systems. Secure gateway blocks model executions failing strict runtime sandbox container boundaries.",
+          name: "GPAI Technical Documentation & Risk Protocol (EU Annex IV & Art. 9)",
+          description: "Mandates technical documentation under Annex IV and continuous risk evaluations for GPAI systems. Secure gateway blocks model executions failing strict runtime sandbox container boundaries.",
           category: "security",
           blastRadius: "Global Gateway",
           threshold: "Halt instantly",
@@ -323,11 +323,11 @@ Return ONLY a valid raw JSON array containing exactly these 3 objects. Do not in
         {
           id: "POL-EU-02",
           code: "POL-ETH-EU",
-          name: "Algorithmic Bias Audit Sentinel (EU Art. 10)",
-          description: "Requires representative data sets and active drift scoring. Ethical sentinel audits model responses and alerts compliance operators of potential demographic bias.",
+          name: "Record-Keeping & Logging Sentinel (EU Art. 12)",
+          description: "Implements mandatory record-keeping and automated event logging pursuant to EU AI Act Article 12. Audits model responses, logging incidents to avoid maximum statutory penalties up to €35M / 7% global turnover.",
           category: "ethics",
           blastRadius: "Agent Container",
-          threshold: "Warn on drift >70%",
+          threshold: "Log & Audit",
           enabled: true
         },
         {
@@ -346,8 +346,8 @@ Return ONLY a valid raw JSON array containing exactly these 3 objects. Do not in
         {
           id: "POL-US-01",
           code: "POL-SEC-US",
-          name: "Dual-Use Foundation Safety (US Sec. 4.1)",
-          description: "Enforces strict security red-teaming standards. Interceptor halts outbound system shell invocations and requires cryptographic signature validations.",
+          name: "Dual-Use Foundation Safety (US Federal AI Posture 2025)",
+          description: "Enforces national AI red-teaming standards under the current 2025 Executive Order Framework (superseding revoked EO 14110). Interceptor halts outbound system shell invocations and validates agent payloads.",
           category: "security",
           blastRadius: "Global Gateway",
           threshold: "Enforce instantly",
@@ -356,8 +356,8 @@ Return ONLY a valid raw JSON array containing exactly these 3 objects. Do not in
         {
           id: "POL-US-02",
           code: "POL-ETH-US",
-          name: "Civil Rights Discrimination Shield (US Sec. 7)",
-          description: "Prevents unfair algorithmic outputs in high-stakes environments. Ethic engine audits model sentiment and blocks disparate impacts on protected groups.",
+          name: "Civil Rights & Algorithmic Guardrails (US Federal AI 2025)",
+          description: "Prevents unfair algorithmic outputs in high-stakes operational environments. Ethic engine audits model sentiment and blocks disparate impacts on protected groups.",
           category: "ethics",
           blastRadius: "Agent Container",
           threshold: "Reject on violation",
@@ -366,21 +366,21 @@ Return ONLY a valid raw JSON array containing exactly these 3 objects. Do not in
         {
           id: "POL-US-03",
           code: "POL-FIN-US",
-          name: "Sovereign Resource Allocation Caps (US Sec. 5.2)",
-          description: "Enforces national computing resource management. Restricts recursive agent reasoning loops from exceeding enterprise budget caps.",
+          name: "Federal Compute Allocation Caps (US Federal AI 2025)",
+          description: "Enforces enterprise computing resource management. Restricts recursive agent reasoning loops from exceeding enterprise budget caps.",
           category: "finance",
           blastRadius: "API Node",
           threshold: "Halt past budget",
           enabled: true
         }
       ];
-    } else if (act.includes("1047") || act.includes("california") || act.includes("sb-1047")) {
+    } else if (act.includes("sb53") || act.includes("sb-53") || act.includes("53") || act.includes("california") || act.includes("sb-1047") || act.includes("1047")) {
       generatedPolicies = [
         {
           id: "POL-CA-01",
           code: "POL-SEC-CA",
-          name: "Frontier Model Safe Harbor (CA Sec. 22603)",
-          description: "Requires developer capability to execute an immediate Full Shutdown (Kill-Switch) of autonomous agents displaying hazardous capability levels.",
+          name: "Frontier Model Transparency & Safety (CA SB 53, 2025 Enacted)",
+          description: "Implements California's 2025 enacted frontier-model statute (replacing vetoed SB-1047). Mandates developer emergency shutdown / kill-switch capability and incident reporting.",
           category: "security",
           blastRadius: "Global Gateway",
           threshold: "Halt instantly",
@@ -389,8 +389,8 @@ Return ONLY a valid raw JSON array containing exactly these 3 objects. Do not in
         {
           id: "POL-CA-02",
           code: "POL-ETH-CA",
-          name: "Critical Harm Evaluation Sentinel (CA Sec. 22604)",
-          description: "Performs continuous testing for biological, chemical, or systemic cyberattacks. Sentinel automatically quarantines agents attempting raw system network access.",
+          name: "Critical Harm Risk Protocol (CA SB 53)",
+          description: "Performs continuous testing for biological, chemical, or systemic cyberattack capabilities under California SB 53. Sentinel automatically quarantines agents attempting unauthorized system network access.",
           category: "ethics",
           blastRadius: "Agent Container",
           threshold: "Isolate & Halt",
@@ -399,7 +399,7 @@ Return ONLY a valid raw JSON array containing exactly these 3 objects. Do not in
         {
           id: "POL-CA-03",
           code: "POL-FIN-CA",
-          name: "Frontier Audit Budget Safeguard (CA Sec. 22605)",
+          name: "Frontier Compliance Audit Cap (CA SB 53)",
           description: "Limits compliance-related computational expenses. Restricts unmoderated retrieval calls to protect active operational budget thresholds.",
           category: "finance",
           blastRadius: "API Node",
@@ -412,8 +412,8 @@ Return ONLY a valid raw JSON array containing exactly these 3 objects. Do not in
         {
           id: "POL-CO-01",
           code: "POL-SEC-CO",
-          name: "Deployer Algorithmic Risk Manager (CO SB 24-205)",
-          description: "Requires deployers of high-risk systems to establish continuous risk mitigation logs. Validates security intercept logs every 24 hours.",
+          name: "Deployer Risk Tracking (CO SB 24-205 • Tracking / Delayed to June 2026)",
+          description: "Tracks risk mitigation requirements under Colorado SB 24-205 (amended and framed under tracking status with enforcement delayed to June 2026). Validates security logs periodically.",
           category: "security",
           blastRadius: "Global Gateway",
           threshold: "Log transactions",
@@ -422,8 +422,8 @@ Return ONLY a valid raw JSON array containing exactly these 3 objects. Do not in
         {
           id: "POL-CO-02",
           code: "POL-ETH-CO",
-          name: "Consumer Discrimination Protection (CO SB 24-205)",
-          description: "Mitigates algorithmic discrimination against consumers. Audits output language alignment scores and flags deviations under Colorado consumer protection rules.",
+          name: "Consumer Bias Monitoring (CO SB 24-205)",
+          description: "Tracks algorithmic discrimination risks in consumer decisioning. Audits output language alignment scores under Colorado's updated June 2026 framework.",
           category: "ethics",
           blastRadius: "Agent Container",
           threshold: "Flag & Notify",

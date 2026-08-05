@@ -54,7 +54,7 @@ export interface KillSignalEvent {
   actionCommand: string;
   interceptedPacket: string; // API endpoint
   policyViolated: string;
-  latencyMs: number; // e.g. 45 -> must be <100ms
+  latencyMs: number; // e.g. 24 -> must be <35ms (GUARANTEED_SLA_MS)
   status: 'HALTED' | 'ALLOWED';
   rawJsonIntent: string;
   timestampAnnexV: string;

@@ -11,6 +11,7 @@ import {
   FileText, Download, Video, Pause, Volume2, VolumeX, Check, Lock, Maximize, Minimize, DollarSign, Copy, Rocket
 } from 'lucide-react';
 import { Policy, AdminUser, Toast, KillSignalEvent, DriftLogEvent, ValueMeterMetric, ApiRequestLog, GoverningAgent, LaborConfig } from '../types';
+import { GUARANTEED_SLA_MS } from '../utils';
 import { SOLUTION_DESIGN_MARKDOWN_CONTENT } from '../solutionDesignContent';
 
 import Overview from './Overview';
@@ -385,7 +386,7 @@ export default function HelpCenter({
       end: 125,
       label: "REGULATORY COMPLIANCE & LEGAL ACT TRANSLATION",
       badge: "COMPLIANCE & LAWS",
-      narrator: "Here in the Policy Engine, compliance managers can turn legal documents like the EU AI Act or California SB-1047 into active guardrails. Our compiler categorizes rules into Security, Ethics, and Finance pillars. If a regulation changes, you can purge the law and its rules in a single click.",
+      narrator: "Here in the Policy Engine, compliance managers can turn legal documents like the EU AI Act (Annex IV & Art. 12) or California SB 53 into active guardrails. Our compiler categorizes rules into Security, Ethics, and Finance pillars. If a regulation changes, you can purge the law and its rules in a single click.",
       screenshotType: "policies"
     },
     {
@@ -445,7 +446,7 @@ export default function HelpCenter({
         };
       } else {
         return {
-          title: '<35ms Instant Interception Latency & Incident Logging',
+          title: `<${GUARANTEED_SLA_MS}ms Instant Interception Latency & Incident Logging`,
           description: 'Logging incident telemetry instantly while halting rogue agent executions.',
           top: '75%',
           left: '45%'
@@ -500,7 +501,7 @@ export default function HelpCenter({
     } else if (currentSeg.id === 'policies') {
       if (segTime < 8) {
         return {
-          title: 'AI Legal Act Ingestion (EU AI Act & SB-1047)',
+          title: 'AI Legal Act Ingestion (EU AI Act & CA SB 53)',
           description: 'Translating compliance PDFs and legal frameworks into active code guardrails.',
           top: '8%',
           left: '65%'
@@ -727,7 +728,7 @@ export default function HelpCenter({
       id: 'nominal',
       category: 'general',
       question: "What exactly does the 'GAAS NOMINAL' system state mean?",
-      answer: "The GAAS NOMINAL label indicates that GaaS (Governance-as-a-Service) is operating in a secure, fully calibrated, and uncompromised state. Specifically, it guarantees that: 1) Every custom agent webhook is linked and reporting active telemetry; 2) The active packet interceptors are intercepting logs at <100ms latency without queue backlogs; 3) Zero unmitigated drift alarms remain unresolved in the Observability Sentinel; 4) Financial spending is under strict budget controls. If an active policy violation is detected or an agent fails its health check, the status will automatically flag an ALERT or critical MITIGATION sequence.",
+      answer: `The GAAS NOMINAL label indicates that GaaS (Governance-as-a-Service) is operating in a secure, fully calibrated, and uncompromised state. Specifically, it guarantees that: 1) Every custom agent webhook is linked and reporting active telemetry; 2) The active packet interceptors are intercepting logs at <${GUARANTEED_SLA_MS}ms latency without queue backlogs; 3) Zero unmitigated drift alarms remain unresolved in the Observability Sentinel; 4) Financial spending is under strict budget controls. If an active policy violation is detected or an agent fails its health check, the status will automatically flag an ALERT or critical MITIGATION sequence.`,
       keywords: ['gaas nominal', 'nominal', 'what is nominal', 'status', 'green state', 'system_ok']
     },
     {
@@ -839,8 +840,8 @@ export default function HelpCenter({
       id: 'regulatory-pdf-translation',
       category: 'drift',
       question: "How do I import compliance PDFs or legal frameworks into active policy rules?",
-      answer: "By navigating to the 'Policy Config' tab and clicking 'Import Regulatory Framework (PDF)' in the header, you can upload compliance documents/PDFs or choose presets (e.g., EU AI Act, California SB-1047). The system's ingestion engine parses these documents and synthesizes three distinct rules precisely separated across our visual ledger under their appropriate categories: Security Pillar (Secure), Ethics Pillar (Observe), and Finance Pillar (Measure) columns. This eliminates manual configuration errors.",
-      keywords: ['pdf translation', 'legal translation', 'eu ai act', 'sb-1047', 'pillar separation', 'compliance rules', 'compliance ingestion', 'regulatory rules']
+      answer: "By navigating to the 'Policy Config' tab and clicking 'Import Regulatory Framework (PDF)' in the header, you can upload compliance documents/PDFs or choose presets (e.g., EU AI Act, California SB 53, US Federal AI Framework 2025, or Colorado SB 24-205). The system's ingestion engine parses these documents and synthesizes rules categorized under Security, Ethics (Art. 12 logging & Annex IV docs), and Finance pillars.",
+      keywords: ['pdf translation', 'legal translation', 'eu ai act', 'sb-53', 'sb53', 'ca sb 53', 'pillar separation', 'compliance rules', 'compliance ingestion', 'regulatory rules']
     },
     {
       id: 'remove-laws-policies',
@@ -1046,7 +1047,7 @@ is_valid, report = shield.inspect_packet({
 - Configure regional labor wage sliders ($35/hr L1, $75/hr L2, $150/hr L3) and set your **$${budgetCap}.00 Session Budget Cap**.
 
 **Step 4: Real-Time Telemetry Sentinel**
-- Pipe execution heartbeats with sub-10ms latency for live drift & ROI tracking.
+- Pipe execution heartbeats with sub-10ms pre-action authorization and sub-${GUARANTEED_SLA_MS}ms SLA response for live drift & ROI tracking.
 
 **Step 5: Testing & Dynamic Sandbox Verification**
 - Run local handshake verification in the **Threat Interceptor Sandbox**:
@@ -1168,7 +1169,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
   return (
     <div className="space-y-6" id="guardian_help_pillar_container">
       {/* Header section with brand guidance */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-[#111E2E] border border-[#1F2E40] rounded-xl shadow-lg relative overflow-hidden">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 bg-[#111E2E] border border-[#1F2E40] rounded-xl shadow-lg relative overflow-hidden" id="help-center-header-banner">
         <div className="space-y-1 z-10">
           <div className="flex items-center gap-2">
             <span className="p-1 px-2.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-mono uppercase tracking-widest font-black">
@@ -1200,7 +1201,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
       </div>
 
       {/* Tab navigation selection */}
-      <div className="flex border-[#1F2E40]/60 border-b gap-1.5 scrollbar-thin overflow-x-auto pb-1">
+      <div className="flex border-[#1F2E40]/60 border-b gap-1.5 scrollbar-thin overflow-x-auto pb-1" id="help-center-tab-nav">
         <button
           onClick={() => setActiveTab('docs')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-t-lg text-xs font-bold transition-all relative shrink-0 cursor-pointer ${
@@ -1303,7 +1304,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
                 <div className="space-y-1">
                   <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">Active Threat Interceptor</h3>
                   <p className="text-[11px] text-zinc-400 leading-relaxed">
-                    Instantly quarantine rogue requests, drop toxic network commands, or halt multi-factor overspending with sub-100ms lag.
+                    Instantly quarantine rogue requests, drop toxic network commands, or halt multi-factor overspending with sub-{GUARANTEED_SLA_MS}ms lag.
                   </p>
                 </div>
               </div>
@@ -1469,7 +1470,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
                   </div>
                   <h3 className="text-sm font-bold text-slate-105">🛡️ Regulatory Ingestion, Three-Pillar Separation, and Law Purging</h3>
                   <p className="text-[11px] text-zinc-400 leading-relaxed">
-                    Translate international legal frameworks (presets like <strong>EU AI Act</strong>, <strong>CA SB-1047</strong>, or custom compliance PDFs) into operational guardrails. Policies are cleanly categorized and separated across our visual ledger under three pillars: <strong>Security Pillar</strong> (Secure), <strong>Ethics Pillar</strong> (Observe), and <strong>Finance Pillar</strong> (Measure) columns. The <strong>Active Regulatory Frameworks</strong> panel allows administrators to view all integrated laws and instantly purge any law (along with its compiled rules) with a single click.
+                    Translate international legal frameworks (presets like <strong>EU AI Act (Annex IV & Art. 12)</strong>, <strong>CA SB 53 (2025 Enacted)</strong>, or custom compliance PDFs) into operational guardrails. Policies are cleanly categorized and separated across our visual ledger under three pillars: <strong>Security Pillar</strong> (Secure), <strong>Ethics Pillar</strong> (Observe), and <strong>Finance Pillar</strong> (Measure) columns. The <strong>Active Regulatory Frameworks</strong> panel allows administrators to view all integrated laws and instantly purge any law (along with its compiled rules) with a single click.
                   </p>
                   <div className="pt-1.5 border-t border-zinc-900 flex gap-2">
                     <span className="text-[9px] font-mono bg-zinc-950 px-2 py-0.5 rounded text-indigo-400">PDF Translation Engine</span>
@@ -2640,7 +2641,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
         {activeTab === 'faq' && (
           <div className="space-y-6 animate-in fade-in duration-200">
             {/* Search and category filters */}
-            <div className="bg-zinc-950/70 border border-zinc-850 rounded-xl p-4 flex flex-col md:flex-row gap-4 justify-between items-center text-left">
+            <div className="bg-zinc-950/70 border border-zinc-850 rounded-xl p-4 flex flex-col md:flex-row gap-4 justify-between items-center text-left" id="faq-category-filters-container">
               <div className="relative w-full md:w-80">
                 <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
                   <Search size={14} />
@@ -2651,10 +2652,11 @@ Here is the specific analysis for your query: *"**${text}**"*.
                   value={faqSearch}
                   onChange={(e) => setFaqSearch(e.target.value)}
                   className="w-full text-xs bg-black border border-zinc-850 rounded-lg pl-9 pr-4 py-2.5 text-white focus:outline-none focus:border-blue-500 placeholder-zinc-500 transition-colors"
+                  id="faq-search-input-field"
                 />
               </div>
 
-              <div className="flex gap-1.5 overflow-x-auto w-full md:w-auto scrollbar-none">
+              <div className="flex gap-1.5 overflow-x-auto w-full md:w-auto scrollbar-none" id="faq-category-pills-bar">
                 {[
                   { id: 'all', name: 'All Topics' },
                   { id: 'general', name: 'Core OS' },

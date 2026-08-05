@@ -9,6 +9,7 @@ import {
   Terminal, ArrowRight, Play, RefreshCw, Send, DollarSign, Lock, Sparkles, Check
 } from 'lucide-react';
 import { AdminUser, Toast, Policy, LaborConfig } from '../types';
+import { GUARANTEED_SLA_MS, generateTransactionId } from '../utils';
 
 interface CustomerOnboardingProps {
   currentUser: AdminUser;
@@ -17,6 +18,8 @@ interface CustomerOnboardingProps {
   budgetCap: number;
   laborConfig?: LaborConfig;
   policies?: Policy[];
+  governanceMode?: 'setup' | 'active';
+  setGovernanceMode?: (mode: 'setup' | 'active') => void;
 }
 
 interface ChatMessage {
@@ -157,7 +160,9 @@ export default function CustomerOnboarding({
   onNavigateTab,
   budgetCap,
   laborConfig,
-  policies = []
+  policies = [],
+  governanceMode = 'setup',
+  setGovernanceMode
 }: CustomerOnboardingProps) {
   const [activeSetupStep, setActiveSetupStep] = useState<number>(() => {
     const saved = localStorage.getItem('gaas_onboarding_step_v1');
@@ -236,10 +241,11 @@ Telemetry: Heartbeat recorded in Observability Stream
 Budget Cap Status: OK ($${budgetCap}.00 remaining)`);
         setIsVerified(true);
         localStorage.setItem('gaas_onboarding_verified_v1', 'true');
+        if (setGovernanceMode) setGovernanceMode('active');
         addToast({
           type: 'success',
           title: '⚡ Handshake Verification Success',
-          message: 'GaaS Gateway returned 200 OK signature. Client handshake verified & active.'
+          message: 'GaaS Gateway returned 200 OK signature. System transitioned to Active Governance Mode.'
         });
       }
     }, 900);
@@ -252,7 +258,7 @@ Budget Cap Status: OK ($${budgetCap}.00 remaining)`);
 
     const userText = inputQuery.trim();
     const userMsg: ChatMessage = {
-      id: `u-${Date.now()}`,
+      id: generateTransactionId('u'),
       sender: 'user',
       text: userText,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -284,7 +290,7 @@ Budget Cap Status: OK ($${budgetCap}.00 remaining)`);
       }
 
       const assistantMsg: ChatMessage = {
-        id: `a-${Date.now()}`,
+        id: generateTransactionId('a'),
         sender: 'assistant',
         text: answerText,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -328,7 +334,7 @@ export OPENAI_API_KEY="ag_prod_live_${currentUser.id.substring(0,8)}_enc"
 \`\`\`
 
 2. **Execute standard completions:**
-All requests will be transparently routed through AgentsGuardian proxy with sub-25ms latency.`;
+All requests will be transparently routed through AgentsGuardian proxy with sub-${GUARANTEED_SLA_MS}ms latency.`;
       } else if (q.includes('python') || q.includes('crewai') || q.includes('langchain')) {
         replyText = `### PYTHON SDK INTEGRATION (LangChain / CrewAI)
 Install the Python client:
@@ -412,7 +418,7 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
       }
 
       const assistantMsg: ChatMessage = {
-        id: `a-${Date.now()}`,
+        id: generateTransactionId('a'),
         sender: 'assistant',
         text: replyText,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -767,7 +773,7 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
                     AgentsGuardian scans outbound transactions across three core vectors: <strong>Security</strong>, <strong>Ethics & Bias</strong>, and <strong>Financial Spending Caps</strong>.
                   </p>
                   <p>
-                    ⚖️ <strong>EU AI Act & SB-1047 Ingestion:</strong> Use the <strong>"Import Regulatory Framework"</strong> compiler in the Policy Engine to automatically convert compliance PDFs into active code rules.
+                    ⚖️ <strong>EU AI Act & CA SB 53 Ingestion:</strong> Use the <strong>"Import Regulatory Framework"</strong> compiler in the Policy Engine to automatically convert compliance PDFs into active code rules.
                   </p>
                 </div>
 
@@ -820,7 +826,7 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
                 <div className="p-4 bg-black/60 border border-zinc-900 rounded-xl font-mono text-[10.5px] space-y-1 text-teal-400">
                   <div>POST https://api.agentguardian.io/v1/telemetry/heartbeat</div>
                   <div className="text-zinc-500">Header: X-GaaS-Tenant-Key: ag_prod_live_{currentUser.id.substring(0,8)}_enc</div>
-                  <div className="text-zinc-400 font-sans text-xs mt-2">Latency: 14ms | Status: 200 OK | SLA Limit: 35ms</div>
+                  <div className="text-zinc-400 font-sans text-xs mt-2">Latency: 14ms | Status: 200 OK | SLA Limit: {GUARANTEED_SLA_MS}ms</div>
                 </div>
 
                 <div className="flex justify-between items-center pt-2">
@@ -844,21 +850,34 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
             {activeSetupStep === 5 && (
               <div className="space-y-4 animate-in fade-in duration-200">
                 {isVerified && (
-                  <div className="p-4 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 flex items-center justify-between gap-4 shadow-lg animate-in fade-in duration-300">
-                    <div className="flex items-center gap-3">
-                      <CheckCircle2 size={24} className="text-emerald-400 shrink-0" />
-                      <div>
-                        <h4 className="font-bold text-xs uppercase tracking-wider text-emerald-200 font-mono flex items-center gap-2">
-                          Integration Active & Verified
-                        </h4>
-                        <p className="text-[11px] text-emerald-300/80 mt-0.5 font-sans">
-                          Your GaaS proxy gateway handshake is fully verified and actively bound to tenant <span className="font-mono text-white">{currentUser.email}</span>.
-                        </p>
+                  <div className="p-5 rounded-xl bg-gradient-to-r from-emerald-950/80 via-teal-950/60 to-emerald-950/80 border border-emerald-500/50 text-emerald-200 shadow-xl space-y-4 animate-in fade-in duration-300">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <CheckCircle2 size={26} className="text-emerald-400 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-sm uppercase tracking-wider text-emerald-100 font-mono">
+                              🎉 Customer Onboarding Complete
+                            </h4>
+                            <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[9.5px] font-mono font-bold rounded border border-emerald-500/40 shrink-0 uppercase tracking-widest">
+                              ● ACTIVE GOVERNANCE MODE
+                            </span>
+                          </div>
+                          <p className="text-xs text-emerald-300/90 mt-1 font-sans">
+                            Your GaaS proxy gateway handshake is verified and actively bound to tenant <span className="font-mono text-white font-bold">{currentUser.email}</span>. System state transitioned from Setup Mode to Active Governance Mode across all platform modules.
+                          </p>
+                        </div>
                       </div>
+
+                      <button
+                        onClick={() => onNavigateTab('overview')}
+                        className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs rounded-lg shadow-lg hover:shadow-emerald-500/20 transition-all flex items-center gap-2 shrink-0 cursor-pointer"
+                        id="btn-goto-overview"
+                      >
+                        🚀 Go to Overview Dashboard
+                        <ArrowRight size={14} />
+                      </button>
                     </div>
-                    <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-bold rounded border border-emerald-500/30 shrink-0 uppercase tracking-widest">
-                      ● LIVE VERIFIED
-                    </span>
                   </div>
                 )}
 

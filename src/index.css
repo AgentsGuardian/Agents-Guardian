@@ -131,6 +131,9 @@ html.light-theme .bg-zinc-900\/10,
 html.light-theme .bg-zinc-950\/60,
 html.light-theme .bg-zinc-950\/80,
 html.light-theme .bg-\[\#111E2E\]\/40,
+html.light-theme .bg-\[\#111E2E\],
+html.light-theme .bg-\[\#162030\],
+html.light-theme .bg-\[\#0D1B2A\],
 html.light-theme .bg-\[\#0C121D\],
 html.light-theme .bg-\[\#0a0f18\],
 html.light-theme .bg-\[\#040811\],
@@ -142,6 +145,11 @@ html.light-theme .bg-\[\#030303\],
 html.light-theme .bg-\[\#080808\],
 html.light-theme .bg-\[\#0E0E10\],
 html.light-theme .bg-\[\#18181B\],
+html.light-theme .bg-\[\#09090B\]\/95,
+html.light-theme .bg-\[\#09090b\]\/95,
+html.light-theme .bg-\[\#09090B\],
+html.light-theme .bg-\[\#09090b\],
+html.light-theme .bg-zinc-950,
 html.light-theme .bg-zinc-850,
 html.light-theme .bg-zinc-800,
 html.light-theme .bg-slate-900,
@@ -159,7 +167,12 @@ html.light-theme .bg-black\/50,
 html.light-theme .bg-black\/30,
 html.light-theme .bg-black\/70,
 html.light-theme .bg-black\/90,
+html.light-theme .bg-black,
+html.light-theme .bg-zinc-950\/60,
+html.light-theme .bg-zinc-950\/80,
+html.light-theme .bg-zinc-950\/50,
 html.light-theme .bg-zinc-900\/90,
+html.light-theme .bg-zinc-900\/50,
 html.light-theme .bg-zinc-800\/80,
 html.light-theme .bg-zinc-900\/60 {
   background-color: #f1f5f9 !important;
@@ -180,7 +193,9 @@ html.light-theme .bg-\[\#162030\]\/60 {
 /* Header Gradient Banners in Customer Onboarding & Help Center */
 html.light-theme .bg-gradient-to-r.from-\[\#111E2E\],
 html.light-theme [class*="from-[#111E2E]"],
-html.light-theme [class*="from-[#162030]"] {
+html.light-theme [class*="from-[#162030]"],
+html.light-theme [class*="from-zinc-900"],
+html.light-theme [class*="to-black"] {
   background: linear-gradient(to right, #eff6ff, #f0f9ff, #f8fafc) !important;
   border-color: #93c5fd !important;
   color: #0f172a !important;
@@ -323,6 +338,7 @@ html.light-theme .bg-\[\#1D9E75\]\/20 {
 
 html.light-theme .text-indigo-400,
 html.light-theme .text-indigo-300,
+html.light-theme .text-blue-300,
 html.light-theme .text-blue-400,
 html.light-theme .text-blue-500 {
   color: #1d4ed8 !important;
@@ -332,10 +348,54 @@ html.light-theme .bg-indigo-950\/40,
 html.light-theme .bg-indigo-950\/30,
 html.light-theme .bg-indigo-950,
 html.light-theme .bg-blue-500\/10,
+html.light-theme .bg-blue-950\/20,
+html.light-theme .bg-blue-950\/40,
 html.light-theme .bg-indigo-500\/10 {
   background-color: #eff6ff !important;
   border-color: #bfdbfe !important;
   color: #1d4ed8 !important;
+}
+
+html.light-theme .text-purple-300,
+html.light-theme .text-purple-400 {
+  color: #7e22ce !important;
+}
+
+html.light-theme .bg-purple-500\/10,
+html.light-theme .bg-purple-950\/20,
+html.light-theme .bg-purple-950\/40,
+html.light-theme .bg-purple-950 {
+  background-color: #faf5ff !important;
+  border-color: #e9d5ff !important;
+  color: #7e22ce !important;
+}
+
+html.light-theme .text-teal-300,
+html.light-theme .text-teal-400 {
+  color: #0f766e !important;
+}
+
+html.light-theme .bg-teal-500\/10,
+html.light-theme .bg-teal-950\/20,
+html.light-theme .bg-teal-950\/40,
+html.light-theme .bg-teal-950 {
+  background-color: #f0fdf4 !important;
+  border-color: #99f6e4 !important;
+  color: #0f766e !important;
+}
+
+html.light-theme .text-sky-300,
+html.light-theme .text-sky-400 {
+  color: #0369a1 !important;
+}
+
+html.light-theme .bg-sky-500\/10,
+html.light-theme .bg-sky-950\/20,
+html.light-theme .bg-sky-950\/40,
+html.light-theme .bg-sky-950 {
+  background-color: #f0f9ff !important;
+  border-color: #bae6fd !important;
+  color: #0369a1 !important;
 }
 
 html.light-theme .text-rose-400,
@@ -400,14 +460,28 @@ html.light-theme .hover\:text-white:hover {
 /* Ensure solid action buttons keep crisp white text on colored backgrounds */
 html.light-theme .bg-\[\#1D9E75\],
 html.light-theme .bg-\[\#1D9E75\] *,
+html.light-theme .bg-\[\#1D9E75\] .font-mono,
+html.light-theme .bg-\[\#1D9E75\] .font-display,
+html.light-theme .bg-\[\#1D9E75\] span,
 html.light-theme .bg-emerald-600,
 html.light-theme .bg-emerald-600 *,
+html.light-theme .bg-emerald-600 .font-mono,
+html.light-theme .bg-emerald-600 .font-display,
+html.light-theme .bg-emerald-600 span,
 html.light-theme .bg-emerald-700,
 html.light-theme .bg-emerald-700 *,
 html.light-theme .bg-indigo-600,
 html.light-theme .bg-indigo-600 *,
 html.light-theme .bg-blue-600,
 html.light-theme .bg-blue-600 *,
+html.light-theme .bg-blue-600 .font-mono,
+html.light-theme .bg-blue-600 .font-display,
+html.light-theme .bg-blue-600 span,
+html.light-theme .bg-blue-500,
+html.light-theme .bg-blue-500 *,
+html.light-theme .bg-blue-500 .font-mono,
+html.light-theme .bg-blue-500 .font-display,
+html.light-theme .bg-blue-500 span,
 html.light-theme .bg-red-600,
 html.light-theme .bg-red-600 *,
 html.light-theme .bg-rose-600,
@@ -466,4 +540,189 @@ html.light-theme #google-id-federated-register-container {
   background-color: rgba(29, 158, 117, 0.28) !important;
   color: #0f172a !important;
 }
+
+/* Toast Notifications Light Mode Contrast Fixes */
+html.light-theme #toast-global-notifier-container [id^="toast-item-"] {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.08) !important;
+}
+
+html.light-theme #toast-global-notifier-container [id^="toast-item-"] h4 {
+  color: #0f172a !important;
+}
+
+html.light-theme #toast-global-notifier-container [id^="toast-item-"] p {
+  color: #334155 !important;
+}
+
+html.light-theme #toast-global-notifier-container [id^="toast-item-"] button {
+  color: #64748b !important;
+}
+
+html.light-theme #toast-global-notifier-container [id^="toast-item-"] button:hover {
+  color: #0f172a !important;
+  background-color: #e2e8f0 !important;
+}
+
+/* ==========================================================================
+   USER GUIDE & HELP CENTER LIGHT MODE HIGH-CONTRAST OVERRIDES
+   ========================================================================== */
+
+/* Header Banner in User Guide */
+html.light-theme #help-center-header-banner {
+  background: linear-gradient(to right, #ffffff, #f0f9ff) !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05) !important;
+}
+
+html.light-theme #help-center-header-banner h1 {
+  color: #0f172a !important;
+}
+
+html.light-theme #help-center-header-banner p {
+  color: #334155 !important;
+}
+
+/* Sliding Scale Tab Navigation Bar (Manual, Video Tour, Sandbox, FAQ, Copilot) */
+html.light-theme #help-center-tab-nav {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  padding: 6px;
+  border-radius: 12px;
+}
+
+html.light-theme #help-center-tab-nav button {
+  color: #334155 !important;
+  background-color: transparent !important;
+  border-radius: 8px !important;
+}
+
+html.light-theme #help-center-tab-nav button:hover {
+  color: #0f172a !important;
+  background-color: #e2e8f0 !important;
+}
+
+/* Active Tab in Sliding Scale */
+html.light-theme #help-center-tab-nav button[class*="bg-blue-500/5"],
+html.light-theme #help-center-tab-nav button[class*="border-b-2"] {
+  background-color: #ffffff !important;
+  color: #1d4ed8 !important;
+  border-bottom: 2px solid #2563eb !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08) !important;
+  font-weight: 800 !important;
+}
+
+html.light-theme #help-center-tab-nav button svg {
+  color: #2563eb !important;
+}
+
+/* Walkthrough Video Tour Section */
+html.light-theme #walkthrough-video-tour {
+  color: #0f172a !important;
+}
+
+/* Keep Video Player Canvas Dark & High-Contrast */
+html.light-theme #walkthrough-video-tour .bg-\[\#090e17\],
+html.light-theme #walkthrough-video-tour .bg-\[\#05070f\] {
+  background-color: #090e17 !important;
+  border-color: #334155 !important;
+}
+
+html.light-theme #walkthrough-video-tour .bg-\[\#090e17\] *,
+html.light-theme #walkthrough-video-tour .bg-\[\#05070f\] * {
+  color: #f8fafc;
+}
+
+html.light-theme #walkthrough-video-tour .bg-\[\#090e17\] .font-mono,
+html.light-theme #walkthrough-video-tour .bg-\[\#05070f\] .font-mono {
+  color: #38edf8 !important;
+}
+
+/* Video Player Controls Deck at bottom of Video */
+html.light-theme #walkthrough-video-tour [class*="bg-gradient-to-t"] {
+  background: linear-gradient(to top, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.9), transparent) !important;
+}
+
+html.light-theme #walkthrough-video-tour [class*="bg-gradient-to-t"] * {
+  color: #ffffff !important;
+}
+
+/* Video Chapters Sidebar in Light Mode */
+html.light-theme #video-segments-chapters-list button {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+html.light-theme #video-segments-chapters-list button[class*="bg-[#111e2e]"] {
+  background-color: #eff6ff !important;
+  border-color: #2563eb !important;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.1) !important;
+}
+
+html.light-theme #video-segments-chapters-list button * {
+  color: #0f172a !important;
+}
+
+html.light-theme #video-segments-chapters-list button .text-blue-400 {
+  color: #1d4ed8 !important;
+}
+
+/* Knowledge Base & FAQ Search & Sliding Category Scale */
+html.light-theme #faq-category-filters-container {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light-theme #faq-search-input-field {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Sliding Category Scale Pills */
+html.light-theme #faq-category-pills-bar button {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+html.light-theme #faq-category-pills-bar button:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+html.light-theme #faq-category-pills-bar button[class*="bg-blue-500/15"],
+html.light-theme #faq-category-pills-bar button[class*="border-blue-500"] {
+  background-color: #eff6ff !important;
+  border-color: #2563eb !important;
+  color: #1d4ed8 !important;
+  font-weight: 700 !important;
+}
+
+/* Copilot Suggestions Sliding Scale Bar */
+html.light-theme #copilot-suggestions-container {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light-theme #copilot-suggestions-container button {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+html.light-theme #copilot-suggestions-container button:hover {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+html.light-theme #copilot-suggestions-container button[class*="bg-blue-600/20"] {
+  background-color: #eff6ff !important;
+  border-color: #2563eb !important;
+  color: #1d4ed8 !important;
+  font-weight: 700 !important;
+}
+
 

@@ -6,6 +6,7 @@
 import React from 'react';
 import { Shield, Activity, Coins, ArrowUpRight, CheckCircle2, Cpu, Gauge, Calendar, Flame, AlertTriangle, BarChart2, ShieldAlert, Sparkles, Clock, Filter } from 'lucide-react';
 import { KillSignalEvent, DriftLogEvent, ValueMeterMetric, ApiRequestLog, AdminUser, GoverningAgent } from '../types';
+import { GUARANTEED_SLA_MS, getStatusBadge, formatTimestamp } from '../utils';
 
 interface OverviewProps {
   killEvents: KillSignalEvent[];
@@ -20,6 +21,8 @@ interface OverviewProps {
   policies?: any;
   addToast?: any;
   governedAgents?: GoverningAgent[];
+  governanceMode?: 'setup' | 'active';
+  setGovernanceMode?: (mode: 'setup' | 'active') => void;
 }
 
 const DEFAULT_AGENTS: GoverningAgent[] = [
@@ -143,6 +146,8 @@ export default function Overview({
   apiLogs,
   currentUser,
   governedAgents = DEFAULT_AGENTS,
+  governanceMode = 'setup',
+  setGovernanceMode
 }: OverviewProps) {
   // Stats calculations
   const totalHalted = killEvents.filter(e => e.status === 'HALTED').length;
@@ -174,8 +179,6 @@ export default function Overview({
   const total30DayAnomalies = heatmapData.reduce((acc, d) => acc + d.anomalies, 0);
   const compliantDaysCount = heatmapData.filter(d => d.anomalies === 0).length;
   const peakDay = heatmapData.reduce((max, d) => (d.requests > max.requests ? d : max), heatmapData[0]);
-
-
 
   // Combine actions for a unified lifecycle ticker
   const recentActions = [
@@ -217,12 +220,19 @@ export default function Overview({
         <div className="absolute left-1/3 bottom-0 w-64 h-64 bg-[#1D9E75]/5 rounded-full blur-3xl" />
         
         <div className="relative z-10 animate-fade-in-up">
-          <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div>
-              <span className="text-xs font-mono font-bold tracking-widest text-[#1D9E75] uppercase bg-[#1D9E75]/10 border border-[#1D9E75]/30 px-3 py-1 rounded-md">
-                UNIFIED GOVERNANCE LIFECYCLE (2026)
-              </span>
-              <h1 className="text-3xl md:text-4xl font-display font-medium tracking-tight text-[#F0EEE6] mt-4">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-mono font-bold tracking-widest text-[#1D9E75] uppercase bg-[#1D9E75]/10 border border-[#1D9E75]/30 px-3 py-1 rounded-md">
+                  UNIFIED GOVERNANCE LIFECYCLE (2026)
+                </span>
+                <span className={`text-[10px] font-mono px-2.5 py-0.5 rounded border uppercase font-bold tracking-wider ${
+                  governanceMode === 'active' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                }`}>
+                  {governanceMode === 'active' ? '● Active Governance Mode' : '⚙ Setup Mode'}
+                </span>
+              </div>
+              <h1 className="text-3xl md:text-4xl font-display font-medium tracking-tight text-[#F0EEE6] mt-3">
                 Architecting the Guardrails of Autonomy
               </h1>
               <p className="text-[#8B9BAA] text-sm md:text-base max-w-2xl mt-2 leading-relaxed">
@@ -230,6 +240,8 @@ export default function Overview({
                 in a single self-healing, zero-trust container environment.
               </p>
             </div>
+
+            {/* Header info */}
           </div>
         </div>
       </div>
@@ -256,11 +268,11 @@ export default function Overview({
           </p>
           <div className="mt-4 flex items-center justify-between border-t border-[#1F2E40] pt-3">
             <span className="text-xs text-[#8B9BAA] font-mono uppercase">Av. Response</span>
-            <span className="text-xs font-mono text-[#F0EEE6] font-bold">{avgLatency}ms (&lt;35ms Target)</span>
+            <span className="text-xs font-mono text-[#F0EEE6] font-bold">{avgLatency}ms (&lt;{GUARANTEED_SLA_MS}ms Target)</span>
           </div>
           <div className="mt-1 pb-1 flex justify-end">
-            <span className="text-[10px] text-[#1D9E75] font-mono flex items-center gap-1 group-hover:underline">
-              Launch Threat Simulator <ArrowUpRight size={12} />
+            <span className="text-[10px] text-[#1D9E75] font-mono flex items-center gap-1 group-hover:underline font-bold">
+              Drill Down into Threat Simulator <ArrowUpRight size={12} />
             </span>
           </div>
         </div>
@@ -290,8 +302,8 @@ export default function Overview({
             </span>
           </div>
           <div className="mt-1 pb-1 flex justify-end">
-            <span className="text-[10px] text-[#1D9E75] font-mono flex items-center gap-1 group-hover:underline">
-              Inspect Cognitive Logs <ArrowUpRight size={12} />
+            <span className="text-[10px] text-[#1D9E75] font-mono flex items-center gap-1 group-hover:underline font-bold">
+              Drill Down into Cognitive Logs <ArrowUpRight size={12} />
             </span>
           </div>
         </div>
@@ -321,8 +333,8 @@ export default function Overview({
             </span>
           </div>
           <div className="mt-1 pb-1 flex justify-end">
-            <span className="text-[10px] text-[#1D9E75] font-mono flex items-center gap-1 group-hover:underline">
-              Analyze Economic Spend <ArrowUpRight size={12} />
+            <span className="text-[10px] text-[#1D9E75] font-mono flex items-center gap-1 group-hover:underline font-bold">
+              Drill Down into Economic Spend <ArrowUpRight size={12} />
             </span>
           </div>
         </div>
@@ -361,8 +373,8 @@ export default function Overview({
             </div>
           </div>
           <div className="mt-2 flex justify-end">
-            <span className="text-[10px] text-[#1D9E75] font-mono flex items-center gap-1 group-hover:underline">
-              Inspect Gateway Traffic <ArrowUpRight size={12} />
+            <span className="text-[10px] text-[#1D9E75] font-mono flex items-center gap-1 group-hover:underline font-bold">
+              Drill Down into Gateway REST <ArrowUpRight size={12} />
             </span>
           </div>
         </div>
@@ -457,22 +469,25 @@ export default function Overview({
             const health = computeAgentHealth(agent, apiLogs);
             const score = health.score;
 
-            // Gauge color themes based on score threshold
+            const statusBadge = getStatusBadge(
+              score, 
+              health.haltedCount > 0, 
+              agent.status === 'ALERT' || agent.status === 'MITIGATING'
+            );
+
+            // Gauge color themes based on statusBadge threshold
             let strokeColor = '#1D9E75'; // Teal
             let textColor = 'text-teal-400';
             let bgGlow = 'bg-teal-500/10 border-teal-500/20';
-            let healthLabel = 'HEALTHY';
 
-            if (score < 60) {
+            if (statusBadge === 'HALT ALERT') {
               strokeColor = '#E24B4A'; // Red
               textColor = 'text-rose-400';
               bgGlow = 'bg-rose-500/10 border-rose-500/20';
-              healthLabel = 'HALT ALERT';
-            } else if (score < 85) {
+            } else if (statusBadge === 'EVALUATING') {
               strokeColor = '#EF9F27'; // Amber
               textColor = 'text-amber-400';
               bgGlow = 'bg-amber-500/10 border-amber-500/20';
-              healthLabel = 'EVALUATING';
             }
 
             const radius = 32;
@@ -508,7 +523,7 @@ export default function Overview({
                     <span
                       className={`text-[9px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${bgGlow} shrink-0`}
                     >
-                      {score < 60 ? 'HALT ALERT' : score < 85 ? 'ALERT' : agent.status}
+                      {statusBadge}
                     </span>
                   </div>
 
@@ -542,7 +557,7 @@ export default function Overview({
                           {score}%
                         </span>
                         <span className="text-[8px] font-mono font-semibold tracking-wider text-[#8B9BAA] uppercase">
-                          {healthLabel}
+                          {statusBadge}
                         </span>
                       </div>
                     </div>
@@ -846,7 +861,7 @@ export default function Overview({
                       {event.id}
                     </span>
                     <span className="text-[10px] text-[#556070] font-mono">
-                      {new Date(event.time).toLocaleTimeString('en-US', { hour12: false })}
+                      {formatTimestamp(event.time)}
                     </span>
                   </div>
                   
@@ -937,10 +952,10 @@ export default function Overview({
               <div className="space-y-1.5">
                 <h4 className="font-display font-semibold text-[#F0EEE6] text-sm">Deterministic Gateways</h4>
                 <p className="text-xs text-[#8B9BAA] leading-relaxed">
-                  98.2% of headless script executions check policies and halt in **&lt;35ms Target** to prevent payload write breaches.
+                  98.2% of headless script executions check policies and halt in **&lt;{GUARANTEED_SLA_MS}ms Target** to prevent payload write breaches.
                 </p>
                 <div className="flex items-center gap-1 text-[10px] text-[#1D9E75] font-mono">
-                  <CheckCircle2 size={12} /> Annex IV Compliant Ledger Enabled
+                  <CheckCircle2 size={12} /> EU AI Act Art. 12 & Annex IV Compliant Ledger Enabled
                 </div>
               </div>
             </div>

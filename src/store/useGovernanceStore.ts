@@ -17,6 +17,11 @@ import {
   INITIAL_ADMINS 
 } from '../data';
 
+import { 
+  GUARANTEED_SLA_MS, 
+  generateTransactionId 
+} from '../utils';
+
 export interface SystemNotification {
   id: string;
   timestamp: string;
@@ -42,7 +47,7 @@ const INITIAL_NOTIFICATIONS: SystemNotification[] = [
     type: 'warning',
     category: 'SLA',
     title: 'SLA Latency Warning',
-    message: 'Postgres-MCP-Server payload evaluation exceeded 35ms SLA target (42ms).',
+    message: `Postgres-MCP-Server payload evaluation exceeded ${GUARANTEED_SLA_MS}ms SLA target (42ms).`,
     read: false,
     targetTab: 'gaas'
   },
@@ -133,6 +138,18 @@ export function useGovernanceStore() {
     return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
   });
 
+  // Governance Mode state (Setup Mode vs Active Governance Mode)
+  const [governanceMode, setGovernanceModeState] = useState<'setup' | 'active'>(() => {
+    const saved = localStorage.getItem('gaas_governance_mode_v1');
+    if (saved === 'active' || saved === 'setup') return saved;
+    return localStorage.getItem('gaas_onboarding_verified_v1') === 'true' ? 'active' : 'setup';
+  });
+
+  const setGovernanceMode = useCallback((mode: 'setup' | 'active') => {
+    setGovernanceModeState(mode);
+    localStorage.setItem('gaas_governance_mode_v1', mode);
+  }, []);
+
   // Global alert suppression
   const [disableAlertsGlobally, setDisableAlertsGlobally] = useState<boolean>(() => {
     return localStorage.getItem('gaas_mute_alerts_v1') === 'true';
@@ -182,7 +199,7 @@ export function useGovernanceStore() {
   const addNotification = useCallback((notif: Omit<SystemNotification, 'id' | 'timestamp' | 'read'>) => {
     const newNotif: SystemNotification = {
       ...notif,
-      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: generateTransactionId('notif'),
       timestamp: new Date().toISOString(),
       read: false
     };
@@ -224,6 +241,8 @@ export function useGovernanceStore() {
     setNotifications,
     disableAlertsGlobally,
     setDisableAlertsGlobally,
+    governanceMode,
+    setGovernanceMode,
     currentUser,
     addNotification,
     markAllNotificationsRead,

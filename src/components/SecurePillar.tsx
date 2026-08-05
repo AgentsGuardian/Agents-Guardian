@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Shield, Play, Terminal, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { KillSignalEvent, Policy } from '../types';
+import { GUARANTEED_SLA_MS } from '../utils';
 import { SIMULATION_TRIGGER_TEMPLATES, TaskTrigger } from '../data';
 import CollapsibleSection from './CollapsibleSection';
 import ConfirmationModal from './ConfirmationModal';
@@ -88,7 +89,7 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
       onTriggerKillEvent(simulatedEvent);
       setIsSimulating(false);
       setSimulationStep(4);
-      setSimLogResult(prev => prev + `\n\n🛑 [PROTOCOL HALT INITIATED] \nLatency speed: ${finalLatency}ms (SLA <35ms target passed)\nSecurity Review Required Flag dispatched to Enterprise IT Compliance Gateway.\nImmutable Annex IV Ledger entry generated: ${annexIVHash}`);
+      setSimLogResult(prev => prev + `\n\n🛑 [PROTOCOL HALT INITIATED] \nLatency speed: ${finalLatency}ms (SLA <${GUARANTEED_SLA_MS}ms target passed)\nSecurity Review Required Flag dispatched to Enterprise IT Compliance Gateway.\nImmutable Annex IV Ledger entry generated: ${annexIVHash}`);
     }, 2800);
 
     timersRef.current.push(t1, t2, t3);
@@ -107,14 +108,15 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
               <span className="text-xs font-mono font-semibold text-[#E24B4A] uppercase tracking-widest bg-[#E24B4A]/10 border border-[#E24B4A]/25 px-2.2 py-0.5 rounded">
                 PILLAR 1: SECURE
               </span>
-              <span className="text-xs font-mono text-[#556070] font-bold">2026 ANNEX IV</span>
+              <span className="text-xs font-mono text-[#556070] font-bold">EU ART. 12 & ANNEX IV COMPLIANT</span>
             </div>
             <h1 className="text-2xl font-display font-medium text-[#F0EEE6] mt-1.5">
               The Deterministic Kill-Switch Gateway
             </h1>
             <p className="text-[#8B9BAA] text-sm max-w-xl mt-1">
-              Guarantees zero-trust active threat containment. Intercepts headless requests, 
-              evaluates policies-as-code, and revokes credentials with &lt;35ms SLA target.
+              Guarantees zero-trust active threat containment via a dual-pipeline architecture: 
+              a deterministic kernel kill-switch for instant rule execution (&lt;{GUARANTEED_SLA_MS}ms SLA target) paired with 
+              asynchronous semantic inference scanning (100–250ms) to ensure zero inference lag on active threads.
             </p>
           </div>
         </div>
@@ -186,7 +188,7 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
             </div>
             <h4 className="font-display font-medium text-[#F0EEE6] mt-2.5 text-xs">Kill Signal</h4>
             <p className="text-[11px] text-[#E24B4A] mt-1 leading-snug font-bold">
-              Protocol HALT in &lt;35ms Target. Token revoked.
+              Protocol HALT in &lt;{GUARANTEED_SLA_MS}ms Target. Token revoked.
             </p>
           </div>
         </div>

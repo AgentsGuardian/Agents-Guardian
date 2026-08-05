@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Terminal, Key, Webhook, Cpu, Code2, Play, Check, Copy, Sparkles, RefreshCw, Server, AlertCircle, ShieldCheck, Trash2, History, AlertTriangle, Search, Download, FileJson } from 'lucide-react';
 import { Policy, GoverningAgent, ApiRequestLog, AdminUser } from '../types';
+import { GUARANTEED_SLA_MS, formatSlaTooltip, generateTransactionId, formatTimestamp } from '../utils';
 import CollapsibleSection from './CollapsibleSection';
 
 interface GaaSApiPillarProps {
@@ -480,7 +481,7 @@ export default function GaaSApiPillar({
     }
     if (!newAgentName) return;
     const newAgent: GoverningAgent = {
-      id: `GA-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: generateTransactionId('GA'),
       name: newAgentName,
       framework: newAgentFramework,
       webhookUrl: `https://gaas-hooks-api.local/${newAgentName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
@@ -534,7 +535,7 @@ export default function GaaSApiPillar({
 
       // Append to real-time API request log history
       const newRequestLogEntry: ApiRequestLog = {
-        id: `REQ-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+        id: generateTransactionId('REQ'),
         timestamp: new Date().toISOString(),
         agentId: sandboxAgentId,
         agentName: targetAgent ? targetAgent.name : 'GaaS-Proxy-Agent',
@@ -565,7 +566,7 @@ Verdict: Access credentials completely revoked. Active script halted inside sand
 
         // Dispatches new security event to the main App lifecycle database
         const newHaltEvent = {
-          id: `KG-GaaS-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+          id: generateTransactionId('KG-GaaS'),
           timestamp: new Date().toISOString(),
           agentName: targetAgent ? targetAgent.name : 'GaaS-Proxy-Agent',
           actionCommand: sandboxAction,
@@ -597,7 +598,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
         if (policyMatched.category === 'finance') {
           const mockSpend = Math.random() * 8 + 0.5;
           const newMetric = {
-            id: `VAL-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+            id: generateTransactionId('VAL'),
             timestamp: new Date().toISOString(),
             agentName: targetAgent ? targetAgent.name : 'GaaS-Governed-Bot',
             completedTasks: 1,
@@ -634,7 +635,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
             </h1>
             <p className="text-zinc-400 text-sm max-w-xl mt-1">
               Plug AgentsGuardian directly into **any** external framework (Python SDK, LangChain, CrewAI, AutoGen, or REST APIs) 
-              as a cloud-neutral webhook shield. Guarantee active compliance with less than 40ms intercept latencies.
+              as a cloud-neutral webhook shield. Guarantee active compliance with less than {GUARANTEED_SLA_MS}ms intercept latencies.
             </p>
             <div className="flex flex-wrap items-center gap-2 mt-3 select-none">
               <span className="text-[10px] font-mono text-zinc-400 bg-zinc-950 border border-zinc-850 px-2.5 py-1 rounded flex items-center gap-1.5">
@@ -666,7 +667,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
         <div className="flex gap-2.5 bg-zinc-950 p-2.5 rounded-lg border border-zinc-900 shrink-0">
           <div className="text-right font-mono text-xs pr-2.5 border-r border-zinc-800">
             <span className="text-[10px] text-zinc-500 block">SLA GUARANTEE</span>
-            <span className="text-emerald-400 font-bold">&lt; 35ms Target</span>
+            <span className="text-emerald-400 font-bold">&lt; {GUARANTEED_SLA_MS}ms Target</span>
           </div>
           <div className="text-left font-mono text-xs pl-2.5">
             <span className="text-[10px] text-zinc-500 block">GATEWAY STATUS</span>
@@ -1483,7 +1484,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                     >
                       <td className="p-3.5 pl-4 text-zinc-500 font-bold">{log.id}</td>
                       <td className="p-3.5 text-zinc-455">
-                        {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        {formatTimestamp(log.timestamp)}
                       </td>
                       <td className="p-3.5 font-sans font-medium text-white group-hover:text-teal-400 transition-colors">
                         <div className="flex items-center gap-1.5">
@@ -1496,7 +1497,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                       </td>
                       <td className="p-3.5 text-center">
                         {log.status === 'AUTHORIZED' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950/30 text-emerald-400 border border-emerald-950/40">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950/30 text-emerald-400 border border-emerald-950/40" title={formatSlaTooltip(log.latencyMs)}>
                             <span className="w-1 h-1 rounded-full bg-emerald-400" />
                             AUTHORIZED
                           </span>
@@ -1510,12 +1511,15 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                       <td className="p-3.5 text-right pr-4 font-semibold">
                         <div className="flex items-center justify-end gap-2">
                           {isSlaBreached && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-950/45 text-amber-500 border border-amber-500/20 animate-pulse">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-950/45 text-amber-500 border border-amber-500/20 animate-pulse" title={formatSlaTooltip(log.latencyMs)}>
                               <AlertTriangle size={10} className="text-amber-500 shrink-0" />
                               SLA BREACH
                             </span>
                           )}
-                          <span className={isSlaBreached ? 'text-amber-500 font-bold' : log.latencyMs < 30 ? 'text-emerald-400' : log.latencyMs < 45 ? 'text-teal-400' : 'text-amber-400'}>
+                          <span 
+                            title={formatSlaTooltip(log.latencyMs)}
+                            className={isSlaBreached ? 'text-amber-500 font-bold' : log.latencyMs <= GUARANTEED_SLA_MS ? 'text-emerald-400' : 'text-amber-400'}
+                          >
                             {log.latencyMs}ms
                           </span>
                         </div>

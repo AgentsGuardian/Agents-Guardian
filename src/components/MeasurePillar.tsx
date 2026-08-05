@@ -450,6 +450,26 @@ export default function MeasurePillar({
                   />
                 </div>
 
+                {/* Human-in-the-Loop Security Auditor Rate */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="font-mono text-slate-300 flex items-center gap-1.5">
+                      <ShieldCheck size={12} className="text-indigo-400" /> Human-in-the-Loop Security Auditor Rate:
+                    </span>
+                    <span className="font-mono font-bold text-indigo-400">${localAudit}.00 / hr</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="30"
+                    max="200"
+                    step="5"
+                    value={localAudit}
+                    onChange={(e) => setLocalAudit(Number(e.target.value))}
+                    className="w-full accent-indigo-400 bg-[#162030] h-1.5 rounded-lg cursor-pointer"
+                    id="slider-audit-rate"
+                  />
+                </div>
+
                 {/* Avg handling time */}
                 <div className="space-y-1">
                   <div className="flex justify-between text-xs">
@@ -469,6 +489,14 @@ export default function MeasurePillar({
                     id="slider-avg-hrs"
                   />
                 </div>
+              </div>
+
+              {/* Wage Reference Citation & Methodology Note */}
+              <div className="p-3 bg-[#162030]/80 border border-[#1F2E40] rounded-lg text-[10px] text-[#8B9BAA] space-y-1 font-mono">
+                <span className="text-amber-400 font-bold block uppercase">📊 Benchmark Reference Citation & Methodology:</span>
+                <p className="leading-relaxed">
+                  Default hourly rate baselines ($35 L1 Triage, $75 L2 Systems/DevOps, $150 L3 SRE, $60 Security Auditor) are benchmarked against US Bureau of Labor Statistics (BLS) SOC 15-1212 & SOC 15-1244 median wage statistics, scaled by a standard 1.38x enterprise fully-burdened overhead multiplier (benefits, employer taxes, IT overhead). Adjust sliders to match your enterprise's specific HR procurement rates.
+                </p>
               </div>
 
               {/* Real-time Dynamic Equivalency Preview Box */}

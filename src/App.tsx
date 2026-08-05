@@ -21,6 +21,7 @@ import { useGovernanceStore } from './store/useGovernanceStore';
 import { Sliders, Palette, ChevronDown, Check, LogOut, Users } from 'lucide-react';
 
 import { Policy, KillSignalEvent, DriftLogEvent, ValueMeterMetric, GoverningAgent, ApiRequestLog, Toast, AdminUser, LaborConfig } from './types';
+import { GUARANTEED_SLA_MS, generateTransactionId } from './utils';
 import { 
   INITIAL_POLICIES, 
   INITIAL_KILL_SWITCH_EVENTS, 
@@ -206,7 +207,9 @@ export default function App() {
     clearAllNotifications,
     markNotificationRead,
     disableAlertsGlobally,
-    setDisableAlertsGlobally
+    setDisableAlertsGlobally,
+    governanceMode,
+    setGovernanceMode
   } = useGovernanceStore();
 
   const [policies, setPolicies] = useState<Policy[]>(INITIAL_POLICIES);
@@ -300,7 +303,7 @@ export default function App() {
   const [governedAgents, setGovernedAgents] = useState<GoverningAgent[]>(INITIAL_GOVERNED_AGENTS);
   const [apiLogs, setApiLogs] = useState<ApiRequestLog[]>(INITIAL_API_LOGS);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | 'off'>(30000);
-  const [latencyThreshold, setLatencyThreshold] = useState<number>(35);
+  const [latencyThreshold, setLatencyThreshold] = useState<number>(GUARANTEED_SLA_MS);
 
   // Toast notification states
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -344,7 +347,7 @@ export default function App() {
     }
     const newToast: Toast = {
       ...t,
-      id: `toast-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: generateTransactionId('toast'),
       timestamp: new Date().toISOString()
     };
     setToasts(prev => [newToast, ...prev]);
@@ -373,7 +376,7 @@ export default function App() {
         const latencyMs = Math.floor(Math.random() * 420) + 12;
 
         const newLog: ApiRequestLog = {
-          id: `REQ-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+          id: generateTransactionId('REQ'),
           timestamp: new Date().toISOString(),
           agentId: agent.id,
           agentName: agent.name,
@@ -397,7 +400,7 @@ export default function App() {
         // 2. Kill Switch / Halted state check in Background live-traffic
         if (status === 'HALTED') {
           const newHaltEvent: KillSignalEvent = {
-            id: `KG-GaaS-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+            id: generateTransactionId('KG-GaaS'),
             timestamp: new Date().toISOString(),
             agentName: agent.name,
             actionCommand: 'Intercepted anomalous command thread',
@@ -573,6 +576,7 @@ export default function App() {
         addToast={addToast}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={handleToggleSidebar}
+        governanceMode={governanceMode}
       />
 
       {/* Main content display window */}
@@ -581,7 +585,7 @@ export default function App() {
         {/* Top Global Administrative Banner - Fixed style with top-right session profile */}
         <div className="bg-[#111E2E] border border-[#1F2E40] rounded-xl px-5 py-3 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md bg-opacity-95 backdrop-blur-md transition-all duration-300 relative z-50">
           {/* Left Gateway Route status */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-3">
             <span className="relative flex h-2.5 w-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[--theme-primary] opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[--theme-primary]"></span>
@@ -589,6 +593,15 @@ export default function App() {
             <div className="text-[11px] font-mono tracking-wider text-zinc-400">
               GATEWAY TUNNEL: <strong className="text-[--theme-primary] uppercase font-black">{activeTab} // MULTI-AGENT SHIELD</strong>
             </div>
+            
+            {/* System Mode State Pill */}
+            <span className={`text-[9.5px] font-mono font-bold uppercase tracking-widest px-2.5 py-0.5 rounded border transition-all ${
+              governanceMode === 'active' 
+                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' 
+                : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+            }`}>
+              {governanceMode === 'active' ? '● ACTIVE GOVERNANCE MODE' : '⚙ SETUP MODE'}
+            </span>
           </div>
 
           {/* Top Right: Notification Center & Active security session dropdown */}
@@ -847,6 +860,8 @@ export default function App() {
             apiLogs={apiLogs}
             currentUser={currentUser}
             governedAgents={governedAgents}
+            governanceMode={governanceMode}
+            setGovernanceMode={setGovernanceMode}
           />
         )}
 
@@ -928,6 +943,8 @@ export default function App() {
             budgetCap={budgetCap}
             laborConfig={laborConfig}
             policies={policies}
+            governanceMode={governanceMode}
+            setGovernanceMode={setGovernanceMode}
           />
         )}
 
