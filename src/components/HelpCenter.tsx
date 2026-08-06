@@ -1029,7 +1029,7 @@ To integrate Agent Guardian (GaaS) into your client codebase, follow these 5 ste
 **Step 2: Outbound Proxy / Zero-Code Integration**
 - **Zero-Code Redirect**: Redirect your LLM framework's base URL:
 \`\`\`bash
-export OPENAI_BASE_URL="https://api.agentguardian.io/v1/proxy"
+export OPENAI_BASE_URL="https://api.agentsguardian.ai/v1/proxy"
 \`\`\`
 - **Native Python / Node SDK**:
 \`\`\`python
@@ -1758,7 +1758,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
                             <div className="w-2 h-2 rounded-full bg-red-500/85" />
                             <div className="w-2 h-2 rounded-full bg-yellow-500/85" />
                             <div className="w-2 h-2 rounded-full bg-emerald-500/85" />
-                            <span className="text-[9px] text-[#1D9E75] ml-2 select-all font-semibold max-w-[200px] truncate">https://agentguardian.io/console/{VIDEO_SEGMENTS[activeSegmentIndex].id}</span>
+                            <span className="text-[9px] text-[#1D9E75] ml-2 select-all font-semibold max-w-[200px] truncate">https://agentsguardian.ai/console/{VIDEO_SEGMENTS[activeSegmentIndex].id}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 rounded font-mono text-[8.5px] text-blue-400 font-extrabold tracking-widest uppercase animate-pulse">

@@ -34,7 +34,7 @@ const FRAMEWORK_CODE_TEMPLATES = {
 # Initialize Governance as a Service interceptor
 guardian = AgentsGuardian(
     api_key="ag_live_7x8f9c2d1b0a9e8f7...",
-    gateway_url="https://api.agentsguardian.io/v1/intercept"
+    gateway_url="https://api.agentsguardian.ai/v1/intercept"
 )
 
 # Intercept agent action before execution
@@ -68,7 +68,7 @@ class InterceptorInput(BaseModel):
 def gaas_policy_check(action_name: str, parameters: str) -> str:
     # Ship credentials and action structure to AgentsGuardian Webhook GaaS Engine
     response = requests.post(
-        "https://api.agentsguardian.io/v1/intercept",
+        "https://api.agentsguardian.ai/v1/intercept",
         headers={"X-Guardian-Key": "ag_live_7x8f9c2d1b0a9e8f7..."},
         json={
             "agent_id": "LangChain-Agent-Worker",
@@ -100,7 +100,7 @@ class GovernedAgent(Agent):
     def execute_task(self, task, context=None, tools=None):
         # Fire intercept telemetry to GaaS Gateway prior to task execution
         gaas_res = requests.post(
-            "https://api.agentsguardian.io/v1/intercept",
+            "https://api.agentsguardian.ai/v1/intercept",
             headers={"X-Guardian-Key": "ag_live_7x8f9c2d1b0a9e8f7..."},
             json={
                 "agent_id": self.role,
@@ -129,7 +129,7 @@ def gaas_message_interceptor(sender, recipient, message, silent=False):
     
     # Intercept conversational reasoning log to audit sentiment and ethics drift
     res = requests.post(
-        "https://api.agentsguardian.io/v1/intercept",
+        "https://api.agentsguardian.ai/v1/intercept",
         headers={"X-Guardian-Key": "ag_live_7x8f9c2d1b0a9e8f7..."},
         json=payload
     )
@@ -154,7 +154,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: toolArgs } = request.params;
 
   // Intercept MCP JSON-RPC tool call before executing server logic
-  const gaasRes = await fetch("https://api.agentsguardian.io/v1/intercept", {
+  const gaasRes = await fetch("https://api.agentsguardian.ai/v1/intercept", {
     method: "POST",
     headers: {
       "X-Guardian-Key": "ag_live_7x8f9c2d1b0a9e8f7...",
@@ -182,7 +182,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   curl: {
     title: 'Direct REST API (cURL)',
     lang: 'bash',
-    code: `curl -X POST "https://api.agentguardian.io/v1/intercept" \\
+    code: `curl -X POST "https://api.agentsguardian.ai/v1/intercept" \\
   -H "X-Guardian-Key: ag_live_7x8f9c2d1b0a9e8f7..." \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -372,7 +372,7 @@ export default function GaaSApiPillar({
   const [simulatedLatency, setSimulatedLatency] = useState<number>(0);
 
   // Connection testing states
-  const [testWebhookUrl, setTestWebhookUrl] = useState<string>('https://api.agentguardian.io/v1/agent-update');
+  const [testWebhookUrl, setTestWebhookUrl] = useState<string>('https://api.agentsguardian.ai/v1/agent-update');
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
   const [testStatus, setTestStatus] = useState<{ type: 'PENDING' | 'SUCCESS' | 'ERROR'; output: string } | null>(null);
 
@@ -721,7 +721,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                 </label>
                 <input
                   type="text"
-                  value="https://api.agentguardian.io/v1/intercept"
+                  value="https://api.agentsguardian.ai/v1/intercept"
                   disabled
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-xs font-mono text-zinc-500"
                 />

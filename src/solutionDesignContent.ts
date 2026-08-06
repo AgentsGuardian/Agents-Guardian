@@ -50,6 +50,19 @@ To eliminate data drift, cognitive friction, and data integrity errors across al
   - \`HALT ALERT / CRITICAL\`: Health $< 60\%$ or active policy halt.
 - **Contradiction Guard**: Prohibits displaying a \`NOMINAL\` badge next to a \`0%\` or \`HALT ALERT\` gauge.
 
+### 1.6 Central Gateway & API Endpoint Standard
+- **Primary Domain**: Registered production gateway domain \`agentsguardian.ai\`.
+- **Central Interception Endpoint**: \`https://api.agentsguardian.ai/v1/intercept\`
+- **Zero-Code LLM Proxy Redirect**: \`https://api.agentsguardian.ai/v1/proxy\` (Use as \`OPENAI_BASE_URL\` or Anthropic/Groq base URL override).
+- **Telemetry Heartbeat Endpoint**: \`POST https://api.agentsguardian.ai/v1/telemetry/heartbeat\`
+- **MCP Gateway Proxy**: Intercepts Model Context Protocol JSON-RPC \`CallToolRequest\` calls before dispatching tool operations.
+
+### 1.7 Dynamic System Governance Mode & User Guides
+- **Dual-State System Mode**: Toggleable between \`⚙ SETUP MODE\` and \`● ACTIVE GOVERNANCE MODE\`.
+- **Interactive Header & Banner Toggle**: System Admin and Security Operators can seamlessly toggle governance states directly from the top navigation header status pill or the Overview dashboard banner.
+- **System-Wide State Sync**: Completing Step 5 of Customer Onboarding or toggling via UI instantly transitions all platform modules, badge indicators, and sidebar status trackers.
+- **Unified User Guide & Copilot**: Integrates Onboarding Copilot, Help Center manual, interactive video tour, and API sandbox documentation with real-time \`agentsguardian.ai\` integration guides.
+
 ---
 
 ## 2. Regulatory & Compliance Baseline Matrix

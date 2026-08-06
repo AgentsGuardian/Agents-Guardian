@@ -15,7 +15,8 @@ export const INITIAL_POLICIES: Policy[] = [
     category: 'security',
     blastRadius: 'Non-Human Identity',
     threshold: `Zero-Trust (HALT <${GUARANTEED_SLA_MS}ms Target)`,
-    enabled: true
+    enabled: true,
+    failureMode: 'FAIL_CLOSED'
   },
   {
     id: 'POL-SEC-02',
@@ -25,7 +26,8 @@ export const INITIAL_POLICIES: Policy[] = [
     category: 'security',
     blastRadius: 'API Intercept (Google AI Studio)',
     threshold: 'Strict Enforcement',
-    enabled: true
+    enabled: true,
+    failureMode: 'FAIL_CLOSED'
   },
   {
     id: 'POL-ETH-01',
@@ -35,7 +37,8 @@ export const INITIAL_POLICIES: Policy[] = [
     category: 'ethics',
     blastRadius: 'Cognitive Integrity',
     threshold: '10% Max Drift Deviation',
-    enabled: true
+    enabled: true,
+    failureMode: 'FAIL_CLOSED'
   },
   {
     id: 'POL-ETH-02',
@@ -45,7 +48,8 @@ export const INITIAL_POLICIES: Policy[] = [
     category: 'ethics',
     blastRadius: 'Demographic Neutrality',
     threshold: '15% Sentiment Shift',
-    enabled: true
+    enabled: true,
+    failureMode: 'FAIL_CLOSED'
   },
   {
     id: 'POL-FIN-01',
@@ -55,7 +59,8 @@ export const INITIAL_POLICIES: Policy[] = [
     category: 'finance',
     blastRadius: 'Token & API Burn (ERP Standard)',
     threshold: '$50.00 Max Spend per Task',
-    enabled: true
+    enabled: true,
+    failureMode: 'FAIL_OPEN_ALERT'
   },
   {
     id: 'POL-FIN-02',
@@ -65,7 +70,8 @@ export const INITIAL_POLICIES: Policy[] = [
     category: 'finance',
     blastRadius: 'Single Request Cap',
     threshold: '$5.00 per Request max',
-    enabled: true
+    enabled: true,
+    failureMode: 'FAIL_OPEN_ALERT'
   }
 ];
 

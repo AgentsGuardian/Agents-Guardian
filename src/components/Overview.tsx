@@ -226,11 +226,14 @@ export default function Overview({
                 <span className="text-xs font-mono font-bold tracking-widest text-[#1D9E75] uppercase bg-[#1D9E75]/10 border border-[#1D9E75]/30 px-3 py-1 rounded-md">
                   UNIFIED GOVERNANCE LIFECYCLE (2026)
                 </span>
-                <span className={`text-[10px] font-mono px-2.5 py-0.5 rounded border uppercase font-bold tracking-wider ${
-                  governanceMode === 'active' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                }`}>
+                <button 
+                  onClick={() => setGovernanceMode && setGovernanceMode(governanceMode === 'active' ? 'setup' : 'active')}
+                  title="Click to toggle between Setup Mode and Active Governance Mode"
+                  className={`text-[10px] font-mono px-2.5 py-0.5 rounded border uppercase font-bold tracking-wider cursor-pointer hover:scale-105 active:scale-95 transition-all ${
+                    governanceMode === 'active' ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25' : 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25'
+                  }`}>
                   {governanceMode === 'active' ? '● Active Governance Mode' : '⚙ Setup Mode'}
-                </span>
+                </button>
               </div>
               <h1 className="text-3xl md:text-4xl font-display font-medium tracking-tight text-[#F0EEE6] mt-3">
                 Architecting the Guardrails of Autonomy

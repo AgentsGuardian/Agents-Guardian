@@ -98,94 +98,46 @@ export default function MeasurePillar({
     if (simRunning) return;
     setSimRunning(true);
 
-    setTimeout(() => {
-      let metric: ValueMeterMetric;
-      const randId = `VAL-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-      const now = new Date().toISOString();
+    const scenarioName = selectedTaskScenario === 'password-resets' ? '500 Password Resets'
+      : selectedTaskScenario === 'l1-triage-surge' ? 'L1 Triage Surge'
+      : selectedTaskScenario === 'sre-incident-remediation' ? 'SRE Incident Remediation'
+      : selectedTaskScenario === 'infinite-loop-drain' ? 'Runaway Infinite Loop'
+      : '1M Token Context Bloat';
 
-      if (selectedTaskScenario === 'password-resets') {
-        const saved = Math.round(500 * localAvgHrs * localL1 * 100) / 100;
-        const spend = 42.50;
-        metric = {
+    fetch('/api/economic/stress-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario: scenarioName })
+    })
+      .then(res => res.json())
+      .then(resData => {
+        const randId = `VAL-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+        const now = new Date().toISOString();
+
+        const agentName = selectedTaskScenario === 'password-resets' ? 'PasswordReset-Agent-HQ'
+          : selectedTaskScenario === 'l1-triage-surge' ? 'AutoGen-TriageHQ'
+          : selectedTaskScenario === 'sre-incident-remediation' ? 'SRE-LogParser-Pro'
+          : selectedTaskScenario === 'infinite-loop-drain' ? 'Rogue-Recursive-Scraper'
+          : 'EnterpriseParser-V5';
+
+        const metric: ValueMeterMetric = {
           id: randId,
           timestamp: now,
-          agentName: 'PasswordReset-Agent-HQ',
-          completedTasks: 500,
-          totalApiSpend: spend,
-          humanLaborSaved: saved,
-          roiScore: saved / spend,
-          status: 'STABLE'
+          agentName,
+          completedTasks: resData.tasksCount || 500,
+          totalApiSpend: resData.tokenSpend || 42.50,
+          humanLaborSaved: resData.humanCostEquiv || 437.50,
+          roiScore: typeof resData.tokenSpend === 'number' && resData.tokenSpend > 0 ? resData.humanCostEquiv / resData.tokenSpend : 10,
+          status: resData.tokenSpend > budgetCap ? 'ALERT' : 'STABLE',
+          latestViolatingCost: resData.tokenSpend > budgetCap ? resData.tokenSpend : undefined
         };
-      } else if (selectedTaskScenario === 'l1-triage-surge') {
-        const saved = Math.round(2500 * localAvgHrs * localL1 * 100) / 100;
-        const spend = 112.50;
-        metric = {
-          id: randId,
-          timestamp: now,
-          agentName: 'AutoGen-TriageHQ',
-          completedTasks: 2500,
-          totalApiSpend: spend,
-          humanLaborSaved: saved,
-          roiScore: saved / spend,
-          status: 'STABLE'
-        };
-      } else if (selectedTaskScenario === 'sre-incident-remediation') {
-        const saved = Math.round(50 * 0.5 * localL3 * 100) / 100; // Using L3 Architect Rate!
-        const spend = 18.40;
-        metric = {
-          id: randId,
-          timestamp: now,
-          agentName: 'SRE-LogParser-Pro',
-          completedTasks: 50,
-          totalApiSpend: spend,
-          humanLaborSaved: saved,
-          roiScore: saved / spend,
-          status: 'STABLE'
-        };
-      } else if (selectedTaskScenario === 'custom-labor-benchmark') {
-        metric = {
-          id: randId,
-          timestamp: now,
-          agentName: 'Custom-LaborBenchmark-Bot',
-          completedTasks: simTaskCount,
-          totalApiSpend: calcAiCost,
-          humanLaborSaved: calcHumanCost,
-          roiScore: calcAiCost > 0 ? calcHumanCost / calcAiCost : 0,
-          status: calcAiCost > sessionCap ? 'ALERT' : 'STABLE',
-          latestViolatingCost: calcAiCost > sessionCap ? calcAiCost : undefined
-        };
-      } else if (selectedTaskScenario === 'infinite-loop-drain') {
-        const spend = 185.00;
-        metric = {
-          id: randId,
-          timestamp: now,
-          agentName: 'Rogue-Recursive-Scraper',
-          completedTasks: 1,
-          totalApiSpend: spend,
-          humanLaborSaved: 15.00,
-          roiScore: 15.00 / spend,
-          status: 'ALERT',
-          latestViolatingCost: spend
-        };
-      } else {
-        // context-bloat
-        const spend = 54.20;
-        const saved = Math.round(1 * localAvgHrs * localL1 * 100) / 100;
-        metric = {
-          id: randId,
-          timestamp: now,
-          agentName: 'EnterpriseParser-V5',
-          completedTasks: 1,
-          totalApiSpend: spend,
-          humanLaborSaved: saved,
-          roiScore: saved / spend,
-          status: spend > sessionCap ? 'ALERT' : 'WARNING',
-          latestViolatingCost: spend
-        };
-      }
-      onAddMetricEvent(metric);
-      setSimRunning(false);
-    }, 1200);
+
+        onAddMetricEvent(metric);
+        setSimRunning(false);
+      })
+      .catch(() => {
+        setSimRunning(false);
+      });
   };
 
   return (

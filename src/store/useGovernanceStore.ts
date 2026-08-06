@@ -155,10 +155,27 @@ export function useGovernanceStore() {
     return localStorage.getItem('gaas_mute_alerts_v1') === 'true';
   });
 
-  // Sync state to localStorage on updates
+  // Fetch initial backend state on mount
   useEffect(() => {
-    localStorage.setItem('gaas_policies_v1', JSON.stringify(policies));
-  }, [policies]);
+    fetch('/api/state')
+      .then(res => {
+        if (res.ok) return res.json();
+        throw new Error('Failed to fetch state');
+      })
+      .then(data => {
+        if (data.policies) setPolicies(data.policies);
+        if (data.killEvents) setKillEvents(data.killEvents);
+        if (data.driftEvents) setDriftEvents(data.driftEvents);
+        if (data.valueMetrics) setValueMetrics(data.valueMetrics);
+        if (data.users) setUsers(data.users);
+        if (data.governedAgents) setGovernedAgents(data.governedAgents);
+        if (data.laborConfig) setLaborConfig(data.laborConfig);
+        if (data.notifications) setNotifications(data.notifications);
+        if (data.governanceMode) setGovernanceModeState(data.governanceMode);
+      })
+      .catch(err => console.warn('Using local fallback state:', err));
+  }, []);
+
 
   useEffect(() => {
     localStorage.setItem('gaas_kill_events_v1', JSON.stringify(killEvents));

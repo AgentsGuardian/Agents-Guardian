@@ -188,7 +188,7 @@ export default function CustomerOnboarding({
 Welcome **${currentUser.name}**! I am your dedicated Client Onboarding & SDK Copilot.
 
 Ask me anything about:
-- **Zero-Code Proxy Redirect**: How to set \`OPENAI_BASE_URL="https://api.agentguardian.io/v1/proxy"\`
+- **Zero-Code Proxy Redirect**: How to set \`OPENAI_BASE_URL="https://api.agentsguardian.ai/v1/proxy"\`
 - **Native Python & Node SDKs**: How to import \`GuardianClient\` or \`GuardianProxy\`
 - **Environment Key Handshake**: Generating & configuring \`AG_PROD_KEY\`
 - **Testing Handshakes**: CLI verification & endpoint test requests`,
@@ -242,6 +242,7 @@ Budget Cap Status: OK ($${budgetCap}.00 remaining)`);
         setIsVerified(true);
         localStorage.setItem('gaas_onboarding_verified_v1', 'true');
         if (setGovernanceMode) setGovernanceMode('active');
+        fetch('/api/onboarding/complete', { method: 'POST' }).catch(e => console.warn(e));
         addToast({
           type: 'success',
           title: '⚡ Handshake Verification Success',
@@ -329,7 +330,7 @@ To redirect your existing LLM client framework without writing code:
 
 1. **Set Environment Variable:**
 \`\`\`bash
-export OPENAI_BASE_URL="https://api.agentguardian.io/v1/proxy"
+export OPENAI_BASE_URL="https://api.agentsguardian.ai/v1/proxy"
 export OPENAI_API_KEY="ag_prod_live_${currentUser.id.substring(0,8)}_enc"
 \`\`\`
 
@@ -348,7 +349,7 @@ from agent_guardian import GuardianClient, ShieldMiddleware
 
 guard_client = GuardianClient(
     api_key="ag_prod_live_${currentUser.id.substring(0,8)}_enc",
-    gateway_url="https://api.agentguardian.io/v1"
+    gateway_url="https://api.agentsguardian.ai/v1"
 )
 
 # Attach middleware to agent
@@ -369,7 +370,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: toolArgs } = request.params;
   
   // Intercept MCP JSON-RPC tool invocation
-  const gaasRes = await fetch("https://api.agentsguardian.io/v1/intercept", {
+  const gaasRes = await fetch("https://api.agentsguardian.ai/v1/intercept", {
     method: "POST",
     headers: { "X-Guardian-Key": "ag_prod_live_${currentUser.id.substring(0,8)}_enc" },
     body: JSON.stringify({
@@ -557,7 +558,7 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
                     <span>CLIENT ENVIRONMENT VARIABLES (.ENV)</span>
                     <button 
                       onClick={() => {
-                        const code = `AGENT_GUARDIAN_GATEWAY_URL="https://api.agentguardian.io/v1"\nAGENT_GUARDIAN_API_KEY="ag_prod_live_${currentUser.id.substring(0,8)}_enc"\nAGENT_GUARDIAN_CLIENT_ID="${currentUser.email}"\nAGENT_GUARDIAN_CLASS_LEVEL="ENTERPRISE_GaaS_LEVEL_IV"`;
+                        const code = `AGENT_GUARDIAN_GATEWAY_URL="https://api.agentsguardian.ai/v1"\nAGENT_GUARDIAN_API_KEY="ag_prod_live_${currentUser.id.substring(0,8)}_enc"\nAGENT_GUARDIAN_CLIENT_ID="${currentUser.email}"\nAGENT_GUARDIAN_CLASS_LEVEL="ENTERPRISE_GaaS_LEVEL_IV"`;
                         navigator.clipboard.writeText(code);
                         addToast({
                           type: 'success',
@@ -574,7 +575,7 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
                   </div>
                   <pre className="w-full bg-black border border-zinc-900 p-4 rounded-b-lg font-mono text-[10.5px] text-[#1D9E75] overflow-x-auto space-y-1">
                     <div><span className="text-zinc-600 font-bold"># AgentsGuardian Central Security Gateway URL</span></div>
-                    <div>AGENT_GUARDIAN_GATEWAY_URL=<span className="text-slate-100">"https://api.agentguardian.io/v1"</span></div>
+                    <div>AGENT_GUARDIAN_GATEWAY_URL=<span className="text-slate-100">"https://api.agentsguardian.ai/v1"</span></div>
                     <div><span className="text-zinc-600 font-bold"># Authorized Token Binding for client: {currentUser.name} ({currentUser.role})</span></div>
                     <div>AGENT_GUARDIAN_API_KEY=<span className="text-slate-100">"ag_prod_live_{currentUser.id.substring(0,8)}_enc"</span></div>
                     <div>AGENT_GUARDIAN_CLIENT_ID=<span className="text-slate-100">"{currentUser.email}"</span></div>
@@ -628,7 +629,7 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
                     </span>
                     <button
                       onClick={() => {
-                        const code = `export OPENAI_BASE_URL="https://api.agentguardian.io/v1/proxy"\nexport OPENAI_API_KEY="ag_prod_live_${currentUser.id.substring(0,8)}_enc"`;
+                        const code = `export OPENAI_BASE_URL="https://api.agentsguardian.ai/v1/proxy"\nexport OPENAI_API_KEY="ag_prod_live_${currentUser.id.substring(0,8)}_enc"`;
                         navigator.clipboard.writeText(code);
                         addToast({
                           type: 'success',
@@ -643,7 +644,7 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
                   </div>
                   <pre className="w-full bg-black p-3 rounded-lg font-mono text-[10.5px] text-teal-300 overflow-x-auto space-y-1 border border-zinc-900">
                     <div><span className="text-zinc-600 font-bold"># Redirect standard OpenAI/Anthropic base URL to AgentsGuardian proxy</span></div>
-                    <div>export OPENAI_BASE_URL="https://api.agentguardian.io/v1/proxy"</div>
+                    <div>export OPENAI_BASE_URL="https://api.agentsguardian.ai/v1/proxy"</div>
                     <div>export OPENAI_API_KEY="ag_prod_live_{currentUser.id.substring(0,8)}_enc"</div>
                   </pre>
                 </div>
@@ -658,7 +659,7 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
                       </span>
                       <button
                         onClick={() => {
-                          const code = `# Install client\npip install agent-guardian-sdk\n\n# Configure Intercept\nfrom agent_guardian import GuardianClient, ShieldMiddleware\n\nguard_client = GuardianClient(\n    api_key="ag_prod_live_${currentUser.id.substring(0,8)}_enc",\n    gateway_url="https://api.agentguardian.io/v1"\n)\n\nsmart_agent.add_middleware(ShieldMiddleware(client=guard_client))`;
+                          const code = `# Install client\npip install agent-guardian-sdk\n\n# Configure Intercept\nfrom agent_guardian import GuardianClient, ShieldMiddleware\n\nguard_client = GuardianClient(\n    api_key="ag_prod_live_${currentUser.id.substring(0,8)}_enc",\n    gateway_url="https://api.agentsguardian.ai/v1"\n)\n\nsmart_agent.add_middleware(ShieldMiddleware(client=guard_client))`;
                           navigator.clipboard.writeText(code);
                           addToast({
                             type: 'success',
@@ -716,7 +717,7 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
                       </span>
                       <button
                         onClick={() => {
-                          const code = `import { Server } from '@modelcontextprotocol/sdk/server/index.js';\nimport { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';\n\nconst server = new Server({ name: 'agentsguardian-mcp-gateway', version: '2.4.0' });\nserver.setRequestHandler(CallToolRequestSchema, async (req) => {\n  const res = await fetch('https://api.agentguardian.io/v1/intercept', {\n    method: 'POST',\n    headers: { 'X-Guardian-Key': process.env.AGENT_GUARDIAN_API_KEY },\n    body: JSON.stringify({ agent_id: 'MCP-Tool-Runner', action: \`mcp_tool_\${req.params.name}\`, parameters: req.params.arguments })\n  });\n  const decision = await res.json();\n  if (decision.status === 'HALTED') throw new Error(\`[MCP] Blocked by policy \${decision.policy_violated}\`);\n  return await executeTool(req.params.name, req.params.arguments);\n});`;
+                          const code = `import { Server } from '@modelcontextprotocol/sdk/server/index.js';\nimport { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';\n\nconst server = new Server({ name: 'agentsguardian-mcp-gateway', version: '2.4.0' });\nserver.setRequestHandler(CallToolRequestSchema, async (req) => {\n  const res = await fetch('https://api.agentsguardian.ai/v1/intercept', {\n    method: 'POST',\n    headers: { 'X-Guardian-Key': process.env.AGENT_GUARDIAN_API_KEY },\n    body: JSON.stringify({ agent_id: 'MCP-Tool-Runner', action: \`mcp_tool_\${req.params.name}\`, parameters: req.params.arguments })\n  });\n  const decision = await res.json();\n  if (decision.status === 'HALTED') throw new Error(\`[MCP] Blocked by policy \${decision.policy_violated}\`);\n  return await executeTool(req.params.name, req.params.arguments);\n});`;
                           navigator.clipboard.writeText(code);
                           addToast({
                             type: 'success',
@@ -824,7 +825,7 @@ To onboard your customer codebase to AgentsGuardian (GaaS):
                 </p>
 
                 <div className="p-4 bg-black/60 border border-zinc-900 rounded-xl font-mono text-[10.5px] space-y-1 text-teal-400">
-                  <div>POST https://api.agentguardian.io/v1/telemetry/heartbeat</div>
+                  <div>POST https://api.agentsguardian.ai/v1/telemetry/heartbeat</div>
                   <div className="text-zinc-500">Header: X-GaaS-Tenant-Key: ag_prod_live_{currentUser.id.substring(0,8)}_enc</div>
                   <div className="text-zinc-400 font-sans text-xs mt-2">Latency: 14ms | Status: 200 OK | SLA Limit: {GUARANTEED_SLA_MS}ms</div>
                 </div>

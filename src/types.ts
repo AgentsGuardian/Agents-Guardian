@@ -44,7 +44,16 @@ export interface Policy {
   blastRadius: string; // e.g. "Non-Human Identity", "Database Actions"
   threshold: string;   // e.g. "Strict", "15% Shift", "$50.00 Limit"
   enabled: boolean;
+  failureMode?: 'FAIL_CLOSED' | 'FAIL_OPEN_ALERT';
   sourceLaw?: string;
+}
+
+export interface TenantFailureModeConfig {
+  securityFailMode: 'FAIL_CLOSED';
+  ethicsFailMode: 'FAIL_CLOSED' | 'FAIL_OPEN_ALERT';
+  financeFailMode: 'FAIL_OPEN_ALERT' | 'FAIL_CLOSED';
+  notifyOnFailOpen: boolean;
+  webhookAlertUrl?: string;
 }
 
 export interface KillSignalEvent {

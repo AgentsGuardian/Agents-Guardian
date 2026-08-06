@@ -205,29 +205,51 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
     if (simulationRunning) return;
     setSimulationRunning(true);
     
-    setTimeout(() => {
-      const draftId = `DFT-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-      const newEvent: DriftLogEvent = {
-        id: draftId,
-        timestamp: new Date().toISOString(),
+    fetch('/api/drift/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         agentGroup: 'Loan-Application-Bots',
         ethicalStandard: selectedStandard,
-        sentimentShiftPct: 15.0, // Benchmark demographic deviation of 15%
-        cognitiveHealthScore: 71,
-        status: 'WARNING',
-        logsDetails: 'Drift Simulation: 60 days in, Google AI Studio Native Sentinel detects an automated 15.0% shift in response sentiment toward specific low-income customer demographic tiers. Response tone has passive-helpful deviations.'
-      };
-      onAddDriftEvent(newEvent);
-      if (addToast) {
-        addToast({
-          type: 'warning',
-          title: '⚠️ 15% Demographic Drift Test Triggered',
-          message: 'Google AI Studio Sentinel flagged a 15.0% sentiment shift in Loan-Application-Bots. Phase 2 Drift Event recorded in Compliance Timeline.',
-          duration: 6000
-        });
-      }
-      setSimulationRunning(false);
-    }, 1200);
+        sampleLogs: 'Drift Simulation: 60 days in, Google AI Studio Native Sentinel detects an automated 15.0% shift in response sentiment toward specific low-income customer demographic tiers with aggressive tone.'
+      })
+    })
+      .then(res => res.json())
+      .then(newEvent => {
+        onAddDriftEvent(newEvent);
+        setSimulationRunning(false);
+        if (addToast) {
+          addToast({
+            type: 'warning',
+            title: '⚠️ Cognitive Drift Detected by Backend',
+            message: `Evaluated score: ${newEvent.cognitiveHealthScore}%. Sentiment shift: ${newEvent.sentimentShiftPct}%. Logged in backend DB.`
+          });
+        }
+      })
+      .catch(() => {
+        setSimulationRunning(false);
+      });
+  };
+
+  const handleRemediateDrift = (id: string) => {
+    fetch('/api/drift/remediate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    })
+      .then(res => res.json())
+      .then(resData => {
+        if (resData.success) {
+          onRemediateDrift(id);
+          if (addToast) {
+            addToast({
+              type: 'success',
+              title: '🛡️ Compliance Vectors Injected',
+              message: `Drift event [${id}] remediated on backend. Agent alignment restored.`
+            });
+          }
+        }
+      });
   };
 
   return (
@@ -665,7 +687,7 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
                   </span>
                 ) : (
                   <button
-                    onClick={() => onRemediateDrift(event.id)}
+                    onClick={() => handleRemediateDrift(event.id)}
                     className="px-3 py-1 bg-[#1D9E75]/10 hover:bg-[#1D9E75] hover:text-[#0D1B2A] text-[#1D9E75] border border-[#1D9E75]/30 text-xs rounded font-bold transition flex items-center gap-1.5 cursor-pointer"
                   >
                     <RefreshCw size={12} /> Dispatch Remediation (Trigger Model Retraining)

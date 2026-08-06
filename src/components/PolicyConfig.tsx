@@ -892,6 +892,50 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
         </form>
       )}
 
+      {/* Failure Mode Policy Governance Banner */}
+      <div className="p-4 rounded-xl bg-[#0D1B2A] border border-[#1F2E40] space-y-3">
+        <div className="flex items-center justify-between border-b border-[#1F2E40] pb-2.5">
+          <div className="flex items-center gap-2">
+            <Shield size={16} className="text-[#1D9E75]" />
+            <h3 className="text-xs font-mono font-bold text-white tracking-wider uppercase">
+              Engine Outage & Failure Mode Governance
+            </h3>
+          </div>
+          <span className="px-2 py-0.5 font-mono text-[10px] bg-[#1D9E75]/10 text-[#1D9E75] border border-[#1D9E75]/30 rounded font-bold">
+            Tenant Active Strategy
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs font-mono">
+          <div className="p-3 bg-[#162030] border border-[#1F2E40] rounded-lg">
+            <div className="flex items-center gap-2 text-red-400 font-bold mb-1">
+              <span className="w-2 h-2 rounded-full bg-red-500"></span>
+              Security / Kill-Switch
+            </div>
+            <p className="text-zinc-400 text-[11px] leading-relaxed">
+              <strong className="text-red-300">FAIL CLOSED (BLOCK)</strong>: If Redis or Policy Engine is unreachable, access is halted with HTTP 403 to protect production DBs and OS targets.
+            </p>
+          </div>
+          <div className="p-3 bg-[#162030] border border-[#1F2E40] rounded-lg">
+            <div className="flex items-center gap-2 text-red-400 font-bold mb-1">
+              <span className="w-2 h-2 rounded-full bg-red-500"></span>
+              Ethics & Sentiment
+            </div>
+            <p className="text-zinc-400 text-[11px] leading-relaxed">
+              <strong className="text-red-300">FAIL CLOSED (BLOCK)</strong>: Reasoning alignment and demographic sentiment guards block untrusted agent output during outages.
+            </p>
+          </div>
+          <div className="p-3 bg-[#162030] border border-[#1F2E40] rounded-lg">
+            <div className="flex items-center gap-2 text-amber-400 font-bold mb-1">
+              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              Finance & Budget Caps
+            </div>
+            <p className="text-zinc-400 text-[11px] leading-relaxed">
+              <strong className="text-amber-300">FAIL OPEN (ALERT)</strong>: Temporary Redis cache blips allow execution with background webhook alerts so customer agent workloads are NOT disrupted.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Category Breakdowns Info panel */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="p-4 bg-[#0D1B2A]/90 rounded-lg border border-[#1F2E40] flex items-center justify-between">
@@ -1101,6 +1145,18 @@ export default function PolicyConfig({ policies, onTogglePolicy, onAddPolicy, on
 
                 <span className="text-xs font-mono text-[#556070] font-semibold">
                   Threshold: <strong className="text-slate-300">{policy.threshold}</strong>
+                </span>
+
+                <span className={`px-2 py-0.5 font-mono text-[9px] font-bold uppercase border rounded ${
+                  (policy.failureMode || (policy.category === 'finance' ? 'FAIL_OPEN_ALERT' : 'FAIL_CLOSED')) === 'FAIL_CLOSED'
+                    ? 'bg-red-950/40 text-red-400 border-red-500/30'
+                    : 'bg-amber-950/40 text-amber-400 border-amber-500/30'
+                }`} title={
+                  (policy.failureMode || (policy.category === 'finance' ? 'FAIL_OPEN_ALERT' : 'FAIL_CLOSED')) === 'FAIL_CLOSED'
+                    ? 'Unreachable engine/Redis automatically BLOCKS requests'
+                    : 'Unreachable engine/Redis ALLOWS requests with alert dispatch so agent uptime is preserved'
+                }>
+                  Outage Mode: {(policy.failureMode || (policy.category === 'finance' ? 'FAIL_OPEN_ALERT' : 'FAIL_CLOSED')) === 'FAIL_CLOSED' ? 'FAIL CLOSED (BLOCK)' : 'FAIL OPEN (ALERT)'}
                 </span>
               </div>
 

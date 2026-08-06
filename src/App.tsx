@@ -233,6 +233,20 @@ export default function App() {
   const handleUpdateLaborConfig = (newConfig: LaborConfig) => {
     setLaborConfig(newConfig);
     localStorage.setItem('gaas_labor_config_v1', JSON.stringify(newConfig));
+    fetch('/api/labor-config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newConfig)
+    }).catch(e => console.warn('Failed to save labor config on server:', e));
+  };
+
+  const handleUpdateBudgetCap = (cap: number) => {
+    setBudgetCap(cap);
+    fetch('/api/budget-cap', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ budgetCap: cap })
+    }).catch(e => console.warn('Failed to save budget cap on server:', e));
   };
 
 
@@ -304,6 +318,24 @@ export default function App() {
   const [apiLogs, setApiLogs] = useState<ApiRequestLog[]>(INITIAL_API_LOGS);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | 'off'>(30000);
   const [latencyThreshold, setLatencyThreshold] = useState<number>(GUARANTEED_SLA_MS);
+
+  // Fetch real-time server governance state on mount
+  useEffect(() => {
+    fetch('/api/state')
+      .then(res => res.json())
+      .then(data => {
+        if (data.policies) setPolicies(data.policies);
+        if (data.killEvents) setKillEvents(data.killEvents);
+        if (data.driftEvents) setDriftEvents(data.driftEvents);
+        if (data.valueMetrics) setValueMetrics(data.valueMetrics);
+        if (typeof data.budgetCap === 'number') setBudgetCap(data.budgetCap);
+        if (data.laborConfig) setLaborConfig(data.laborConfig);
+        if (data.users) setUsers(data.users);
+        if (data.governedAgents) setGovernedAgents(data.governedAgents);
+        if (data.apiLogs) setApiLogs(data.apiLogs);
+      })
+      .catch(err => console.warn('Using local fallback state:', err));
+  }, []);
 
   // Toast notification states
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -466,6 +498,7 @@ export default function App() {
 
   const handleClearKillLogs = () => {
     setKillEvents([]);
+    fetch('/api/kill-events', { method: 'DELETE' }).catch(e => console.warn(e));
   };
 
   const handleRemediateDrift = (id: string) => {
@@ -523,6 +556,12 @@ export default function App() {
       }
       return p;
     }));
+
+    fetch('/api/policies/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    }).catch(e => console.warn('Policy toggle server error:', e));
   };
 
   const handleAddPolicy = (newPolicy: Policy) => {
@@ -532,6 +571,12 @@ export default function App() {
       title: 'Governance Policy Registered',
       message: `Successfully provisioned new policy: "${newPolicy.name}" under category: ${newPolicy.category}.`
     });
+
+    fetch('/api/policies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newPolicy)
+    }).catch(e => console.warn('Add policy server error:', e));
   };
 
   const handleDeletePolicy = (id: string) => {
@@ -546,6 +591,8 @@ export default function App() {
       title: 'Governance Policy Deleted',
       message: `Permanently removed and unlinked policy rule: "${deletedName}".`
     });
+
+    fetch(`/api/policies/${id}`, { method: 'DELETE' }).catch(e => console.warn('Delete policy server error:', e));
   };
 
   if (!isLoggedIn) {
@@ -595,13 +642,26 @@ export default function App() {
             </div>
             
             {/* System Mode State Pill */}
-            <span className={`text-[9.5px] font-mono font-bold uppercase tracking-widest px-2.5 py-0.5 rounded border transition-all ${
-              governanceMode === 'active' 
-                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' 
-                : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-            }`}>
+            <button
+              onClick={() => {
+                const nextMode = governanceMode === 'active' ? 'setup' : 'active';
+                setGovernanceMode(nextMode);
+                addToast({
+                  type: nextMode === 'active' ? 'success' : 'warning',
+                  title: nextMode === 'active' ? '⚡ Active Governance Mode' : '⚙ Setup Mode Enabled',
+                  message: nextMode === 'active' 
+                    ? 'Platform transitioned to Active Governance Mode. Gateway interception and live policies actively enforced.'
+                    : 'Platform transitioned to Setup Mode. Integration wizard and configuration mode active.'
+                });
+              }}
+              title="Click to toggle between Setup Mode and Active Governance Mode"
+              className={`text-[9.5px] font-mono font-bold uppercase tracking-widest px-2.5 py-0.5 rounded border transition-all cursor-pointer hover:scale-105 active:scale-95 ${
+                governanceMode === 'active' 
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25' 
+                  : 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25'
+              }`}>
               {governanceMode === 'active' ? '● ACTIVE GOVERNANCE MODE' : '⚙ SETUP MODE'}
-            </span>
+            </button>
           </div>
 
           {/* Top Right: Notification Center & Active security session dropdown */}
@@ -891,7 +951,7 @@ export default function App() {
             onRefineAgent={handleRefineAgent}
             onAddMetricEvent={handleAddMetricEvent}
             budgetCap={budgetCap}
-            onUpdateBudgetCap={setBudgetCap}
+            onUpdateBudgetCap={handleUpdateBudgetCap}
             laborConfig={laborConfig}
             onUpdateLaborConfig={handleUpdateLaborConfig}
           />
