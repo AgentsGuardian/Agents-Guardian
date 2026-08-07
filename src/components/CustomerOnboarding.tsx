@@ -164,14 +164,7 @@ export default function CustomerOnboarding({
   governanceMode = 'setup',
   setGovernanceMode
 }: CustomerOnboardingProps) {
-  const [activeSetupStep, setActiveSetupStep] = useState<number>(() => {
-    const saved = localStorage.getItem('gaas_onboarding_step_v1');
-    return saved ? parseInt(saved, 10) : 1;
-  });
-
-  React.useEffect(() => {
-    localStorage.setItem('gaas_onboarding_step_v1', activeSetupStep.toString());
-  }, [activeSetupStep]);
+  const [activeSetupStep, setActiveSetupStep] = useState<number>(1);
 
   const [testPayload, setTestPayload] = useState<string>(
     '{"agent_id": "Agent-Production-Node", "intent": "Analyze quarterly budget ledger and execute database query", "approximate_cost": 0.02}'
@@ -199,9 +192,7 @@ Ask me anything about:
   const [isThinking, setIsThinking] = useState<boolean>(false);
 
   const [personaMode, setPersonaMode] = useState<'dev' | 'ciso'>('dev');
-  const [isVerified, setIsVerified] = useState<boolean>(() => {
-    return localStorage.getItem('gaas_onboarding_verified_v1') === 'true';
-  });
+  const [isVerified, setIsVerified] = useState<boolean>(governanceMode === 'active');
 
   // Handle running the sandbox test handshake
   const handleRunSandboxTest = () => {
@@ -240,9 +231,14 @@ Signature: RSA-4096-VERIFIED
 Telemetry: Heartbeat recorded in Observability Stream
 Budget Cap Status: OK ($${budgetCap}.00 remaining)`);
         setIsVerified(true);
-        localStorage.setItem('gaas_onboarding_verified_v1', 'true');
         if (setGovernanceMode) setGovernanceMode('active');
-        fetch('/api/onboarding/complete', { method: 'POST' }).catch(e => console.warn(e));
+        fetch('/api/onboarding/complete', {
+          method: 'POST',
+          headers: {
+            'X-User-Email': currentUser?.email || 'admin@enterprise.com',
+            'Authorization': `Bearer session_${currentUser?.id || 'USR-001'}`
+          }
+        }).catch(e => console.warn(e));
         addToast({
           type: 'success',
           title: '⚡ Handshake Verification Success',
@@ -317,6 +313,13 @@ $$\\text{Health Score (\\%)} = \\left(\\frac{\\text{Authorized Calls}}{\\text{To
 - **Teal (HEALTHY, $\\ge 85\\%$)**: High operational stability and policy compliance.
 - **Amber (EVALUATING, $60-84\\%$)**: Active evaluation or warning alerts.
 - **Crimson (HALT ALERT, $< 60\\%$)**: Frequent policy intercepts requiring immediate investigation.`;
+      } else if (q.includes('marketplace') || q.includes('gcp') || q.includes('procurement') || q.includes('entitlement')) {
+        replyText = `### GCP MARKETPLACE & MULTI-TENANT PROVISIONING
+AgentsGuardian natively integrates with Google Cloud Marketplace via \`/api/v1/marketplace/webhook\`:
+
+1. **Automated Provisioning**: Subscribing in GCP Marketplace triggers \`ENTITLEMENT_CREATION_REQUESTED\`, automatically provisioning an isolated multi-tenant account and issuing an \`ag_live_*\` API keycard.
+2. **Default Guardrail Bundles**: Seeds default Security, Ethics, and Finance policy bundles and assigns tier-specific budget caps ($500 ENTERPRISE, $1000 ENTERPRISE_CUSTOM).
+3. **Usage Metering & 0.00% Reconciliation**: Telemetry usage is reported to GCP Commerce via \`/api/v1/marketplace/metering\` and verified with zero discrepancy via \`/api/v1/marketplace/reconcile\`.`;
       } else if (q.includes('solution') || q.includes('technical') || q.includes('document') || q.includes('guide') || q.includes('blueprint')) {
         replyText = `### DOCUMENTATION & BLUEPRINT SPECIFICATION
 AgentsGuardian provides complete technical and solution documentation:

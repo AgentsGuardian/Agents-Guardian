@@ -5,22 +5,11 @@ import {
   DriftLogEvent, 
   ValueMeterMetric, 
   GoverningAgent, 
-  ApiRequestLog, 
   AdminUser, 
   LaborConfig 
 } from '../types';
-import { 
-  INITIAL_POLICIES, 
-  INITIAL_KILL_SWITCH_EVENTS, 
-  INITIAL_DRIFT_EVENTS, 
-  INITIAL_VALUE_METRICS, 
-  INITIAL_ADMINS 
-} from '../data';
 
-import { 
-  GUARANTEED_SLA_MS, 
-  generateTransactionId 
-} from '../utils';
+import { generateTransactionId } from '../utils';
 
 export interface SystemNotification {
   id: string;
@@ -33,186 +22,220 @@ export interface SystemNotification {
   targetTab?: string;
 }
 
-const INITIAL_GOVERNED_AGENTS: GoverningAgent[] = [
-  { id: 'GA-101', name: 'SalesSummarizer-CrewAI', framework: 'CrewAI', webhookUrl: 'https://internal-workflow.org/hooks/sales-bot', attachedPolicyCode: 'POL-SEC-01', status: 'NOMINAL', requestCount: 394 },
-  { id: 'GA-102', name: 'AutoTrader-Langchain', framework: 'LangChain', webhookUrl: 'https://trading-node-2.net/gaas/gate', attachedPolicyCode: 'POL-FIN-01', status: 'NOMINAL', requestCount: 1242 },
-  { id: 'GA-103', name: 'AutoGen-TriageHQ', framework: 'AutoGen', webhookUrl: 'https://conversation.firm.com/api/v1', attachedPolicyCode: 'POL-ETH-01', status: 'NOMINAL', requestCount: 8905 },
-  { id: 'GA-104', name: 'Postgres-MCP-Server', framework: 'MCP Server', webhookUrl: 'https://mcp.enterprise.io/v1/tools/call', attachedPolicyCode: 'POL-SEC-01', status: 'NOMINAL', requestCount: 2150 }
-];
-
-const INITIAL_NOTIFICATIONS: SystemNotification[] = [
-  {
-    id: 'notif-1',
-    timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-    type: 'warning',
-    category: 'SLA',
-    title: 'SLA Latency Warning',
-    message: `Postgres-MCP-Server payload evaluation exceeded ${GUARANTEED_SLA_MS}ms SLA target (42ms).`,
-    read: false,
-    targetTab: 'gaas'
-  },
-  {
-    id: 'notif-2',
-    timestamp: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
-    type: 'info',
-    category: 'Policy',
-    title: 'EU AI Act Rules Loaded',
-    message: 'Regulatory ingestion compiler synthesized 3 active enforcement rules.',
-    read: false,
-    targetTab: 'policy'
-  },
-  {
-    id: 'notif-3',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-    type: 'success',
-    category: 'Audit',
-    title: 'Handshake Verified',
-    message: 'GaaS Proxy Client handshake verified with RSA-4096 signature.',
-    read: true,
-    targetTab: 'onboarding'
-  }
-];
-
 export function useGovernanceStore() {
-  // Policies state
-  const [policies, setPolicies] = useState<Policy[]>(() => {
-    const saved = localStorage.getItem('gaas_policies_v1');
-    return saved ? JSON.parse(saved) : INITIAL_POLICIES;
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const [killEvents, setKillEvents] = useState<KillSignalEvent[]>([]);
+  const [driftEvents, setDriftEvents] = useState<DriftLogEvent[]>([]);
+  const [valueMetrics, setValueMetrics] = useState<ValueMeterMetric[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [actingUserId, setActingUserId] = useState<string>('USR-001');
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
+  const [governedAgents, setGovernedAgents] = useState<GoverningAgent[]>([]);
+  const [laborConfig, setLaborConfig] = useState<LaborConfig>({
+    l1Rate: 35,
+    l2Rate: 75,
+    l3Rate: 150,
+    auditRate: 60,
+    avgHoursPerTask: 0.25
   });
-
-  // Kill events state
-  const [killEvents, setKillEvents] = useState<KillSignalEvent[]>(() => {
-    const saved = localStorage.getItem('gaas_kill_events_v1');
-    return saved ? JSON.parse(saved) : INITIAL_KILL_SWITCH_EVENTS;
-  });
-
-  // Drift events state
-  const [driftEvents, setDriftEvents] = useState<DriftLogEvent[]>(() => {
-    const saved = localStorage.getItem('gaas_drift_events_v1');
-    return saved ? JSON.parse(saved) : INITIAL_DRIFT_EVENTS;
-  });
-
-  // Value metrics state
-  const [valueMetrics, setValueMetrics] = useState<ValueMeterMetric[]>(() => {
-    const saved = localStorage.getItem('gaas_value_metrics_v1');
-    return saved ? JSON.parse(saved) : INITIAL_VALUE_METRICS;
-  });
-
-  // Admin users state
-  const [users, setUsers] = useState<AdminUser[]>(() => {
-    const saved = localStorage.getItem('gaas_captured_people_v1');
-    return saved ? JSON.parse(saved) : INITIAL_ADMINS;
-  });
-
-  // Acting user state
-  const [actingUserId, setActingUserId] = useState<string>(() => {
-    return localStorage.getItem('gaas_logged_in_user_id') || 'USR-001';
-  });
-
-  // Logged in state
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    return localStorage.getItem('gaas_is_logged_in') === 'true';
-  });
-
-  // Governed Agents
-  const [governedAgents, setGovernedAgents] = useState<GoverningAgent[]>(() => {
-    const saved = localStorage.getItem('gaas_agents_v1');
-    return saved ? JSON.parse(saved) : INITIAL_GOVERNED_AGENTS;
-  });
-
-  // Labor config
-  const [laborConfig, setLaborConfig] = useState<LaborConfig>(() => {
-    const saved = localStorage.getItem('gaas_labor_config_v1');
-    return saved ? JSON.parse(saved) : {
-      l1Rate: 35,
-      l2Rate: 75,
-      l3Rate: 150,
-      auditRate: 60,
-      avgHoursPerTask: 0.25
-    };
-  });
-
-  // System Notifications for Notification Center
-  const [notifications, setNotifications] = useState<SystemNotification[]>(() => {
-    const saved = localStorage.getItem('gaas_notifications_v1');
-    return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
-  });
-
-  // Governance Mode state (Setup Mode vs Active Governance Mode)
-  const [governanceMode, setGovernanceModeState] = useState<'setup' | 'active'>(() => {
-    const saved = localStorage.getItem('gaas_governance_mode_v1');
-    if (saved === 'active' || saved === 'setup') return saved;
-    return localStorage.getItem('gaas_onboarding_verified_v1') === 'true' ? 'active' : 'setup';
-  });
-
-  const setGovernanceMode = useCallback((mode: 'setup' | 'active') => {
-    setGovernanceModeState(mode);
-    localStorage.setItem('gaas_governance_mode_v1', mode);
-  }, []);
-
-  // Global alert suppression
-  const [disableAlertsGlobally, setDisableAlertsGlobally] = useState<boolean>(() => {
-    return localStorage.getItem('gaas_mute_alerts_v1') === 'true';
-  });
-
-  // Fetch initial backend state on mount
-  useEffect(() => {
-    fetch('/api/state')
-      .then(res => {
-        if (res.ok) return res.json();
-        throw new Error('Failed to fetch state');
-      })
-      .then(data => {
-        if (data.policies) setPolicies(data.policies);
-        if (data.killEvents) setKillEvents(data.killEvents);
-        if (data.driftEvents) setDriftEvents(data.driftEvents);
-        if (data.valueMetrics) setValueMetrics(data.valueMetrics);
-        if (data.users) setUsers(data.users);
-        if (data.governedAgents) setGovernedAgents(data.governedAgents);
-        if (data.laborConfig) setLaborConfig(data.laborConfig);
-        if (data.notifications) setNotifications(data.notifications);
-        if (data.governanceMode) setGovernanceModeState(data.governanceMode);
-      })
-      .catch(err => console.warn('Using local fallback state:', err));
-  }, []);
-
-
-  useEffect(() => {
-    localStorage.setItem('gaas_kill_events_v1', JSON.stringify(killEvents));
-  }, [killEvents]);
-
-  useEffect(() => {
-    localStorage.setItem('gaas_drift_events_v1', JSON.stringify(driftEvents));
-  }, [driftEvents]);
-
-  useEffect(() => {
-    localStorage.setItem('gaas_value_metrics_v1', JSON.stringify(valueMetrics));
-  }, [valueMetrics]);
-
-  useEffect(() => {
-    localStorage.setItem('gaas_captured_people_v1', JSON.stringify(users));
-  }, [users]);
-
-  useEffect(() => {
-    localStorage.setItem('gaas_agents_v1', JSON.stringify(governedAgents));
-  }, [governedAgents]);
-
-  useEffect(() => {
-    localStorage.setItem('gaas_notifications_v1', JSON.stringify(notifications));
-  }, [notifications]);
-
-  useEffect(() => {
-    localStorage.setItem('gaas_mute_alerts_v1', disableAlertsGlobally ? 'true' : 'false');
-  }, [disableAlertsGlobally]);
+  const [notifications, setNotifications] = useState<SystemNotification[]>([]);
+  const [governanceMode, setGovernanceModeState] = useState<'setup' | 'active'>('active');
+  const [disableAlertsGlobally, setDisableAlertsGlobally] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Derived current user
   const currentUser = useMemo(() => {
     const found = users.find(u => u.id === actingUserId || u.email.toLowerCase().trim() === actingUserId.toLowerCase().trim());
     if (found) return found;
-    return users.find(u => u.status === 'ACTIVE') || users[0] || INITIAL_ADMINS[1];
+    return users.find(u => u.status === 'ACTIVE') || {
+      id: 'USR-001',
+      name: 'Mritunjoy Singh',
+      email: 'mritunjoysingh@gmail.com',
+      role: 'SuperAdmin',
+      status: 'ACTIVE',
+      mfaEnabled: true,
+      lastLogin: 'Active Session'
+    };
   }, [users, actingUserId]);
 
-  // Notification actions
+  const getAuthHeaders = useCallback(() => {
+    return {
+      'Content-Type': 'application/json',
+      'X-User-Email': currentUser.email || 'mritunjoysingh@gmail.com',
+      'Authorization': `Bearer session_${currentUser.id || 'USR-001'}`
+    };
+  }, [currentUser]);
+
+  // Fetch real authenticated backend state on mount or when auth user changes
+  const refreshState = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const res = await fetch('/api/state', {
+        headers: getAuthHeaders()
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.policies) setPolicies(data.policies);
+      if (data.killEvents) setKillEvents(data.killEvents);
+      if (data.driftEvents) setDriftEvents(data.driftEvents);
+      if (data.valueMetrics) setValueMetrics(data.valueMetrics);
+      if (data.users) setUsers(data.users);
+      if (data.governedAgents) setGovernedAgents(data.governedAgents);
+      if (data.laborConfig) setLaborConfig(data.laborConfig);
+      if (data.notifications) setNotifications(data.notifications);
+      if (data.governanceMode) setGovernanceModeState(data.governanceMode);
+    } catch (err) {
+      console.warn('[GovernanceStore] Admin API state sync error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getAuthHeaders]);
+
+  useEffect(() => {
+    refreshState();
+  }, [refreshState]);
+
+  // Actions wired to Backend API
+  const addPolicy = useCallback(async (newPolicy: Partial<Policy>) => {
+    try {
+      const res = await fetch('/api/policies', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(newPolicy)
+      });
+      if (res.ok) {
+        await refreshState();
+      }
+    } catch (err) {
+      console.error('Failed to add policy via API:', err);
+    }
+  }, [getAuthHeaders, refreshState]);
+
+  const togglePolicy = useCallback(async (id: string) => {
+    try {
+      const res = await fetch('/api/policies/toggle', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        await refreshState();
+      }
+    } catch (err) {
+      console.error('Failed to toggle policy via API:', err);
+    }
+  }, [getAuthHeaders, refreshState]);
+
+  const deletePolicy = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/policies/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        await refreshState();
+      }
+    } catch (err) {
+      console.error('Failed to delete policy via API:', err);
+    }
+  }, [getAuthHeaders, refreshState]);
+
+  const addKillEvent = useCallback(async (event: Partial<KillSignalEvent>) => {
+    try {
+      const res = await fetch('/api/kill-events', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(event)
+      });
+      if (res.ok) {
+        await refreshState();
+      }
+    } catch (err) {
+      console.error('Failed to add kill event via API:', err);
+    }
+  }, [getAuthHeaders, refreshState]);
+
+  const clearKillEvents = useCallback(async () => {
+    try {
+      const res = await fetch('/api/kill-events', {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        await refreshState();
+      }
+    } catch (err) {
+      console.error('Failed to clear kill events via API:', err);
+    }
+  }, [getAuthHeaders, refreshState]);
+
+  const addAgent = useCallback(async (agent: Partial<GoverningAgent>) => {
+    try {
+      const res = await fetch('/api/agents', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(agent)
+      });
+      if (res.ok) {
+        await refreshState();
+      }
+    } catch (err) {
+      console.error('Failed to add agent via API:', err);
+    }
+  }, [getAuthHeaders, refreshState]);
+
+  const updateLaborConfig = useCallback(async (config: LaborConfig) => {
+    try {
+      setLaborConfig(config);
+      await fetch('/api/labor-config', {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(config)
+      });
+    } catch (err) {
+      console.error('Failed to update labor config via API:', err);
+    }
+  }, [getAuthHeaders]);
+
+  const markAllNotificationsRead = useCallback(async () => {
+    try {
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      await fetch('/api/notifications/read-all', {
+        method: 'PUT',
+        headers: getAuthHeaders()
+      });
+    } catch (err) {
+      console.error('Failed to mark notifications read via API:', err);
+    }
+  }, [getAuthHeaders]);
+
+  const clearAllNotifications = useCallback(async () => {
+    try {
+      setNotifications([]);
+      await fetch('/api/notifications', {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+    } catch (err) {
+      console.error('Failed to clear notifications via API:', err);
+    }
+  }, [getAuthHeaders]);
+
+  const setGovernanceMode = useCallback(async (mode: 'setup' | 'active') => {
+    setGovernanceModeState(mode);
+    if (mode === 'active') {
+      try {
+        await fetch('/api/onboarding/complete', {
+          method: 'POST',
+          headers: getAuthHeaders()
+        });
+        await refreshState();
+      } catch (err) {
+        console.error('Failed to set governance mode via API:', err);
+      }
+    }
+  }, [getAuthHeaders, refreshState]);
+
   const addNotification = useCallback((notif: Omit<SystemNotification, 'id' | 'timestamp' | 'read'>) => {
     const newNotif: SystemNotification = {
       ...notif,
@@ -220,15 +243,7 @@ export function useGovernanceStore() {
       timestamp: new Date().toISOString(),
       read: false
     };
-    setNotifications(prev => [newNotif, ...prev.slice(0, 49)]); // Keep last 50
-  }, []);
-
-  const markAllNotificationsRead = useCallback(() => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  }, []);
-
-  const clearAllNotifications = useCallback(() => {
-    setNotifications([]);
+    setNotifications(prev => [newNotif, ...prev.slice(0, 49)]);
   }, []);
 
   const markNotificationRead = useCallback((id: string) => {
@@ -261,6 +276,15 @@ export function useGovernanceStore() {
     governanceMode,
     setGovernanceMode,
     currentUser,
+    isLoading,
+    refreshState,
+    addPolicy,
+    togglePolicy,
+    deletePolicy,
+    addKillEvent,
+    clearKillEvents,
+    addAgent,
+    updateLaborConfig,
     addNotification,
     markAllNotificationsRead,
     clearAllNotifications,

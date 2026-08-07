@@ -7,6 +7,7 @@ export type PolicyCategory = 'security' | 'ethics' | 'finance';
 
 export interface GoverningAgent {
   id: string;
+  tenantId?: string;
   name: string;
   framework: 'LangChain' | 'CrewAI' | 'AutoGen' | 'MCP Server' | 'MCP Client' | 'Custom API' | 'ITSM Bot';
   webhookUrl: string;
@@ -17,6 +18,7 @@ export interface GoverningAgent {
 
 export interface ApiRequestLog {
   id: string;
+  tenantId?: string;
   timestamp: string;
   agentId: string;
   agentName: string;
@@ -37,6 +39,7 @@ export interface Toast {
 
 export interface Policy {
   id: string;
+  tenantId?: string;
   code: string;
   name: string;
   description: string;
@@ -58,6 +61,7 @@ export interface TenantFailureModeConfig {
 
 export interface KillSignalEvent {
   id: string;
+  tenantId?: string;
   timestamp: string;
   agentName: string;
   actionCommand: string;
@@ -71,6 +75,7 @@ export interface KillSignalEvent {
 
 export interface DriftLogEvent {
   id: string;
+  tenantId?: string;
   timestamp: string;
   agentGroup: string;
   ethicalStandard: string;
@@ -83,6 +88,7 @@ export interface DriftLogEvent {
 
 export interface ValueMeterMetric {
   id: string;
+  tenantId?: string;
   timestamp: string;
   agentName: string;
   completedTasks: number;
@@ -102,10 +108,25 @@ export interface LaborConfig {
 }
 
 
+export interface AuditLedgerEntry {
+  id: string;
+  messageId?: string;
+  tenantId: string;
+  agentId: string;
+  eventType: string;
+  payloadHash: string;
+  prevHash: string;
+  entryHash: string;
+  signature: string;
+  signatureStatus?: 'VALID_KMS' | 'PENDING_KMS_UNAVAILABLE';
+  timestamp: string;
+}
+
 export type AdminRole = 'SuperAdmin' | 'Admin' | 'PolicyManager' | 'Auditor' | 'Operator';
 
 export interface AdminUser {
   id: string;
+  tenantId?: string;
   name: string;
   email: string;
   role: AdminRole;

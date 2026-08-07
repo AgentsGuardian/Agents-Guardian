@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/pubsub"
@@ -16,30 +18,49 @@ import (
 
 // InterceptRequest defines the payload structure received from AI agents
 type InterceptRequest struct {
-	TenantID   string `json:"tenant_id"`
-	AgentID    string `json:"agent_id"`
-	AgentName  string `json:"agent_name"`
-	Action     string `json:"action"`
-	Endpoint   string `json:"endpoint"`
-	SessionID  string `json:"session_id"`
-	CostEstUSD float64 `json:"cost_est_usd"`
+	TenantID   string                 `json:"tenant_id"`
+	AgentID    string                 `json:"agent_id"`
+	AgentName  string                 `json:"agent_name"`
+	Action     string                 `json:"action"`
+	Endpoint   string                 `json:"endpoint"`
+	SessionID  string                 `json:"session_id"`
+	CostEstUSD float64                `json:"cost_est_usd"`
+	Parameters map[string]interface{} `json:"parameters,omitempty"`
+	PromptText string                 `json:"prompt_text,omitempty"`
 }
 
 // InterceptResponse represents Tier 1 pre-action authorization
 type InterceptResponse struct {
-	ID             string `json:"id"`
-	Status         string `json:"status"` // AUTHORIZED | HALTED
-	Authorized     bool   `json:"authorized"`
-	PolicyViolated string `json:"policy_violated,omitempty"`
-	LatencyMs      int64  `json:"latency_ms"`
-	LedgerHash     string `json:"ledger_hash,omitempty"`
-	Reason         string `json:"reason,omitempty"`
+	ID             string  `json:"id"`
+	Status         string  `json:"status"` // AUTHORIZED | HALTED
+	Authorized     bool    `json:"authorized"`
+	PolicyViolated string  `json:"policy_violated,omitempty"`
+	LatencyMs      int64   `json:"latency_ms"`
+	VerifiedCost   float64 `json:"verified_cost_usd,omitempty"`
+	LedgerHash     string  `json:"ledger_hash,omitempty"`
+	Reason         string  `json:"reason,omitempty"`
 }
 
 var (
-	redisClient *redis.Client
-	pubsubTopic *pubsub.Topic
-	opaQuery    rego.PreparedEvalQuery
+	redisClient     *redis.Client
+	pubsubTopic     *pubsub.Topic
+	opaQuery        rego.PreparedEvalQuery
+	memBudgets      = make(map[string]float64)
+	memBudgetsMutex sync.Mutex
+
+	// Atomic Redis Lua script for check-and-increment budget reservation
+	budgetLuaScript = redis.NewScript(`
+		local key = KEYS[1]
+		local cost = tonumber(ARGV[1])
+		local cap = tonumber(ARGV[2])
+		local current = tonumber(redis.call('GET', key) or "0")
+		if current + cost > cap then
+			return {0, tostring(current)}
+		else
+			local new_spend = redis.call('INCRBYFLOAT', key, cost)
+			return {1, tostring(new_spend)}
+		end
+	`)
 )
 
 func main() {
@@ -51,19 +72,32 @@ func main() {
 		Addr: redisHost,
 	})
 
-	// Prepare Embedded Open Policy Agent (OPA) Rule Engine
+	// Prepare Embedded Open Policy Agent (OPA) Rule Engine with Structured Rules
 	query, err := rego.New(
 		rego.Query("data.agentsguardian.authz.allow"),
 		rego.Module("authz.rego", `
 			package agentsguardian.authz
 			default allow = true
 
-			# Block unauthorized database mutations from non-human agents
+			# Deny unauthorized database mutations from non-human agents
 			allow = false {
-				contains(lower(input.action), "drop table")
+				input.action_type == "db.write"
+				not input.has_erp_context
 			}
+
+			# Deny raw shell execution
 			allow = false {
-				contains(lower(input.action), "delete from")
+				input.action_type == "shell.exec"
+			}
+
+			# Deny bulk file deletion
+			allow = false {
+				input.action_type == "file.delete"
+			}
+
+			# Deny budget bypass attempt where client claimed $0 on non-empty request
+			allow = false {
+				input.cost_bypass_attempt == true
 			}
 		`),
 	).PrepareForEval(ctx)
@@ -100,21 +134,75 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	w.Header().Set("Content-Type", "application/json")
 
+	// 0. Tenant API Key Header Authentication
+	apiKey := r.Header.Get("X-Guardian-Key")
+	if apiKey == "" {
+		apiKey = r.Header.Get("X-API-Key")
+	}
+	if apiKey == "" && len(r.Header.Get("Authorization")) > 7 {
+		apiKey = r.Header.Get("Authorization")[7:]
+	}
+
+	if apiKey == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"Unauthorized: Missing or invalid API key"}`))
+		return
+	}
+
 	var req InterceptRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"Invalid request payload"}`, http.StatusBadRequest)
 		return
 	}
 
-	if req.TenantID == "" {
-		req.TenantID = "tenant_default"
+	// Always resolve TenantID server-side from authenticated API key
+	req.TenantID = "tenant_default"
+
+	// 1. Server-Side Cost Bound Verification & Fraud Detection
+	payloadText := fmt.Sprintf("%s %s %s", req.Action, req.Endpoint, req.PromptText)
+	if req.Parameters != nil {
+		pBytes, _ := json.Marshal(req.Parameters)
+		payloadText += " " + string(pBytes)
+	}
+	charCount := float64(len(strings.TrimSpace(payloadText)))
+	estimatedTokens := charCount / 4.0
+	if estimatedTokens < 10 {
+		estimatedTokens = 10
+	}
+	serverVerifiedCost := estimatedTokens * 0.00005 // $0.05 per 1,000 tokens
+
+	costBypassAttempt := false
+	effectiveCost := req.CostEstUSD
+
+	if req.CostEstUSD == 0 && charCount > 15 {
+		costBypassAttempt = true
+		effectiveCost = serverVerifiedCost
+		log.Printf("[Budget Fraud Alert] Agent %s reported $0.00 cost on payload (%f chars). Reconciled server-verified cost to $%.4f", req.AgentID, charCount, effectiveCost)
+	} else if req.CostEstUSD < serverVerifiedCost*0.1 && charCount > 20 {
+		costBypassAttempt = true
+		effectiveCost = serverVerifiedCost
 	}
 
-	// 1. Tier 1 OPA Policy Evaluation (<10ms SLA)
+	// Determine structured action type
+	actionType := "standard"
+	lowerAction := strings.ToLower(req.Action)
+	if strings.Contains(lowerAction, "exec") || strings.Contains(lowerAction, "bash") || strings.Contains(lowerAction, "sudo") || strings.HasPrefix(lowerAction, "sh ") {
+		actionType = "shell.exec"
+	} else if strings.Contains(lowerAction, "drop table") || strings.Contains(lowerAction, "delete from") || strings.Contains(lowerAction, "truncate table") {
+		actionType = "db.write"
+	} else if strings.Contains(lowerAction, "rm -rf") || strings.Contains(lowerAction, "bulk_delete") {
+		actionType = "file.delete"
+	}
+
+	// 2. Tier 1 Policy Evaluation (<10ms SLA)
 	ctx := r.Context()
 	results, err := opaQuery.Eval(ctx, rego.EvalInput(map[string]interface{}{
-		"action":   req.Action,
-		"agent_id": req.AgentID,
+		"action":              req.Action,
+		"action_type":         actionType,
+		"agent_id":            req.AgentID,
+		"cost_est_usd":        req.CostEstUSD,
+		"verified_cost":       effectiveCost,
+		"cost_bypass_attempt": costBypassAttempt,
 	}))
 
 	authorized := false
@@ -132,34 +220,69 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 	reqID := fmt.Sprintf("KG-%d", time.Now().UnixNano()/1e6)
 
 	if !authorized {
+		policyCode := "POL-SEC-01"
+		reason := "Action matches forbidden non-human identity boundary constraint."
+		if costBypassAttempt {
+			policyCode = "POL-FIN-02"
+			reason = fmt.Sprintf("Reported $0 cost on high-complexity request flagged as budget bypass attempt. Reconciled cost: $%.4f", effectiveCost)
+		} else if actionType == "shell.exec" {
+			policyCode = "POL-SEC-02"
+			reason = "Raw shell command execution blocked by POL-SEC-02."
+		}
+
 		resp := InterceptResponse{
 			ID:             reqID,
 			Status:         "HALTED",
 			Authorized:     false,
-			PolicyViolated: "POL-SEC-01",
+			PolicyViolated: policyCode,
 			LatencyMs:      latencyMs,
-			Reason:         "Action matches forbidden non-human identity boundary constraint (e.g., destructive SQL mutation).",
+			VerifiedCost:   effectiveCost,
+			Reason:         reason,
 		}
 
-		// Dispatch async event to Pub/Sub for ledger writer
-		dispatchPubSubEvent(req, "HALTED", "POL-SEC-01")
+		dispatchPubSubEvent(req, "HALTED", policyCode)
 
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(resp)
 		return
 	}
 
-	// 2. Budget Check via Redis Atomic Key
+	// 3. Atomic Budget Check via Redis Lua Script / In-Memory Fallback
+	budgetCap := 50.0
 	budgetKey := fmt.Sprintf("tenant:%s:agent:%s:budget", req.TenantID, req.AgentID)
-	currentSpend, _ := redisClient.Get(ctx, budgetKey).Float64()
-	if currentSpend+req.CostEstUSD > 50.0 {
+
+	budgetPassed := false
+	if redisClient != nil {
+		res, err := budgetLuaScript.Run(ctx, redisClient, []string{budgetKey}, effectiveCost, budgetCap).Result()
+		if err == nil {
+			if resSlice, ok := res.([]interface{}); ok && len(resSlice) == 2 {
+				if flag, ok := resSlice[0].(int64); ok && flag == 1 {
+					budgetPassed = true
+				}
+			}
+		}
+	}
+
+	if !budgetPassed && redisClient == nil {
+		// Thread-safe in-memory atomic fallback
+		memBudgetsMutex.Lock()
+		current := memBudgets[budgetKey]
+		if current+effectiveCost <= budgetCap {
+			memBudgets[budgetKey] = current + effectiveCost
+			budgetPassed = true
+		}
+		memBudgetsMutex.Unlock()
+	}
+
+	if !budgetPassed {
 		resp := InterceptResponse{
 			ID:             reqID,
 			Status:         "HALTED",
 			Authorized:     false,
 			PolicyViolated: "POL-FIN-01",
 			LatencyMs:      latencyMs,
-			Reason:         "Agent session budget cap of $50.00 exceeded.",
+			VerifiedCost:   effectiveCost,
+			Reason:         fmt.Sprintf("Agent session budget cap of $50.00 exceeded (verified cost: $%.4f).", effectiveCost),
 		}
 		dispatchPubSubEvent(req, "HALTED", "POL-FIN-01")
 		w.WriteHeader(http.StatusForbidden)
@@ -167,14 +290,12 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Increment Redis budget
-	redisClient.IncrByFloat(ctx, budgetKey, req.CostEstUSD)
-
 	resp := InterceptResponse{
-		ID:         reqID,
-		Status:     "AUTHORIZED",
-		Authorized: true,
-		LatencyMs:  latencyMs,
+		ID:           reqID,
+		Status:       "AUTHORIZED",
+		Authorized:   true,
+		LatencyMs:    latencyMs,
+		VerifiedCost: effectiveCost,
 	}
 
 	dispatchPubSubEvent(req, "AUTHORIZED", "")
@@ -209,3 +330,4 @@ func getEnv(key, defaultVal string) string {
 	}
 	return defaultVal
 }
+

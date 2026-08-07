@@ -870,6 +870,34 @@ export default function HelpCenter({
       question: "How do I integrate my client application codebase with AgentsGuardian GaaS?",
       answer: "Navigate to the 'GaaS / APIs' section or Threat Interceptor Sandbox in the Help Center. The integration protocol guides you through: 1) Security Handshake & Key Exchange (copying AG_PROD_KEY to your .env); 2) Zero-Code Proxy Redirect (setting OPENAI_BASE_URL) or native Python/Node.js/MCP SDK setup; 3) Policy Posture & Labor Wage Calibration ($35/$75/$150/hr); 4) Telemetry Pipe Configuration; and 5) Interactive Sandbox Test Handshake verification returning live 200 OK or 403 FORBIDDEN results.",
       keywords: ['client integration', 'sdk integration', '5-step calibration', 'openai_base_url', 'sandbox test', 'integration copilot']
+    },
+    {
+      id: 'gcp-marketplace-lifecycle',
+      category: 'api',
+      question: "How does the GCP Marketplace Integration & Webhook Lifecycle work?",
+      answer: "AgentsGuardian provides native Google Cloud Marketplace integration via /api/v1/marketplace/webhook. When enterprise customers subscribe, the webhook processes entitlement events (ENTITLEMENT_CREATION_REQUESTED, ENTITLEMENT_PLAN_CHANGED, ENTITLEMENT_CANCELLED), automatically provisioning multi-tenant accounts, issuing live API keycards (ag_live_*), seeding default policy bundles (Security, Ethics, Finance), and scaling budget caps ($500 for ENTERPRISE, $1000 for ENTERPRISE_CUSTOM).",
+      keywords: ['gcp marketplace', 'marketplace webhook', 'entitlement', 'procurement', 'auto-provisioning', 'tenant isolation']
+    },
+    {
+      id: 'marketplace-metering-reconciliation',
+      category: 'financial',
+      question: "How does Usage Metering and 0.00% Discrepancy Reconciliation work?",
+      answer: "AgentsGuardian emits periodic usage metering data (/api/v1/marketplace/metering) anchored to cryptographic Annex IV ledger hashes. The automated reconciliation engine (/api/v1/marketplace/reconcile) cross-audits raw request transaction logs against emitted usage records to verify 0.00% discrepancy tolerance before transmitting billing telemetry to Google Cloud Commerce.",
+      keywords: ['metering', 'reconciliation', '0.00% discrepancy', 'billing telemetry', 'commerce audit', 'usage emission']
+    },
+    {
+      id: 'real-inline-proxy-gemini',
+      category: 'api',
+      question: "How does the Real Upstream Proxy with Google Gemini API completion work?",
+      answer: "The inline proxy (/v1/proxy/:tenant_id/*) intercepts client requests in real-time. It verifies tenant API keycards, checks active session budget caps, and evaluates request prompts against deterministic security policies. Upon policy clearance, the proxy invokes the real Google Gemini API (gemini-2.5-flash) server-side via @google/genai to return genuine AI chat completions while logging performance and token metrics.",
+      keywords: ['inline proxy', 'upstream proxy', 'gemini api', 'real AI completions', 'genai sdk', 'policy clearance']
+    },
+    {
+      id: 'hardening-test-suite',
+      category: 'general',
+      question: "What is verified by the 27-Point Automated Hardening & Regression Test Suite?",
+      answer: "The automated hardening script (scripts/test-phase5-hardening.ts) executes 27 end-to-end integration assertions verifying Express server boot, webhook ingestion, tenant provisioning, API key issuance, plan upgrades, inline proxy completions, policy threat blocks, budget cap halts, usage metering emission, 0.00% reconciliation, 5-level multi-tenant isolation, subscription cancellations, and backend authentication endpoints.",
+      keywords: ['hardening test', 'regression suite', '27 assertions', 'multi-tenant test', 'isolation test', 'automated test']
     }
   ], []);
 

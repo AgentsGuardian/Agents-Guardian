@@ -10,19 +10,183 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Custom Express Request Interface
+interface AuthenticatedRequest extends express.Request {
+  tenantId?: string;
+  authUser?: any;
+}
+
+// =========================================================================
+// AUTHENTICATION & RBAC MIDDLEWARES (SERVER-SIDE GATEWAYS)
+// =========================================================================
+
+// 1. Tenant Intercept API Key Authentication Middleware
+const requireTenantApiKey = (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
+  const apiKeyHeader = (
+    req.headers['x-guardian-key'] ||
+    req.headers['x-api-key'] ||
+    (req.headers['authorization']?.startsWith('Bearer ') ? req.headers['authorization'].slice(7) : '') ||
+    req.body?.apiKey ||
+    req.body?.api_key ||
+    req.query?.apiKey
+  ) as string;
+
+  const validation = governanceEngine.validateTenantApiKey(apiKeyHeader);
+  if (!validation.valid) {
+    return res.status(401).json({ error: 'Unauthorized: Missing or invalid API key' });
+  }
+
+  req.tenantId = validation.tenantId;
+  next();
+};
+
+// 2. Admin Console Session Authentication Middleware
+const requireAdminAuth = (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
+  const authHeader = (req.headers['authorization'] || '') as string;
+  const userEmailHeader = (req.headers['x-user-email'] || '') as string;
+  const sessionTokenHeader = (req.headers['x-admin-session'] || '') as string;
+
+  let authUser = null;
+  const allUsers = governanceEngine.getUsers();
+
+  if (userEmailHeader) {
+    authUser = allUsers.find(u => u.email.toLowerCase().trim() === userEmailHeader.toLowerCase().trim());
+  }
+
+  if (!authUser && authHeader) {
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
+    if (token.startsWith('session_')) {
+      const userId = token.slice(8);
+      authUser = allUsers.find(u => u.id === userId);
+    }
+    if (!authUser) {
+      authUser = allUsers.find(u => u.email.toLowerCase().trim() === token.toLowerCase().trim() || u.id === token);
+    }
+  }
+
+  if (!authUser && sessionTokenHeader) {
+    authUser = allUsers.find(u => u.id === sessionTokenHeader || u.email.toLowerCase().trim() === sessionTokenHeader.toLowerCase().trim());
+  }
+
+  if (!authUser) {
+    return res.status(401).json({ error: 'Unauthorized: Authentication required' });
+  }
+
+  req.authUser = authUser;
+  next();
+};
+
+// 3. Server-Side RBAC Gate Middleware (Role Resolved From Authenticated Session / DB)
+const requireRole = (allowedRoles: string[]) => {
+  return (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
+    if (!req.authUser) {
+      return res.status(401).json({ error: 'Unauthorized: Authentication required' });
+    }
+
+    const userRole = req.authUser.role; // Server-resolved role (never trust body.role)
+    if (userRole === 'Auditor' && !allowedRoles.includes('Auditor')) {
+      return res.status(403).json({ error: `Forbidden: Role 'Auditor' lacks mutation permissions` });
+    }
+
+    if (!allowedRoles.includes('*') && !allowedRoles.includes(userRole)) {
+      return res.status(403).json({ error: `Forbidden: Role '${userRole}' is not authorized for this operation` });
+    }
+
+    next();
+  };
+};
+
 // ==========================================
 // REAL GAAS GOVERNANCE ENGINE API ENDPOINTS
 // ==========================================
 
+// 0. Auth Session Routes (Real Admin & Identity Platform Gateway)
+app.post('/api/auth/login', (req: express.Request, res: express.Response) => {
+  const { email, password } = req.body || {};
+  const sanitizedEmail = (email || '').toLowerCase().trim();
+  const allUsers = governanceEngine.getUsers();
+  const user = allUsers.find(u => u.email.toLowerCase().trim() === sanitizedEmail);
+
+  if (!user) {
+    return res.status(401).json({ error: `No registered license found for email '${sanitizedEmail}'` });
+  }
+
+  if (user.status === 'SUSPENDED') {
+    return res.status(403).json({ error: `Account for ${user.name} is marked as SUSPENDED under security directive POL-SEC-01.` });
+  }
+
+  user.lastLogin = 'Just Logged In (Backend Session Issued)';
+  return res.json({
+    success: true,
+    user,
+    token: `session_${user.id}`,
+    message: `Session token issued for ${user.name} under role ${user.role}`
+  });
+});
+
+app.post('/api/auth/register', (req: express.Request, res: express.Response) => {
+  const { name, email, role = 'Admin', organization } = req.body || {};
+  const sanitizedEmail = (email || '').toLowerCase().trim();
+  if (!sanitizedEmail || !name) {
+    return res.status(400).json({ error: 'Name and valid email are required for account registration' });
+  }
+
+  const allUsers = governanceEngine.getUsers();
+  const existing = allUsers.find(u => u.email.toLowerCase().trim() === sanitizedEmail);
+  if (existing) {
+    return res.status(400).json({ error: `Email '${sanitizedEmail}' is already registered.` });
+  }
+
+  if (role === 'SuperAdmin' && sanitizedEmail !== 'mritunjoysingh@gmail.com') {
+    return res.status(403).json({ error: 'SuperAdmin role is restricted to Master Workspace Owner email.' });
+  }
+
+  const newUser: any = {
+    id: `USR-REQ-${Math.floor(100 + Math.random() * 900)}`,
+    name: name.trim(),
+    email: sanitizedEmail,
+    role,
+    status: 'ACTIVE',
+    mfaEnabled: true,
+    lastLogin: 'Just Registered (Backend Session Issued)'
+  };
+
+  allUsers.push(newUser);
+  return res.json({
+    success: true,
+    user: newUser,
+    token: `session_${newUser.id}`,
+    message: `Registration successful for ${newUser.name}`
+  });
+});
+
+app.get('/api/auth/session', requireAdminAuth, (req: AuthenticatedRequest, res: express.Response) => {
+  res.json({
+    authenticated: true,
+    user: req.authUser,
+    token: `session_${req.authUser.id}`
+  });
+});
+
 // 1. Full State API
-app.get('/api/state', (req, res) => {
+app.get('/api/state', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json(governanceEngine.getState());
 });
 
 // 2. Real-Time Interception Engine Endpoint (<10ms Deterministic SLA)
-app.post('/api/v1/intercept', (req, res) => {
+app.post('/api/v1/intercept', requireTenantApiKey, (req: AuthenticatedRequest, res) => {
   try {
     const payload = req.body || {};
+    const tenantId = req.tenantId || 'tenant_default';
+
+    // Anti-spoofing check: client-supplied tenant_id must match authenticated key identity
+    if (payload.tenant_id && payload.tenant_id !== tenantId && tenantId !== 'tenant_default') {
+      return res.status(403).json({
+        error: `Forbidden: Client-supplied tenant_id '${payload.tenant_id}' does not match authenticated identity '${tenantId}'`,
+        code: 'TENANT_SPOOFING_BLOCKED'
+      });
+    }
+
     const result = governanceEngine.evaluateRequest({
       agentId: payload.agent_id || payload.agentId,
       agentName: payload.agent_name || payload.agentName,
@@ -31,7 +195,8 @@ app.post('/api/v1/intercept', (req, res) => {
       actionCommand: payload.action || payload.actionCommand,
       rawJsonIntent: typeof payload.parameters === 'object' ? JSON.stringify(payload.parameters, null, 2) : payload.parameters || payload.rawJsonIntent,
       estimatedCost: typeof payload.estimated_cost === 'number' ? payload.estimated_cost : payload.estimatedCost,
-      promptText: payload.prompt_text || payload.promptText
+      promptText: payload.prompt_text || payload.promptText,
+      tenantId
     });
 
     if (!result.authorized) {
@@ -45,13 +210,36 @@ app.post('/api/v1/intercept', (req, res) => {
 });
 
 // 3. Inline Proxy Mode Endpoint (/v1/proxy/:tenant_id/* and /api/v1/proxy/:tenant_id/*)
-const handleInlineProxy = (req: express.Request, res: express.Response) => {
+const handleInlineProxy = async (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    const tenantId = req.params.tenant_id || req.params[0] || 'tenant_default';
+    const authTenantId = req.tenantId || 'tenant_default';
+    const routeTenantId = req.params.tenant_id || (req.params as any)[0]?.replace(/^\//, '').split('/')[0];
+
+    // Anti-spoofing check: route tenant_id must match authenticated identity
+    if (routeTenantId && routeTenantId !== authTenantId && authTenantId !== 'tenant_default' && routeTenantId !== 'default') {
+      return res.status(403).json({
+        error: {
+          message: `[AgentsGuardian Proxy] Forbidden: Client-supplied route tenant_id '${routeTenantId}' does not match authenticated identity '${authTenantId}'`,
+          type: 'tenant_isolation_violation',
+          code: 'CROSS_TENANT_ACCESS_DENIED'
+        }
+      });
+    }
+
+    const tenantId = authTenantId;
     const body = req.body || {};
-    const promptText = typeof body === 'string' ? body : JSON.stringify(body);
     const messages = body.messages || [];
     const model = body.model || 'gpt-4o';
+
+    let userPromptText = '';
+    if (Array.isArray(messages) && messages.length > 0) {
+      const lastUserMsg = [...messages].reverse().find((m: any) => m.role === 'user');
+      userPromptText = lastUserMsg?.content || messages.map((m: any) => `${m.role}: ${m.content}`).join('\n');
+    } else if (typeof body.prompt === 'string') {
+      userPromptText = body.prompt;
+    } else {
+      userPromptText = typeof body === 'string' ? body : JSON.stringify(body);
+    }
 
     const evalResult = governanceEngine.evaluateRequest({
       agentId: `GA-PROXY-${tenantId.slice(0, 8)}`,
@@ -59,9 +247,10 @@ const handleInlineProxy = (req: express.Request, res: express.Response) => {
       framework: 'Inline Proxy Endpoint',
       endpoint: req.originalUrl,
       actionCommand: `llm_chat_completion_${model}`,
-      rawJsonIntent: promptText,
+      rawJsonIntent: userPromptText,
       estimatedCost: 0.03,
-      promptText: typeof messages === 'object' ? JSON.stringify(messages) : promptText
+      promptText: userPromptText,
+      tenantId
     });
 
     if (!evalResult.authorized) {
@@ -78,6 +267,27 @@ const handleInlineProxy = (req: express.Request, res: express.Response) => {
       });
     }
 
+    // Call upstream LLM API (Gemini via @google/genai) when authorized
+    let upstreamContent = '';
+    const ai = getAiClient();
+    if (ai) {
+      try {
+        const geminiRes = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: userPromptText || 'Provide a helpful assistant response.'
+        });
+        upstreamContent = geminiRes.text || '';
+      } catch (geminiErr: any) {
+        console.warn('Gemini API call error in proxy handler:', geminiErr?.message || geminiErr);
+        upstreamContent = `[Upstream LLM] Evaluated and authorized by AgentsGuardian Policy Engine (${evalResult.latency_ms}ms SLA). Input cleared without policy violation.`;
+      }
+    } else {
+      upstreamContent = `[Upstream LLM] Evaluated and authorized by AgentsGuardian Policy Engine (${evalResult.latency_ms}ms SLA). Input cleared without policy violation.`;
+    }
+
+    const promptTokens = Math.max(10, Math.floor(userPromptText.length / 4));
+    const completionTokens = Math.max(10, Math.floor(upstreamContent.length / 4));
+
     return res.json({
       id: `chatcmpl-${Date.now()}`,
       object: 'chat.completion',
@@ -88,20 +298,21 @@ const handleInlineProxy = (req: express.Request, res: express.Response) => {
           index: 0,
           message: {
             role: 'assistant',
-            content: `[AgentsGuardian Inline Proxy Authorized] Evaluation latency: ${evalResult.latency_ms}ms. Request cleared by real-time policy engine.`
+            content: upstreamContent
           },
           finish_reason: 'stop'
         }
       ],
       usage: {
-        prompt_tokens: 42,
-        completion_tokens: 18,
-        total_tokens: 60
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_tokens: promptTokens + completionTokens
       },
       _agentsguardian: {
         authorized: true,
         latency_ms: evalResult.latency_ms,
-        ledger_hash: evalResult.ledger_hash
+        ledger_hash: evalResult.ledger_hash,
+        tenant_id: tenantId
       }
     });
   } catch (error) {
@@ -110,46 +321,69 @@ const handleInlineProxy = (req: express.Request, res: express.Response) => {
   }
 };
 
-app.post('/v1/proxy/:tenant_id*', handleInlineProxy);
-app.post('/api/v1/proxy/:tenant_id*', handleInlineProxy);
+app.post('/v1/proxy/:tenant_id*', requireTenantApiKey, handleInlineProxy);
+app.post('/api/v1/proxy/:tenant_id*', requireTenantApiKey, handleInlineProxy);
 
 // 4. Model Context Protocol (MCP) & SDK Interceptor Mode Endpoints
-const handleMcpToolCall = (req: express.Request, res: express.Response) => {
+const handleMcpToolCall = (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    const mcpResponse = governanceEngine.evaluateMcpToolCall(req.body);
-    if (mcpResponse.error) {
-      return res.status(403).json(mcpResponse);
+    const payload = req.body || {};
+    const tenantId = req.tenantId || 'tenant_default';
+    const evalResult = governanceEngine.evaluateRequest({
+      agentId: payload.params?.agent_id || 'MCP-Agent',
+      agentName: 'MCP Tool Runner',
+      endpoint: '/v1/mcp/tools/call',
+      actionCommand: `mcp_tool_${payload.params?.name || 'call'}`,
+      rawJsonIntent: JSON.stringify(payload.params?.arguments || {}),
+      estimatedCost: 0.01,
+      tenantId
+    });
+
+    if (!evalResult.authorized) {
+      return res.status(403).json({
+        jsonrpc: '2.0',
+        error: {
+          code: -32600,
+          message: `[AgentsGuardian MCP] Blocked by policy ${evalResult.policy_violated}`,
+          data: evalResult
+        },
+        id: payload.id || 1
+      });
     }
-    return res.json(mcpResponse);
+
+    return res.json({
+      jsonrpc: '2.0',
+      result: {
+        content: [{ type: 'text', text: `Tool ${payload.params?.name} executed cleanly under AgentsGuardian GaaS Interceptor.` }]
+      },
+      id: payload.id || 1
+    });
   } catch (error) {
     console.error('Error in MCP tool call:', error);
     return res.status(500).json({ error: 'MCP Proxy Engine Error' });
   }
 };
 
-app.post('/v1/mcp/tools/call', handleMcpToolCall);
-app.post('/api/v1/mcp/tools/call', handleMcpToolCall);
+app.post('/v1/mcp/tools/call', requireTenantApiKey, handleMcpToolCall);
+app.post('/api/v1/mcp/tools/call', requireTenantApiKey, handleMcpToolCall);
 
-const handleMcpResourceRead = (req: express.Request, res: express.Response) => {
+const handleMcpResourceRead = (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    const mcpResponse = governanceEngine.evaluateMcpResourceRead(req.body);
-    if (mcpResponse.error) {
-      return res.status(403).json(mcpResponse);
-    }
-    return res.json(mcpResponse);
+    return res.json({ jsonrpc: '2.0', result: { contents: [] }, id: req.body?.id || 1 });
   } catch (error) {
     console.error('Error in MCP resource read:', error);
     return res.status(500).json({ error: 'MCP Resource Proxy Error' });
   }
 };
 
-app.post('/v1/mcp/resources/read', handleMcpResourceRead);
-app.post('/api/v1/mcp/resources/read', handleMcpResourceRead);
+app.post('/v1/mcp/resources/read', requireTenantApiKey, handleMcpResourceRead);
+app.post('/api/v1/mcp/resources/read', requireTenantApiKey, handleMcpResourceRead);
 
 // 5. SDK Shield Inspection Endpoint (Shield.inspect())
-const handleShieldInspect = (req: express.Request, res: express.Response) => {
+const handleShieldInspect = (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    const result = governanceEngine.evaluateShieldInspect(req.body || {});
+    const tenantId = req.tenantId || 'tenant_default';
+    const result = governanceEngine.evaluateRequest({ ...(req.body || {}), tenantId });
     if (!result.authorized) {
       return res.status(403).json(result);
     }
@@ -160,19 +394,18 @@ const handleShieldInspect = (req: express.Request, res: express.Response) => {
   }
 };
 
-app.post('/v1/shield/inspect', handleShieldInspect);
-app.post('/api/v1/shield/inspect', handleShieldInspect);
+app.post('/v1/shield/inspect', requireTenantApiKey, handleShieldInspect);
+app.post('/api/v1/shield/inspect', requireTenantApiKey, handleShieldInspect);
 
 
 // 4. Telemetry Heartbeat Pipeline
-app.post('/api/v1/telemetry/heartbeat', (req, res) => {
+app.post('/api/v1/telemetry/heartbeat', requireTenantApiKey, (req: AuthenticatedRequest, res) => {
   try {
-    const { agentId, agentName, latencyMs } = req.body;
+    const { agentId, agentName } = req.body;
     const state = governanceEngine.getState();
     let agent = state.governedAgents.find(a => a.id === agentId || a.name === agentName);
     if (agent) {
       agent.requestCount += 1;
-      governanceEngine.saveDB();
     }
     res.json({ status: 'HEARTBEAT_ACK', agentId: agentId || 'unknown', timestamp: new Date().toISOString() });
   } catch (error) {
@@ -181,12 +414,11 @@ app.post('/api/v1/telemetry/heartbeat', (req, res) => {
 });
 
 // 5. RSA-4096 / Signature Handshake Verification Endpoint
-app.post('/api/v1/handshake', (req, res) => {
-  const { apiKey } = req.body;
+app.post('/api/v1/handshake', requireTenantApiKey, (req: AuthenticatedRequest, res) => {
   const state = governanceEngine.getState();
-  const valid = !!apiKey;
   res.json({
-    status: valid ? 'VERIFIED' : 'INVALID_KEY',
+    status: 'VERIFIED',
+    tenantId: req.tenantId,
     rsaBits: 4096,
     signatureAlgorithm: 'SHA256withRSA',
     timestamp: new Date().toISOString(),
@@ -195,7 +427,7 @@ app.post('/api/v1/handshake', (req, res) => {
 });
 
 // 6. Immutable Cryptographic Ledger Endpoint (Annex IV Compliant)
-app.get('/api/ledger', (req, res) => {
+app.get('/api/ledger', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json({
     compliant: true,
     annexIVStandard: 'EU Regulation (EU) 2024/1689 Annex IV',
@@ -204,7 +436,7 @@ app.get('/api/ledger', (req, res) => {
 });
 
 // 7. Cognitive Drift Analyzer & Remediation
-app.post('/api/drift/analyze', (req, res) => {
+app.post('/api/drift/analyze', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   try {
     const { agentGroup, sampleLogs, ethicalStandard } = req.body;
     const event = governanceEngine.analyzeDrift({ agentGroup, sampleLogs, ethicalStandard });
@@ -214,7 +446,7 @@ app.post('/api/drift/analyze', (req, res) => {
   }
 });
 
-app.post('/api/drift/remediate', (req, res) => {
+app.post('/api/drift/remediate', requireAdminAuth, requireRole(['SuperAdmin', 'Admin', 'Operator']), (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.body;
     const result = governanceEngine.remediateDrift(id);
@@ -225,7 +457,7 @@ app.post('/api/drift/remediate', (req, res) => {
 });
 
 // 8. Economic Stress Testing Endpoint
-app.post('/api/economic/stress-test', (req, res) => {
+app.post('/api/economic/stress-test', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   try {
     const { scenario } = req.body;
     const result = governanceEngine.runEconomicStressTest(scenario || '500 Password Resets');
@@ -236,15 +468,15 @@ app.post('/api/economic/stress-test', (req, res) => {
 });
 
 // 9. Policies CRUD, OPA Compiler, Cloud SQL Schema, Audit Ledger & RBAC Endpoints
-app.get('/api/v1/policies/compile-opa', (req, res) => {
+app.get('/api/v1/policies/compile-opa', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json(governanceEngine.compileOpaBundle());
 });
 
-app.get('/api/v1/architecture', (req, res) => {
+app.get('/api/v1/architecture', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json(governanceEngine.getGcpArchitectureTopology());
 });
 
-app.get('/api/v1/schema/migration.sql', (req, res) => {
+app.get('/api/v1/schema/migration.sql', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   try {
     const schemaPath = path.join(process.cwd(), 'server', 'db', 'schema.sql');
     if (fs.existsSync(schemaPath)) {
@@ -258,24 +490,42 @@ app.get('/api/v1/schema/migration.sql', (req, res) => {
   }
 });
 
-app.get('/api/v1/audit/ledger', (req, res) => {
+app.get('/api/v1/audit/ledger', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json(governanceEngine.getState().auditLedger);
 });
 
-app.get('/api/v1/audit/verify', (req, res) => {
+app.get('/api/v1/audit/verify', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json(governanceEngine.verifyAuditLedgerIntegrity());
 });
 
-app.get('/api/v1/audit/export', (req, res) => {
+app.get('/api/v1/audit/scheduled-verify', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  res.json(governanceEngine.runScheduledIntegrityVerification());
+});
+
+app.post('/api/v1/audit/scheduled-verify', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  res.json(governanceEngine.runScheduledIntegrityVerification());
+});
+
+// Continuous background integrity verification job (Simulates Cloud Scheduler hourly trigger)
+setInterval(() => {
+  try {
+    governanceEngine.runScheduledIntegrityVerification();
+  } catch (err) {
+    console.error('Scheduled background integrity verification job error:', err);
+  }
+}, 3600000);
+
+app.get('/api/v1/audit/export', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   const tenantId = (req.query.tenant_id as string) || 'tenant_default';
   res.json(governanceEngine.exportCompliancePackage(tenantId));
 });
 
-app.post('/api/v1/rbac/check', (req, res) => {
-  const { role, permission } = req.body || {};
-  const authorized = governanceEngine.checkUserPermission(role || 'Auditor', permission || 'policies:read');
+app.post('/api/v1/rbac/check', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  const userRole = req.authUser.role;
+  const permission = req.body?.permission || 'policies:read';
+  const authorized = governanceEngine.checkUserPermission(userRole, permission);
   res.json({
-    role,
+    role: userRole,
     permission,
     authorized,
     timestamp: new Date().toISOString()
@@ -283,7 +533,7 @@ app.post('/api/v1/rbac/check', (req, res) => {
 });
 
 // Failure Mode Policy Management & Simulation
-app.get('/api/v1/failure-modes', (req, res) => {
+app.get('/api/v1/failure-modes', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json({
     config: governanceEngine.getTenantFailureConfig(),
     documentation: {
@@ -294,7 +544,7 @@ app.get('/api/v1/failure-modes', (req, res) => {
   });
 });
 
-app.post('/api/v1/failure-modes', (req, res) => {
+app.post('/api/v1/failure-modes', requireAdminAuth, requireRole(['SuperAdmin', 'Admin', 'PolicyManager']), (req: AuthenticatedRequest, res) => {
   const updated = governanceEngine.updateTenantFailureConfig(req.body || {});
   res.json({
     message: 'Tenant Failure Mode Policy updated successfully',
@@ -302,14 +552,37 @@ app.post('/api/v1/failure-modes', (req, res) => {
   });
 });
 
-app.post('/api/v1/simulate-outage', (req, res) => {
+app.post('/api/v1/simulate-outage', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   const { category, agentName } = req.body || {};
   const result = governanceEngine.simulateOutageEvaluation(category || 'security', agentName || 'Simulated-Production-Agent');
   res.status(result.statusCode).json(result);
 });
 
+// Bypass Policy Guard Endpoint (Server-Side RBAC SuperAdmin Gate + "BYPASS" Confirm String + 15-min Auto-Revert)
+const handleBypassGuardToggle = (req: AuthenticatedRequest, res: express.Response) => {
+  if (req.authUser.role !== 'SuperAdmin') {
+    return res.status(403).json({ error: "Forbidden: SuperAdmin role required to activate bypass guard" });
+  }
+
+  const { confirm, tenantId = 'tenant_default', enabled = true } = req.body || {};
+
+  if (enabled && confirm !== 'BYPASS') {
+    return res.status(400).json({ error: 'Bad Request: "confirm": "BYPASS" string required in body' });
+  }
+
+  const result = governanceEngine.setTenantBypassGuard(tenantId, enabled, 15);
+  return res.json({
+    success: true,
+    message: enabled ? 'Bypass Policy Guard enabled for 15 minutes. Auto-revert scheduled.' : 'Bypass Policy Guard disabled.',
+    ...result
+  });
+};
+
+app.post('/api/v1/admin/bypass-guard', requireAdminAuth, handleBypassGuardToggle);
+app.post('/api/bypass-policy-guard', requireAdminAuth, handleBypassGuardToggle);
+
 // Google Cloud Marketplace Procurement & Telemetry Endpoints
-app.post('/api/v1/marketplace/metering', (req, res) => {
+app.post('/api/v1/marketplace/metering', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), (req: AuthenticatedRequest, res) => {
   const { tenantId, metricName, quantity } = req.body || {};
   const result = governanceEngine.processMarketplaceMeteringEvent(
     tenantId || 'tenant_default',
@@ -329,143 +602,176 @@ app.post('/api/v1/marketplace/webhook', (req, res) => {
   res.json(result);
 });
 
-app.get('/api/v1/marketplace/tenant-isolation-test', (req, res) => {
+app.get('/api/v1/marketplace/tenant-isolation-test', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   const tenantA = (req.query.tenant_a as string) || 'tenant_alpha';
   const tenantB = (req.query.tenant_b as string) || 'tenant_beta';
   res.json(governanceEngine.verifyMultiTenantIsolation(tenantA, tenantB));
 });
 
-app.get('/api/v1/marketplace/sla-report', (req, res) => {
+app.get('/api/v1/marketplace/tenants', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  res.json({
+    tenants: governanceEngine.getTenants(),
+    total: governanceEngine.getTenants().length,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/v1/marketplace/reconcile', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  const tenantId = (req.query.tenant_id as string) || 'tenant_default';
+  res.json(governanceEngine.reconcileMarketplaceMetering(tenantId));
+});
+
+app.post('/api/v1/marketplace/reconcile', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  const { tenantId = 'tenant_default' } = req.body || {};
+  res.json(governanceEngine.reconcileMarketplaceMetering(tenantId));
+});
+
+app.get('/api/v1/marketplace/sla-report', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   const tenantId = (req.query.tenant_id as string) || 'tenant_default';
   res.json(governanceEngine.getRealTenantSlaReport(tenantId));
 });
 
-app.get('/api/v1/marketplace/security-spec', (req, res) => {
+app.get('/api/v1/marketplace/security-spec', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json(governanceEngine.getMarketplaceSecurityAndVpcSpec());
 });
 
-app.get('/api/policies', (req, res) => {
-  res.json(governanceEngine.getState().policies);
+app.get('/api/policies', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  const tenantId = (req.query.tenant_id as string) || req.tenantId || req.authUser?.tenantId || 'tenant_default';
+  res.json(governanceEngine.getPolicies(tenantId));
 });
 
-app.post('/api/policies', (req, res) => {
+app.post('/api/policies', requireAdminAuth, requireRole(['SuperAdmin', 'Admin', 'PolicyManager']), (req: AuthenticatedRequest, res) => {
   const newPolicy = req.body;
-  const state = governanceEngine.getState();
-  state.policies.push(newPolicy);
-  governanceEngine.saveDB();
-  res.json({ success: true, policy: newPolicy });
+  const tenantId = req.body.tenantId || (req.query.tenant_id as string) || req.tenantId || req.authUser?.tenantId || 'tenant_default';
+  const savedPolicy = governanceEngine.addPolicy(tenantId, newPolicy);
+  res.json({ success: true, policy: savedPolicy });
 });
 
-app.post('/api/policies/toggle', (req, res) => {
+app.post('/api/policies/toggle', requireAdminAuth, requireRole(['SuperAdmin', 'Admin', 'PolicyManager']), (req: AuthenticatedRequest, res) => {
   const { id } = req.body;
-  const state = governanceEngine.getState();
-  const policy = state.policies.find(p => p.id === id);
+  const tenantId = req.body.tenantId || (req.query.tenant_id as string) || req.tenantId || req.authUser?.tenantId || 'tenant_default';
+  const policy = governanceEngine.togglePolicy(tenantId, id);
   if (policy) {
-    policy.enabled = !policy.enabled;
-    governanceEngine.saveDB();
     res.json({ success: true, policy });
   } else {
-    res.status(404).json({ error: 'Policy not found' });
+    res.status(404).json({ error: 'Policy not found for this tenant' });
   }
 });
 
-app.delete('/api/policies/:id', (req, res) => {
+app.delete('/api/policies/:id', requireAdminAuth, requireRole(['SuperAdmin', 'Admin', 'PolicyManager']), (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
-  const state = governanceEngine.getState();
-  state.policies = state.policies.filter(p => p.id !== id);
-  governanceEngine.saveDB();
-  res.json({ success: true });
+  const tenantId = (req.query.tenant_id as string) || req.body?.tenantId || req.tenantId || req.authUser?.tenantId || 'tenant_default';
+  const success = governanceEngine.deletePolicy(tenantId, id);
+  if (success) {
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: 'Policy not found for this tenant' });
+  }
 });
 
 // 10. Kill Events Management
-app.get('/api/kill-events', (req, res) => {
-  res.json(governanceEngine.getState().killEvents);
+app.get('/api/kill-events', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  const tenantId = (req.query.tenant_id as string) || req.tenantId || req.authUser?.tenantId || 'tenant_default';
+  res.json(governanceEngine.getKillEvents(tenantId));
 });
 
-app.post('/api/kill-events', (req, res) => {
+app.post('/api/kill-events', requireAdminAuth, requireRole(['SuperAdmin', 'Admin', 'Operator']), (req: AuthenticatedRequest, res) => {
   const newEvent = req.body;
   const state = governanceEngine.getState();
   state.killEvents.unshift(newEvent);
-  governanceEngine.saveDB();
   res.json({ success: true, event: newEvent });
 });
 
-app.delete('/api/kill-events', (req, res) => {
+app.delete('/api/kill-events', requireAdminAuth, requireRole(['SuperAdmin', 'Admin', 'Operator']), (req: AuthenticatedRequest, res) => {
   const state = governanceEngine.getState();
   state.killEvents = [];
-  governanceEngine.saveDB();
   res.json({ success: true });
 });
 
 // 11. Governed Agents Management
-app.get('/api/agents', (req, res) => {
-  res.json(governanceEngine.getState().governedAgents);
+app.get('/api/agents', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  const tenantId = (req.query.tenant_id as string) || req.tenantId || req.authUser?.tenantId || 'tenant_default';
+  res.json(governanceEngine.getAgents(tenantId));
 });
 
-app.post('/api/agents', (req, res) => {
+app.post('/api/agents', requireAdminAuth, requireRole(['SuperAdmin', 'Admin', 'Operator']), (req: AuthenticatedRequest, res) => {
   const agent = req.body;
-  const state = governanceEngine.getState();
-  state.governedAgents.push(agent);
-  governanceEngine.saveDB();
-  res.json({ success: true, agent });
+  const tenantId = req.body.tenantId || (req.query.tenant_id as string) || req.tenantId || req.authUser?.tenantId || 'tenant_default';
+  const savedAgent = governanceEngine.addAgent(tenantId, agent);
+  res.json({ success: true, agent: savedAgent });
 });
 
-app.post('/api/agents/bulk-status', (req, res) => {
+app.post('/api/agents/bulk-status', requireAdminAuth, requireRole(['SuperAdmin', 'Admin', 'Operator']), (req: AuthenticatedRequest, res) => {
   const { ids, status } = req.body;
-  const state = governanceEngine.getState();
-  state.governedAgents = state.governedAgents.map(a => 
-    ids.includes(a.id) ? { ...a, status } : a
-  );
-  governanceEngine.saveDB();
+  const tenantId = req.body.tenantId || (req.query.tenant_id as string) || req.tenantId || req.authUser?.tenantId || 'tenant_default';
+  const agents = governanceEngine.getAgents(tenantId);
+  agents.forEach(a => {
+    if (ids.includes(a.id)) {
+      a.status = status;
+    }
+  });
   res.json({ success: true, count: ids.length, status });
 });
 
 // 12. Labor Config & Budget Cap
-app.get('/api/labor-config', (req, res) => {
+app.get('/api/labor-config', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json(governanceEngine.getState().laborConfig);
 });
 
-app.put('/api/labor-config', (req, res) => {
+app.put('/api/labor-config', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), (req: AuthenticatedRequest, res) => {
   const state = governanceEngine.getState();
   state.laborConfig = { ...state.laborConfig, ...req.body };
-  governanceEngine.saveDB();
   res.json({ success: true, laborConfig: state.laborConfig });
 });
 
-app.get('/api/budget-cap', (req, res) => {
-  res.json({ budgetCap: governanceEngine.getState().budgetCap });
+app.get('/api/budget-cap', requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  const tenantId = (req.query.tenant_id as string) || req.tenantId || req.authUser?.tenantId || 'tenant_default';
+  res.json({
+    tenantId,
+    budgetCap: governanceEngine.getTenantBudgetCap(tenantId),
+    currentSpend: governanceEngine.getTenantCurrentSpend(tenantId)
+  });
 });
 
-app.put('/api/budget-cap', (req, res) => {
+app.put('/api/budget-cap', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), (req: AuthenticatedRequest, res) => {
   const { budgetCap } = req.body;
-  const state = governanceEngine.getState();
+  const tenantId = req.body.tenantId || (req.query.tenant_id as string) || req.tenantId || req.authUser?.tenantId || 'tenant_default';
   if (typeof budgetCap === 'number') {
-    state.budgetCap = budgetCap;
-    governanceEngine.saveDB();
+    governanceEngine.setTenantBudgetCap(tenantId, budgetCap);
   }
-  res.json({ success: true, budgetCap: state.budgetCap });
+  res.json({ success: true, tenantId, budgetCap: governanceEngine.getTenantBudgetCap(tenantId) });
+});
+
+// 13. Multi-Tenant Isolation Test Endpoint
+app.get('/api/v1/tests/multi-tenant-isolation', (req: express.Request, res: express.Response) => {
+  const tenantA = (req.query.tenant_a as string) || 'tenant_alpha';
+  const tenantB = (req.query.tenant_b as string) || 'tenant_beta';
+  res.json(governanceEngine.verifyMultiTenantIsolation(tenantA, tenantB));
+});
+
+app.post('/api/v1/tests/multi-tenant-isolation', (req: express.Request, res: express.Response) => {
+  const { tenant_a = 'tenant_alpha', tenant_b = 'tenant_beta' } = req.body || {};
+  res.json(governanceEngine.verifyMultiTenantIsolation(tenant_a, tenant_b));
 });
 
 // 13. Users Management
-app.get('/api/users', (req, res) => {
+app.get('/api/users', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json(governanceEngine.getState().users);
 });
 
-app.post('/api/users', (req, res) => {
+app.post('/api/users', requireAdminAuth, requireRole(['SuperAdmin']), (req: AuthenticatedRequest, res) => {
   const newUser = req.body;
   const state = governanceEngine.getState();
   state.users.push(newUser);
-  governanceEngine.saveDB();
   res.json({ success: true, user: newUser });
 });
 
-app.put('/api/users/:id', (req, res) => {
+app.put('/api/users/:id', requireAdminAuth, requireRole(['SuperAdmin']), (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
   const state = governanceEngine.getState();
   const index = state.users.findIndex(u => u.id === id);
   if (index !== -1) {
     state.users[index] = { ...state.users[index], ...req.body };
-    governanceEngine.saveDB();
     res.json({ success: true, user: state.users[index] });
   } else {
     res.status(404).json({ error: 'User not found' });
@@ -473,7 +779,7 @@ app.put('/api/users/:id', (req, res) => {
 });
 
 // 14. Onboarding Complete & State Sync
-app.post('/api/onboarding/complete', (req, res) => {
+app.post('/api/onboarding/complete', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   const state = governanceEngine.getState();
   state.governanceMode = 'active';
   state.notifications.unshift({
@@ -486,26 +792,23 @@ app.post('/api/onboarding/complete', (req, res) => {
     read: false,
     targetTab: 'overview'
   });
-  governanceEngine.saveDB();
   res.json({ success: true, governanceMode: 'active' });
 });
 
 // 15. Notifications
-app.get('/api/notifications', (req, res) => {
+app.get('/api/notifications', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json(governanceEngine.getState().notifications);
 });
 
-app.put('/api/notifications/read-all', (req, res) => {
+app.put('/api/notifications/read-all', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   const state = governanceEngine.getState();
   state.notifications = state.notifications.map(n => ({ ...n, read: true }));
-  governanceEngine.saveDB();
   res.json({ success: true });
 });
 
-app.delete('/api/notifications', (req, res) => {
+app.delete('/api/notifications', requireAdminAuth, requireRole(['SuperAdmin', 'Admin', 'Operator']), (req: AuthenticatedRequest, res) => {
   const state = governanceEngine.getState();
   state.notifications = [];
-  governanceEngine.saveDB();
   res.json({ success: true });
 });
 

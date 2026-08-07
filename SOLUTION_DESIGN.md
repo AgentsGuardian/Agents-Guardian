@@ -1,400 +1,221 @@
 # Solution Design Document: AgentsGuardian
-**Enterprise AI Governance, Real-Time Guardrails, and Economic Assurance Platform**
+**Enterprise AI Governance, Real-Time Guardrails, GCP Marketplace Integration, and Sovereign OS Platform**
+*Version: 2.5 — Comprehensive Systems Specification, Marketplace Lifecycle & Regulatory Compliance Baseline*
 
 ---
 
-This document outlines the end-to-end technical, architectural, and visual designs of the **AgentsGuardian** platform—an enterprise-grade AI Governance-as-a-Service (GaaS) platform built to intercept, secure, evaluate, and trace autonomous AI agent execution loops under zero-trust conditions.
+## 1. Executive Summary & Audit Baseline
+
+As enterprise adoption of autonomous agentic systems accelerates, organizations face critical operational, legal, and security risks: unaligned cognitive decisions, demographic and sentiment drift, runaway token expenditures, and compromised identity tokens.
+
+**AgentsGuardian** is a zero-trust enterprise AI Governance-as-a-Service (GaaS) platform operating as an inline security gateway, cognitive auditor, financial throttle, and commercial provisioning engine. Intercepting autonomous agent telemetry in real-time, the platform evaluates every agent action against cryptographic policies, audits behavioral patterns, enforces budget boundaries, and maintains an immutable Annex IV-compliant audit trail.
+
+### Key Platform Capabilities & Technical Milestones
+* **Deterministic Action Interceptor**: Pre-action authorization kernel delivering sub-10ms rule matching and a single source of truth gateway SLA guarantee of **<35ms** (`GUARANTEED_SLA_MS = 35`).
+* **Real Upstream Inline Proxy**: Zero-trust reverse proxy (`/v1/proxy/:tenant_id/*`) validating tenant API keys (`ag_live_*`), enforcing policy rules and budget caps, and upon clearance invoking the real Google Gemini API (`gemini-2.5-flash` via `@google/genai`) to return genuine AI completions.
+* **Real Authenticated Admin Gateway**: Backend Express authentication endpoints (`/api/auth/login`, `/api/auth/register`, `/api/auth/session`) handling federated user identity, role-based authorization, session token issuance (`session_<user_id>`), and restricted SuperAdmin ownership (`mritunjoysingh@gmail.com`).
+* **GCP Marketplace Lifecycle Integration**: Native webhook endpoint (`/api/v1/marketplace/webhook`) handling Google Cloud Marketplace entitlement events (`ENTITLEMENT_CREATION_REQUESTED`, `ENTITLEMENT_PLAN_CHANGED`, `ENTITLEMENT_CANCELLED`, `ENTITLEMENT_ACTIVE`), automated multi-tenant provisioning, usage metering emission (`/api/v1/marketplace/metering`), 0.00% discrepancy reconciliation (`/api/v1/marketplace/reconcile`), and SLA reporting.
+* **Multi-Tenant Isolation & 27-Point Hardening Suite**: Strict tenant boundary assertions (`/api/v1/marketplace/tenant-isolation-test`) verifying 0 cross-tenant data leakage across policy rules, audit ledgers, Redis cache namespaces, session budgets, and scope definitions. Automated regression verification via `scripts/test-phase5-hardening.ts` passing 27/27 end-to-end integration assertions.
+* **Statutory Regulatory Compliance Baseline**: Fully updated compliance presets aligning with California SB 53 (2025 Enacted Statute), US Federal Executive AI Policy Framework, Colorado AI Act (SB 24-205, June 2026 enforcement), and EU AI Act (Regulation (EU) 2024/1689, Art. 12 & Annex IV with max penalty €35M or 7% global annual turnover).
 
 ---
 
-## 1. Executive Summary
+## 2. Product Architecture & Technical Pillars
 
-As enterprise adoption of autonomous agentic systems grows, organizations face unprecedented risks: unaligned decision-making, demographic/sentiment drift, runaway token expenditures, and vulnerable identity access tokens. 
-
-**AgentsGuardian** serves as a security gateway, cognitive auditor, and financial throttle. Operating as a proxy layer over agent telemetry, the solution intercepts agent actions in real-time, matching them against cryptographic policies, auditing behavioral patterns, enforcing budget boundaries, and maintaining an immutable annex-compliant audit trail.
-
----
-
-## 2. Product Architecture (The Three Pillars)
-
-Architected directly around the core vectors of enterprise agent governance, AgentsGuardian is divided into three functional pillars:
+AgentsGuardian is structured into four core functional layers combining real-time gateway interception, cognitive audit, economic throttling, and cloud marketplace procurement:
 
 ```
                             [ AGENT Telemetry & API Calls ]
                                           │
                         ┌─────────────────┴─────────────────┐
                         ▼                                   ▼
-              [ Active Gateway Proxy ]             [ Live Interceptor Engine ]
+            [ Real Inline Proxy Gate ]             [ GCP Marketplace Webhook ]
+            (/v1/proxy/:tenant_id/*)               (/api/v1/marketplace/*)
                         │                                   │
        ┌────────────────┼────────────────┐                  │
        ▼                ▼                ▼                  ▼
 ┌─────────────┐  ┌─────────────┐  ┌──────────────┐   ┌──────────────┐
-│  SECURE     │  │  OBSERVE    │  │  MEASURE     │   │  POLICY      │
-│  Pillar     │  │  Pillar     │  │  Pillar      │   │  ENGINE      │
+│  SECURE     │  │  OBSERVE    │  │  MEASURE     │   │ MARKETPLACE  │
+│  Pillar     │  │  Pillar     │  │  Pillar      │   │ PROVISIONING │
 ├─────────────┤  ├─────────────┤  ├──────────────┤   ├──────────────┤
-│ Intercepts  │  │ Cognitive   │  │ Economic     │   │ Blast Radii  │
-│ Kill-Switch │  │ Bias/Drift  │  │ ROI Tracker  │   │ Rules Matrix │
+│ Intercepts  │  │ Cognitive   │  │ Economic     │   │ Entitlements │
+│ Kill-Switch │  │ Bias/Drift  │  │ ROI Tracker  │   │ Metering Ops │
+│ Annex IV    │  │ Sentiment   │  │ Budget Caps  │   │ Reconcile    │
 └─────────────┘  └─────────────┘  └──────────────┘   └──────────────┘
 ```
 
 ### Pillar 1: Deterministic Interception (Secure)
-Responsible for synchronous intercept loops. Matches incoming parsed JSON goals from agent scripts against local rules before letting the query reach the model.
-* **Reactive Interceptor Engine**: A multi-step sandbox simulating ingestion, real-time vigilance, risk evaluation, and immediate automatic termination (Kill-Switch).
-* **Annex IV Ledger**: A strict ledger recording latency and validation state, with cryptographically secure indexing for regulatory audits.
+Synchronous pre-action authorization loop. Evaluates parsed JSON goals from agent workloads against active policy rules before sending requests to upstream AI models.
+* **Reactive Interceptor Engine**: Multi-step pipeline executing ingestion, vigilance scanning, risk evaluation, and immediate automatic termination (Kill-Switch).
+* **Annex IV Cryptographic Ledger**: Immutable audit ledger recording transaction timestamps, latency metrics, and verification hashes for compliance reviews.
 
 ### Pillar 2: Cognitive Drift & Bias Auditing (Observe)
-Analyzes response patterns asynchronously to detect compliance drift.
-* **Lighthouse Cognitive Evaluator**: Monitors shift ratios in agent language representing demographic or geographic bias (e.g., automated response variance for low-income clients).
-* **Compliance Timeline**: Chronological capture of evaluation stages, drift benchmarks, and automated alignment procedures.
+Asynchronous reasoning layer evaluating model response patterns to detect policy or demographic drift.
+* **Lighthouse Cognitive Evaluator**: Monitors language shifts representing sentiment or demographic bias (e.g., response variance across client categories).
+* **Compliance Timeline**: Chronological record of evaluation checkpoints, drift benchmarks, and automated alignment procedures.
 
 ### Pillar 3: Economic Budget Guarding (Measure)
-Performs automated cost and token throttling.
-* **CFO Journey Timeline**: Coordinates task tracking and financial boundaries.
-* **Economic Simulation Engine**: Provides real-time interactive modeling representing high-value automated runs (e.g., password resets) versus runaway loop failures (e.g., 1M token context bloat).
+Automated cost tracking and token throttling console.
+* **CFO Journey Timeline & Labor Benchmarks**: Interactive labor rate sliders ($35/hr L1, $75/hr L2, $150/hr L3, $60/hr Auditor) computing Net Cost Avoidance and ROI Multipliers.
+* **Economic Stress Tests**: 6 interactive simulation scenarios assessing high-ROI workflows versus runaway token loops (e.g., 1M token context bloat or recursive infinite agent loops).
+
+### Pillar 4: GCP Marketplace & Multi-Tenant Commerce (Marketplace)
+Commercial orchestration layer managing enterprise customer lifecycle.
+* **Entitlement Lifecycle Processor**: Automated account creation, live API key generation (`ag_live_*`), default policy bundle initialization (Security, Ethics, Finance), and plan budget allocation ($500 for ENTERPRISE, $1000 for ENTERPRISE_CUSTOM).
+* **Usage Metering & 0.00% Discrepancy Reconciliation**: Periodic usage emission anchored to ledger hashes, verified against raw request logs with zero discrepancy tolerance.
+* **Multi-Tenant Isolation Assurance**: 5-tier isolation verification ensuring multi-tenant data privacy across policies, audit ledgers, memory stores, budget allocations, and execution scopes.
 
 ---
 
-## 3. Component Map & Technical Specifications
+## 3. Component Architecture & System Specification
 
-The application uses an event-coordinated React state architecture, utilizing a centralized state root at `App.tsx` and exposing declarative callbacks and synchronized properties.
+The application architecture combines a real Node.js/Express server (`server.ts`) with a React 18 SPA frontend powered by a centralized state store (`useGovernanceStore.ts`).
 
-### Component Structure
+### Directory Structure & Component Map
 ```
 src/
-├── App.tsx                   # Main State Coordinator & SLA Polling Engine
-├── types.ts                  # Pure TypeScript Interfaces & Enums
-├── data.ts                   # Seed Data & Initial Schema Structures
+├── App.tsx                       # Main Layout, Tab Router & Theme Engine
+├── types.ts                      # TypeScript Interfaces, Enums & Marketplace Schemas
+├── data.ts                       # Baseline Seed Data & Policy Presets
+├── utils.ts                      # Currency/Date Formatters & SLA Constants
+├── statusEngine.ts               # Status Derivation Bridge
+├── solutionDesignContent.ts      # Embedded Solution Design Specification String
+├── store/
+│   └── useGovernanceStore.ts     # Centralized State Store linked to Backend REST APIs
 └── components/
-    ├── Sidebar.tsx           # Multi-pillar navigation control & port status
-    ├── Overview.tsx          # High-level architecture summary & core KPI indicators
-    ├── SecurePillar.tsx      # Real-time Kill-Switch simulator & Intercept log
-    ├── ObservePillar.tsx     # Bias evaluator, guideline loader, & drift injector
-    ├── MeasurePillar.tsx     # Budgeting console, ROI scenario selector & CFO timeline
-    ├── PolicyConfig.tsx      # Blast radii rule creator, category filter & policy index
-    ├── GaaSApiPillar.tsx     # Gateway settings, SLA calibrator & live traffic feed
-    ├── AdminPillar.tsx       # Cloud IAM federated group sync, system bypass triggers
-    └── ToastNotifier.tsx     # Floating multi-tier event notifications system
+    ├── Sidebar.tsx               # Collapsible Multi-Pillar Navigation & User Session Switcher
+    ├── Overview.tsx              # Health Gauges, 30-Day Heatmap & Live Sentinel Stream
+    ├── CustomerOnboarding.tsx    # 5-Step Integration Wizard, Onboarding Copilot & Test Handshake
+    ├── SecurePillar.tsx          # Real-time Kill-Switch Simulator & Annex IV Audit Ledger
+    ├── ObservePillar.tsx         # Bias Evaluator, Guideline Loader & Drift Remediation
+    ├── MeasurePillar.tsx         # CFO Budget Console, Wage Benchmarks & Economic Stress Tests
+    ├── PolicyConfig.tsx          # Regulatory Act Ingestion (PDF), Rule Index & Active Laws
+    ├── GaaSApiPillar.tsx         # Agent Directory, Marketplace Status & Webhook Sandbox
+    ├── AdminPillar.tsx           # Authenticated User Table, Role Matrix & Dry-Run Bypass Guard
+    ├── GaaSAccessGate.tsx        # Login/Registration Gateway with Backend Auth Endpoints
+    ├── HelpCenter.tsx            # Comprehensive System Manual, Tour, FAQ & GenAI Copilot
+    └── ToastNotifier.tsx         # Floating Toast System
 ```
 
 ---
 
-## 4. Key Interactive Workflows & Verification
+## 4. GCP Marketplace Lifecycle & API Specifications
 
-The platform implements interactive simulation suites in every pillar, ensuring users can evaluate actual failure conditions visually and receive responsive confirmative notifications.
+### 4.1 Entitlement Webhook Endpoint
+`POST /api/v1/marketplace/webhook`
+* **Supported Events**:
+  * `ENTITLEMENT_CREATION_REQUESTED`: Provisions tenant account, generates `ag_live_*` API key, seeds baseline policy bundle, sets plan budget cap.
+  * `ENTITLEMENT_PLAN_CHANGED`: Upgrades or downgrades tier, recalculating budget caps and rate limits.
+  * `ENTITLEMENT_CANCELLED`: Deactivates tenant account, revokes API keys, marks status as `CANCELLED`.
+  * `ENTITLEMENT_ACTIVE`: Confirms active billing status.
 
-### 1. Unified Actions & Global Feedback (New Feature)
-All critical configurations and actions trigger targeted **Toast Notifications** immediately confirming the result of active user decisions.
-* **Governance Rule Lifecycle**:
-  * Toggling a rule on or off instantly alerts the active session of guardrail status (`"Governance Policy Rule Active"` vs. `"Governance Policy Rule Deactivated"`).
-  * Creating a rule registers and confirms categories, while deleting unlinks and archives the target.
-* **Calibration Slider & Auto-Refresh Controls**:
-  * Gateway SLA adjustments update baseline latency limits, while auto-refresh tickers alert security officers whether background telemetry client polling is active or paused.
-* **IAM Synchronization & Overrides**:
-  * Changing tenant sync directories, toggling global MFA requirements, or muting background warnings triggers immediate visual compliance toasts.
+### 4.2 Metering & Reconciliation APIs
+* `POST /api/v1/marketplace/metering`: Emits hourly usage counts anchored to cryptographic ledger hashes.
+* `GET /POST /api/v1/marketplace/reconcile`: Cross-audits raw transaction logs against emitted marketplace usage records, returning a 0.00% discrepancy verification report.
 
-### 2. Collapsible Left-Pane Layout & Clean Landing Page
-We have streamlined the layout structure for enterprise ease of use:
-* **Clean Access Gate Layout**: The collapsible left pane has been removed from the secure login landing page, leaving an elegant split-panel structure listing critical pre-authorization highlights with the **Active Threat Interceptor** guarding incoming connections.
-* **Collapsible Lifecycle Pillars**: Once authenticated and inside the application, the primary sidebar with the **Lifecycle & Gateway Pillars** becomes collapsible to maximize workspace real estate. It persists state gracefully via local storage across page sessions.
-
-### 3. Active Threat Interceptor & Security Sentinel Suite
-On the access login gate, AgentsGuardian integrates the elite **Active Threat Interceptor** directly into its security branding panel:
-* **Active Threat Interceptor**: Real-time isolation shields block hostile prompt injection payloads and malicious shell insertions before reaching the agent context.
-* **Cognitive Health Sentinel**: Analyzes intent vectors to identify jailbreak queries.
-* **Value Meter & Observability**: Direct audits of active stream spending and raw token ROI metrics.
-* **Multi-Framework Core REST**: Unifies robust LangChain or LlamaIndex calls into a secure gateway.
-
-### 4. Live SLA Latency Monitor
-An automatic background poll (integrated into `App.tsx`) emits mock transaction packets through `/v1/intercept`. 
-* If a packet exceeds the user-configured **latency SLA threshold** (e.g., `35ms`), a warning toast fires detailing the exact node, endpoint, and response times.
-* If a packet triggers a random anomaly (`HALTED`), an automated kill signal launches, generating a ledger receipt instantly visible in the Secure Pillar.
-
-### 3. Threat Simulator Workbench
-Allows engineers to inject custom JSON goals or select certified vulnerability templates.
-* Selecting a template pushes the execution through steps 1 to 4 with matching live console outputs, finally logging a deterministic audit log in the ledger.
+### 4.3 Multi-Tenant Isolation Verification
+`GET /POST /api/v1/marketplace/tenant-isolation-test`
+* Evaluates 5 isolation vectors:
+  1. **Policy Isolation**: Prevents Tenant A from reading Tenant B's custom rules.
+  2. **Ledger Isolation**: Ensures audit logs are partitioned by tenant ID.
+  3. **Cache Separation**: Guarantees Redis/Memory key namespace isolation (`tenant:{id}:*`).
+  4. **Budget Independence**: Enforces isolated spending limits per tenant.
+  5. **Scope Boundaries**: Restricts administrative role actions to assigned tenant scopes.
 
 ---
 
-## 5. System Styling & Design Language
+## 5. Regulatory & Compliance Baseline Matrix
 
-The application utilizes a dark "Hex-Coal" theme reflecting modern cybersecurity visual elements. It avoids standard templates and enforces strong visual rhythm:
+AgentsGuardian enforces current statutory frameworks across all policy templates:
 
-* **Color Palette**:
-  * Primary Canvas: Background `#090e17`, Panel Card `#162030` with border `#1F2E40` representing tight cyber-shield compartments.
-  * Interactive states: Energetic Green (`#1D9E75`) for authorized zones, warning amber (`#EF9F27`) for drifting, and warning crimson (`#E24B4A`) for halts/breach thresholds.
-* **Typography**:
-  * UI Panels and Monospace codes use **JetBrains Mono** to match complex operational logs.
-  * Headings utilize modern high-density structural layouts with clean margins and generous negative space under absolute sizing bounds.
+| Regulatory Framework | Enactment Status & Timeline | Platform Implementation & Enforcement Mechanism |
+| :--- | :--- | :--- |
+| **California SB 53** | **Enacted 2025 Statute** *(Supersedes vetoed SB-1047)* | Frontier-model compliance preset; mandates developer emergency shutdown / kill-switch capability and incident reporting logs. |
+| **US Federal Policy** | **Current Executive Policy** *(Post-EO 14110)* | Federal AI risk management posture; enforces red-teaming standards, prompt injection defense, and non-human identity boundaries. |
+| **Colorado AI Act** *(SB 24-205)* | **Tracking / Active Transition** *(Enforcement delayed to June 2026)* | Risk mitigation requirements under amended SB 24-205; periodic security log validation and algorithm bias monitoring. |
+| **EU AI Act** *(Reg. EU 2024/1689)* | **Enacted & Active** *(Max penalty: €35M or 7% global turnover)* | **Article 12**: Automatic log recording (traceability/event logging); **Annex IV**: Immutable technical documentation ledger keys. |
 
 ---
 
-## 6. How to Test & Verify the Application
+## 6. System Technical Standards & Performance Bounds
 
-To rigorously evaluate the AgentsGuardian implementation, execute the following interactive test cases in the dev screen:
+To eliminate data drift, latency ambiguity, and formatting errors, AgentsGuardian enforces strict global standards:
 
-### Test Case A: Real-Time Policy Interception (Secure Panel)
-1. **Navigate to "Secure" Tab** via the left-hand navigation sidebar.
-2. Under the **Threat Simulator Workbench**, select the template: *"Vulnerability: Unauthorized Spanner Shell Insertion"*.
-3. Click the **Run Intercept Simulation** button.
-4. **Observe the Simulation**: The progress states light up in sequence. Step 1 (Ingested), Step 2 (Vigilance), Step 3 (Evaluated), and Step 4 (Halted).
-5. Watch the **Simulated Live Console Logs** scroll. Confirm that a red **Kill-Signal** ledger event is immediately appended to the *Immutable Audit Ledger* at the bottom of the page.
+### 6.1 SLA & Latency Performance Bounds
+* **Single Source SLA**: All gateway components reference `GUARANTEED_SLA_MS = 35` (Target: `<35ms`).
+* **Execution Boundary Segregation**:
+  * **Sub-10ms Execution**: Reserved strictly for deterministic pre-action authorization (identity checks, ABAC rules, schema filters, spending limit checks).
+  * **Sub-35ms SLA Guarantee**: Guaranteed interception and policy evaluation boundary across proxy endpoints.
+  * **Sub-100ms / Sub-second Execution**: Applied to inference-based scanning, semantic threat analysis, prompt injection defense, deep cognitive reasoning, and Gemini LLM upstream completions.
 
-### Test Case B: Demographics & Bias Drift (Observe Panel)
-1. **Navigate to "Observe" Tab**.
-2. Click **Inject 15% Drift Model** on the controller widget.
-3. Observe the *Lighthouse Cognitive Evaluator* graph and metrics update to show a sudden shift in language sentiment markers.
-4. Note the warning event recorded in the tracking log. Click **Clean Remediate Drift** and inspect the instantly generated success toast verifying safe calibration.
-
-### Test Case C: Financial Constraints (Measure Panel)
-1. **Navigate to "Measure" Tab**.
-2. In the *Economic Simulation Engine*, select the scenario: *"Runaway Cost Scenario: 1M Token Context Bloat"*.
-3. Click **Execute Simulation**.
-4. Observe the budget cap tracker exceed the threshold, triggering an automated CFO security exception and halting the runaway task loop, documented on the CFO Timeline.
-
-### Test Case D: Gateway Calibration and Live Traffic (GaaS API Panel)
-1. **Navigate to "GaaS API" Tab**.
-2. Locate the **Current Latency SLA Threshold** slider. 
-3. Drag the slider down below `50ms` (e.g., to `35ms`).
-4. Watch for background polling transactions. When a simulated transaction takes longer than your calibrated threshold, a warning toast `⚠️ SLA Latency Limit Breached` will slide in, validating the live polling loop execution.
+### 6.2 Data & Format Engineering
+* **Currency Formatting**: Standardized via `formatCurrency(amount)` to ensure exact 2 decimal places and comma separators (e.g., `$8,707.50`).
+* **Timestamp Formatting**: Standardized via `formatTimestamp(isoString)` as `MMM DD, YYYY · HH:mm:ss`.
+* **Transaction ID Factory**: Uniform format via `generateTransactionId(prefix)` producing `<PREFIX>-<TIMESTAMP>-<RANDOM>`.
 
 ---
 
 ## 7. Client-Side Integration & Deployment Guide
 
-Integrating AgentsGuardian into your production AI environment is designed to be seamless, supporting both **zero-code infrastructure proxying** and **native client SDK wraps**.
+Connecting client codebases to AgentsGuardian GaaS requires 3 simple methods:
 
 ### Method 1: Zero-Code Proxy Redirect (Recommended)
-You can route all traffic from existing LLM client SDKs (such as OpenAI, Anthropic, or standard LangChain agents) through the AgentsGuardian proxy by overriding the base API endpoint in your environment configurations.
+Set the OpenAI or Anthropic base URL environment variable to point to the AgentsGuardian proxy:
 
-#### Configuration (Bash / .env)
 ```bash
-# Point your agent SDKs to the AgentsGuardian secure gateway proxy
-OPENAI_BASE_URL="https://gateway.agentsguardian.enterprise/v1"
-GEMINI_API_BASE="https://gateway.agentsguardian.enterprise/v1"
-
-# Inject required governance headers
-GUARDIAN_TENANT_ID="tenant_ent_9824"
-GUARDIAN_SLA_MODE="strict"
-GUARDIAN_AUTH_TOKEN="sg_live_7a3d2e9c8f104b"
+export OPENAI_BASE_URL="https://api.agentsguardian.ai/v1/proxy"
+export OPENAI_API_KEY="ag_live_7a3d2e9c8f104b"
 ```
 
-#### Code Example (Python Agent Script)
+In Python:
 ```python
 import os
 from openai import OpenAI
 
-# Initialize the standard client; base_url is resolved via environment variables
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
-    base_url=os.environ.get("OPENAI_BASE_URL")  # Redirects securely through our proxy
+    base_url=os.environ.get("OPENAI_BASE_URL")
 )
 
-# Custom header attachments route telemetry and telemetry metadata
 response = client.chat.completions.create(
     model="gpt-4o",
-    messages=[{"role": "user", "content": "Execute database migration on user_records."}],
+    messages=[{"role": "user", "content": "Execute database migration on production records."}],
     extra_headers={
-        "X-Guardian-Tenant-ID": os.environ.get("GUARDIAN_TENANT_ID"),
-        "X-Guardian-SLA-Mode": os.environ.get("GUARDIAN_SLA_MODE"),
-        "X-Guardian-Auth-Token": os.environ.get("GUARDIAN_AUTH_TOKEN")
+        "X-Guardian-Tenant-ID": "tenant_ent_9824",
+        "X-Guardian-SLA-Mode": "strict"
     }
 )
-
 print(response.choices[0].message.content)
 ```
 
-### Method 2: Native SDK Wrapper (Python / TypeScript)
-For granular lifecycle controls, use the native wrapper which provides local client-side pre-evaluation before API transmission.
-
-#### Code Example (Node.js / TypeScript Agent)
-```typescript
-import { AgentsGuardianClient } from '@agentsguardian/sdk';
-
-// Initialize the secure wrapper
-const guardian = new AgentsGuardianClient({
-  tenantId: 'tenant_ent_9824',
-  authToken: 'sg_live_7a3d2e9c8f104b',
-  slaTimeoutMs: 35
-});
-
-// Run safety evaluation before sending instructions to sub-agents
-async function runAgentTask(prompt: string) {
-  const evaluation = await guardian.evaluatePrompt(prompt);
-  
-  if (evaluation.status === 'HALTED') {
-    console.error(`🚨 Task Blocked by Security: ${evaluation.reason}`);
-    console.error(`Policy Violated: ${evaluation.violatedPolicyCode}`);
-    return;
-  }
-  
-  // Proceed with execution if clear
-  const result = await guardian.executeSecureCompletions({
-    model: 'gemini-2.5-flash',
-    prompt: prompt
-  });
-  
-  console.log(result);
-}
-```
+Upon authorization, AgentsGuardian invokes the real Gemini API model (`gemini-2.5-flash`) and returns genuine AI completions directly to the client.
 
 ---
 
-## 8. Zero-Trust Gateway Proxy: Inner Workings & Enforcement
+## 8. Automated Hardening & Verification Suite
 
-AgentsGuardian operates as an inline reverse proxy with synchronous blocking capabilities. Below is the step-by-step breakdown of how a transaction is evaluated.
+AgentsGuardian includes an automated end-to-end regression test suite (`scripts/test-phase5-hardening.ts`) validating 27 critical system assertions:
 
-```
-[Agent Call] ──► Ingestion ──► Decryption ──► [ Secure ] ──► [ Observe ] ──► [ Measure ] ──► Upstream LLM
-                                                   │              │               │
-                                              (SQL Check)    (Bias Drift)    (Budget Cap)
-                                                   ▼              ▼               ▼
-                                              [ BLOCK ]      [ WARNING ]      [ HALT LOOP ]
+```bash
+npx tsx scripts/test-phase5-hardening.ts
 ```
 
-### 1. Ingestion & Decryption
-* **Mutual TLS (mTLS)**: Handshake is negotiated between the agent client environment and the secure gate, establishing a cryptographic tunnel.
-* **Payload Unpacking**: Incoming JSON bodies are read, extracting system prompts, user content, tools list, and temperature settings.
-
-### 2. Multi-Pillar Inline Inspection
-* **Secure Pillar (Deterministic Security Gateway)**:
-  * Employs synchronous regex, AST compilers, and prompt injection filters.
-  * Blocks Spanner shell injections, command line attempts (`rm -rf`, `chmod`), and unauthorized credential exfiltrations.
-  * If a violation is found, the connection is instantly severed (Kill-Switch triggered) and the request never hits the upstream LLM, preserving credential secrecy.
-* **Observe Pillar (Asynchronous Cognitive Alignment)**:
-  * Analyzes linguistic semantic drift using light embedded models.
-  * Calculates real-time sentiment divergence and demographic bias variance.
-  * If drift exceeds configured levels (e.g., automated high-interest rate recommendations targeted at certain postcodes), an executive alert is raised to restore model alignment.
-* **Measure Pillar (Financial Throttle)**:
-  * Measures token counts (using fast BPE tokenizers) and tracks rolling financial cost accumulators for the active session.
-  * Intercepts and blocks runaway agent loops (such as infinite recursive tool calls or unpruned 1M+ token context bloat) before budgets are depleted.
-
-### 3. AI-Powered Regulatory Compliance Translation
-Rather than manually composing complex JSON security configurations, AgentsGuardian includes an **automated legal text parser**:
-* **Compliance Ingest**: Ingests official PDF texts or international presets (such as the *EU AI Act (Annex IV & Art. 12)*, *California SB 53 (2025 Enacted)*, or *US Federal Executive AI Policy Framework*).
-* **Obligation Extraction**: Employs deep text reasoning to parse structural liabilities, converting them into machine-actionable guardrails.
-* **Three-Pillar Separation**: Synthesized rules are cleanly segregated and displayed under their respective columns: Security Pillar (Secure), Ethics Pillar (Observe), and Finance Pillar (Measure) cards. This ensures immediate clarity regarding which legal obligation protects which operational vector.
-* **Dynamic Revocation (Cascade Deletes)**: Tracks active laws and their generated rules on the ledger. Compliance officers can retire a law instantly with a single click of the red **"Remove Law"** button. This performs a clean cascade purge, deleting the framework and all of its compiled rules from the system instantly, eliminating compliance bloat and stale rules.
-
+### Verified Test Vectors (27/27 Passing Assertions)
+1. **Express Server Boot**: Health check endpoint returns `200 OK`.
+2. **Marketplace Webhook Ingestion**: Processes `ENTITLEMENT_CREATION_REQUESTED` and provisions active tenant.
+3. **API Key Issuance**: Generates `ag_live_*` tenant keycard.
+4. **Default Policy Bundles**: Seeds Security, Ethics, and Finance guardrails.
+5. **Plan Budget Calibration**: Sets $500 cap for Enterprise tier.
+6. **Plan Upgrade**: Processes `ENTITLEMENT_PLAN_CHANGED` and scales budget cap to $1000.
+7. **Inline Proxy Authorization**: Intercepts valid prompts, checks tenant keys, invokes Gemini model, and returns response.
+8. **Threat Policy Blocking**: Intercepts malicious prompt injections and blocks execution with `403 Forbidden`.
+9. **Budget Cap Enforcement**: Halts transactions when cumulative spend exceeds budget ceiling.
+10. **Usage Metering Emission**: Reports transaction counts with cryptographic ledger hashes.
+11. **Metering Reconciliation**: Cross-audits logs returning 0.00% discrepancy verification.
+12. **Multi-Tenant Isolation**: Confirms 0 cross-tenant data leakage across 5 isolation levels.
+13. **Subscription Cancellation**: Processes `ENTITLEMENT_CANCELLED`, revoking API access.
+14. **Authentication Gateway**: Verifies `/api/auth/login` and `/api/auth/register` endpoints.
 
 ---
 
-## 9. Visual Architecture & Transaction Lifecycle Flow Diagram
-
-To assist deployment engineers and compliance officers, the system visual architecture and full transaction processing pipeline are mapped out below.
-
-### I. Comprehensive Visual System Architecture
-
-The following block diagram demonstrates the network topology and relationship between your autonomous agent workloads, the inline AgentsGuardian gateway, our asynchronous policy compiler, and your secure upstream LLM execution engines:
-
-```
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                          AGENT CLIENT ENVIRONMENT (Workloads)                     │
-│                                                                                   │
-│  ┌─────────────────────────┐  ┌─────────────────────────┐  ┌───────────────────┐  │
-│  │   LangChain / AutoGPT   │  │   LlamaIndex Searcher   │  │ Custom Agent App  │  │
-│  └────────────┬────────────┘  └────────────┬────────────┘  └─────────┬─────────┘  │
-└───────────────┼────────────────────────────┼─────────────────────────┼────────────┘
-                │                            │                         │
-                ▼ (HTTPS Post Calls)         ▼ (mTLS Client Request)   ▼ (API Webhooks)
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                    AGENTSGUARDIAN SECURE GATEWAY PROXY (Port 3000)                │
-│                                                                                   │
-│  [ INGRESS SHIELD ]                                                               │
-│   ├─► mTLS Handshake Decryption                                                   │
-│   ├─► Active Threat Interceptor (Jailbreak / Prompt Injections)                   │
-│   └─► JSON Payload Sanitizer                                                      │
-│                                                                                   │
-│  [ RULE COMPILER & COMPLIANCE PARSER ]                                            │
-│   │                                                                               │
-│   │  ┌──────────────┐      ┌──────────────────────────────┐      ┌─────────────┐  │
-│   ├──┤ PDF Ingest   ├─────►│ Regulatory Parser (GenAI)    ├─────►│ Policy Laws │  │
-│   │  └──────────────┘      │ - Decodes human legal texts  │      │ - EU AI Act │  │
-│   │                        │ - Extracts real obligations  │      │ - CA SB 53  │  │
-│   │                        └──────────────┬───────────────┘      └─────────────┘  │
-│   │                                       ▼ (Separation and Sorting)              │
-│   │                                       │                                       │
-│   ▼                                       ▼                                       ▼
-│  [ SECURITY PILLAR ]              [ ETHICS PILLAR ]               [ FINANCE PILLAR ]
-│  (Synchronous Enforcer)           (Asynchronous Assurer)          (Economic Throttle)
-│   ├── SQL / Spanner Shell          ├── Demographics Audit          ├── Custom Budgets  │
-│   ├── Command Injection            ├── Sentiment Drift             ├── Runaway Loop    │
-│   └── Kill-Switch Trigger          └── Drift Remediation           └── SLA Monitor     │
-│                                                                                   │
-│  [ COMPLIANCE LEDGER & METRICS ]                                                  │
-│   ├─► Annex IV Immutable Ledger (Audit Event DB)                                  │
-│   ├─► Active Regulatory Frameworks Controller (Revocation / Delete)               │
-│   └─► Telemetry Copilot (Real-time Status Feed & SLA Alerts)                      │
-└───────────────────────────────────────┬───────────────────────────────────────────┘
-                                        │
-                                        ▼ (Clean authorized request safely routed)
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                            UPSTREAM AI SERVICE PROVIDERS                          │
-│                                                                                   │
-│  ┌─────────────────────────┐  ┌─────────────────────────┐  ┌───────────────────┐  │
-│  │    Google Gemini API    │  │       OpenAI API        │  │  Custom LLM Nodes │  │
-│  └─────────────────────────┘  └─────────────────────────┘  └───────────────────┘  │
-└───────────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-### II. Complete Transaction Lifecycle Flow
-
-Every call sent by an autonomous agent through AgentsGuardian undergoes a strict multi-stage evaluation. Here is the sequential runtime flow of a telemetry payload:
-
-```
- [1. START] Agent Workload initiates Chat Completion / API call
-    │
-    ▼
- [2. mTLS SECURE INGRESS] Gateway decrypts packet & authenticates Tenant Token
-    │
-    ▼
- [3. THREAT INTERCEPTOR] Evaluates payload against prompt injection & jailbreak heuristics
-    │
-    ├─► [VIOLATED] ──► Block request ──► Send 403 Forbidden ──► Log event [END]
-    │
-    └─► [CLEAN]
-          │
-          ▼
- [4. DETERMINISTIC SECURITY GATEWAY (Security Pillar)]
-    │   - Run abstract syntax checks (AST) for Spanner shell insertions
-    │   - Intercept system command attempts (e.g. rm -rf, chmod)
-    │
-    ├─► [BLOCKED] ──► Fire Kill-Switch ──► Log Ledger Event ──► Abort Connection [END]
-    │
-    └─► [CLEAN]
-          │
-          ▼
- [5. COGNITIVE ALIGNMENT (Ethics Pillar)]
-    │   - Analyze language vectors for demographic drift & sentiment deviation
-    │   - If drift ratio exceeds limit, record warning in timeline & inject adjustments
-    │
-    ▼
- [6. FINANCIAL THROTTLE (Finance Pillar)]
-    │   - Estimate upcoming request cost & check remaining active session budget
-    │   - Inspect token count to block recursive infinite agent loops
-    │
-    ├─► [BUDGET EXCEEDED] ──► Halt Loop ──► Trigger CFO Toast Alert ──► Abort [END]
-    │
-    └─► [CLEAN]
-          │
-          ▼
- [7. SLA MONITORING] Checks current latency parameters against configured SLA threshold
-    │
-    ├─► [LATENCY BREACHED] ──► Dispatch "SLA Limit Breached" toast to dashboard
-    │
-    └─► [WITHIN LIMIT]
-          │
-          ▼
- [8. COMPLIANCE ROUTING] Gateway forwards clean request to upstream model (e.g., Gemini)
-    │
-    ▼
- [9. RESPONSE CAPTURE]
-    │   - Gateway receives model output & validates format and safety
-    │   - Records final token usage and latency metrics to Annex IV Ledger
-    │
-    ▼
- [10. RETURN] Finished authorized response successfully delivered to agent client [END]
-```
-
-
+*This Solution Design Specification represents the authoritative technical contract for the AgentsGuardian AI Governance OS platform.*

@@ -199,8 +199,26 @@ export default function App() {
     `;
   }, [activeTheme, themeOptions, activeBg, bgOptions]);
 
-  // Data management states
+  // Data management states from unified store
   const {
+    policies,
+    setPolicies,
+    killEvents,
+    setKillEvents,
+    driftEvents,
+    setDriftEvents,
+    valueMetrics,
+    setValueMetrics,
+    users,
+    setUsers,
+    actingUserId,
+    setActingUserId,
+    isLoggedIn,
+    setIsLoggedIn,
+    governedAgents,
+    setGovernedAgents,
+    laborConfig,
+    setLaborConfig,
     notifications,
     addNotification,
     markAllNotificationsRead,
@@ -209,119 +227,65 @@ export default function App() {
     disableAlertsGlobally,
     setDisableAlertsGlobally,
     governanceMode,
-    setGovernanceMode
+    setGovernanceMode,
+    currentUser,
+    updateLaborConfig
   } = useGovernanceStore();
 
-  const [policies, setPolicies] = useState<Policy[]>(INITIAL_POLICIES);
-  const [killEvents, setKillEvents] = useState<KillSignalEvent[]>(INITIAL_KILL_SWITCH_EVENTS);
-  const [driftEvents, setDriftEvents] = useState<DriftLogEvent[]>(INITIAL_DRIFT_EVENTS);
-  const [valueMetrics, setValueMetrics] = useState<ValueMeterMetric[]>(INITIAL_VALUE_METRICS);
-  const [budgetCap, setBudgetCap] = useState<number>(50); // Standard $50.00 Limit initial value
+  const [budgetCap, setBudgetCap] = useState<number>(50);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
-  // Feature 2: Interactive Human Labor Cost Configuration State
-  const [laborConfig, setLaborConfig] = useState<LaborConfig>(() => {
-    const saved = localStorage.getItem('gaas_labor_config_v1');
-    return saved ? JSON.parse(saved) : {
-      l1Rate: 35, // $35/hr Level 1 Support / Triage Specialist
-      l2Rate: 75, // $75/hr Level 2 DevOps Engineer
-      l3Rate: 150, // $150/hr Level 3 SRE Architect
-      auditRate: 60, // $60/hr Human-in-the-Loop Auditor
-      avgHoursPerTask: 0.25 // 15 minutes average handling time per ticket
-    };
+  const getAuthHeaders = () => ({
+    'X-User-Email': currentUser?.email || 'admin@enterprise.com',
+    'Authorization': `Bearer session_${currentUser?.id || 'USR-001'}`,
+    'Content-Type': 'application/json'
   });
 
   const handleUpdateLaborConfig = (newConfig: LaborConfig) => {
-    setLaborConfig(newConfig);
-    localStorage.setItem('gaas_labor_config_v1', JSON.stringify(newConfig));
-    fetch('/api/labor-config', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newConfig)
-    }).catch(e => console.warn('Failed to save labor config on server:', e));
+    updateLaborConfig(newConfig);
   };
 
   const handleUpdateBudgetCap = (cap: number) => {
     setBudgetCap(cap);
     fetch('/api/budget-cap', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ budgetCap: cap })
     }).catch(e => console.warn('Failed to save budget cap on server:', e));
   };
 
-
-  // Lifted Identity States
-  const [users, setUsers] = useState<AdminUser[]>(() => {
-    const saved = localStorage.getItem('gaas_captured_people_v1');
-    return saved ? JSON.parse(saved) : INITIAL_ADMINS;
-  });
-
-  const [actingUserId, setActingUserId] = useState<string>(() => {
-    return localStorage.getItem('gaas_logged_in_user_id') || 'USR-001';
-  });
-
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    return localStorage.getItem('gaas_is_logged_in') === 'true';
-  });
-
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
-    return localStorage.getItem('gaas_sidebar_collapsed') === 'true';
-  });
-
   const handleToggleSidebar = () => {
-    setIsSidebarCollapsed(prev => {
-      const newVal = !prev;
-      localStorage.setItem('gaas_sidebar_collapsed', newVal ? 'true' : 'false');
-      return newVal;
-    });
+    setIsSidebarCollapsed(prev => !prev);
   };
-  
-  const currentUser = useMemo(() => {
-    const found = users.find(u => u.id === actingUserId || u.email.toLowerCase().trim() === actingUserId.toLowerCase().trim());
-    if (found) return found;
-    // Return first non-suspended user or default
-    return users.find(u => u.status === 'ACTIVE') || users[0] || INITIAL_ADMINS[1];
-  }, [users, actingUserId]);
 
   const setCurrentUser = (selectedVal: AdminUser) => {
     setActingUserId(selectedVal.id);
-    localStorage.setItem('gaas_logged_in_user_id', selectedVal.id);
   };
 
   const handleRegisterUser = (newUser: AdminUser) => {
-    setUsers(prev => {
-      const updated = [...prev, newUser];
-      localStorage.setItem('gaas_captured_people_v1', JSON.stringify(updated));
-      return updated;
-    });
+    setUsers(prev => [...prev, newUser]);
   };
 
   const handleLoginSuccess = (user: AdminUser) => {
     setActingUserId(user.id);
     setIsLoggedIn(true);
-    localStorage.setItem('gaas_is_logged_in', 'true');
-    localStorage.setItem('gaas_logged_in_user_id', user.id);
   };
 
   const handleLogout = () => {
     setIsLoggedIn(false);
-    localStorage.setItem('gaas_is_logged_in', 'false');
     setShowAppearanceMenu(false);
   };
 
-  useEffect(() => {
-    localStorage.setItem('gaas_captured_people_v1', JSON.stringify(users));
-  }, [users]);
-
   // Uplifted GaaS API States
-  const [governedAgents, setGovernedAgents] = useState<GoverningAgent[]>(INITIAL_GOVERNED_AGENTS);
   const [apiLogs, setApiLogs] = useState<ApiRequestLog[]>(INITIAL_API_LOGS);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | 'off'>(30000);
   const [latencyThreshold, setLatencyThreshold] = useState<number>(GUARANTEED_SLA_MS);
 
   // Fetch real-time server governance state on mount
   useEffect(() => {
-    fetch('/api/state')
+    fetch('/api/state', {
+      headers: getAuthHeaders()
+    })
       .then(res => res.json())
       .then(data => {
         if (data.policies) setPolicies(data.policies);
@@ -498,7 +462,7 @@ export default function App() {
 
   const handleClearKillLogs = () => {
     setKillEvents([]);
-    fetch('/api/kill-events', { method: 'DELETE' }).catch(e => console.warn(e));
+    fetch('/api/kill-events', { method: 'DELETE', headers: getAuthHeaders() }).catch(e => console.warn(e));
   };
 
   const handleRemediateDrift = (id: string) => {
@@ -559,7 +523,7 @@ export default function App() {
 
     fetch('/api/policies/toggle', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ id })
     }).catch(e => console.warn('Policy toggle server error:', e));
   };
@@ -574,7 +538,7 @@ export default function App() {
 
     fetch('/api/policies', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(newPolicy)
     }).catch(e => console.warn('Add policy server error:', e));
   };
@@ -592,7 +556,7 @@ export default function App() {
       message: `Permanently removed and unlinked policy rule: "${deletedName}".`
     });
 
-    fetch(`/api/policies/${id}`, { method: 'DELETE' }).catch(e => console.warn('Delete policy server error:', e));
+    fetch(`/api/policies/${id}`, { method: 'DELETE', headers: getAuthHeaders() }).catch(e => console.warn('Delete policy server error:', e));
   };
 
   if (!isLoggedIn) {

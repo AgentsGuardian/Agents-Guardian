@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS policy_versions (
 -- 5. Audit Ledger Table (Cryptographically Hash-Chained Append-Only)
 CREATE TABLE IF NOT EXISTS audit_ledger (
     id VARCHAR(64) PRIMARY KEY,
+    message_id VARCHAR(128) UNIQUE,
     tenant_id VARCHAR(64) NOT NULL,
     agent_id VARCHAR(64) NOT NULL,
     event_type VARCHAR(64) NOT NULL,
@@ -62,10 +63,25 @@ CREATE TABLE IF NOT EXISTS audit_ledger (
     prev_hash VARCHAR(64) NOT NULL,
     entry_hash VARCHAR(64) NOT NULL,
     signature VARCHAR(512) NOT NULL,
+    signature_status VARCHAR(64) NOT NULL DEFAULT 'VALID_KMS',
     timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Dedicated Minimally-Privileged Application Runtime Role Definition
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'agentsguardian_app_runtime') THEN
+    CREATE ROLE agentsguardian_app_runtime WITH LOGIN PASSWORD 'runtime_secure_password_gaas';
+  END IF;
+END
+$$;
+
+GRANT CONNECT ON DATABASE agentsguardian_production TO agentsguardian_app_runtime;
+GRANT USAGE ON SCHEMA public TO agentsguardian_app_runtime;
+GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA public TO agentsguardian_app_runtime;
+
 -- Immutable Append-Only DB Role Restriction Enforcement
+REVOKE UPDATE, DELETE ON audit_ledger FROM agentsguardian_app_runtime;
 REVOKE UPDATE, DELETE ON audit_ledger FROM PUBLIC;
 
 -- 6. Kill Events Table

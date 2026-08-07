@@ -89,106 +89,91 @@ export default function GaaSAccessGate({
     return Object.keys(errors).length === 0;
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
 
     if (isLoginView) {
-      // Find matching user
-      // Supporting both simulation signin (by email match)
-      const sanitizedEmail = email.toLowerCase().trim();
-      const matchedUser = users.find(u => u.email.toLowerCase().trim() === sanitizedEmail);
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim(), password })
+        });
 
-      if (matchedUser) {
-        if (matchedUser.status === 'SUSPENDED') {
+        const data = await res.json();
+        if (!res.ok) {
           addToast({
             type: 'danger',
-            title: '❌ Authorization Expired/Suspended',
-            message: `The credentials index for "${matchedUser.name}" are marked as SUSPENDED under security incident directive POL-SEC-01.`
+            title: '❌ Authentication Failed',
+            message: data.error || 'Invalid credentials or account suspended.'
           });
           return;
         }
 
-        // Successfully logged in
-        onLoginSuccess(matchedUser);
+        onLoginSuccess(data.user);
         addToast({
           type: 'success',
           title: '🛡️ Identity Verified: Gateway Open',
-          message: `Welcome back, Admin Operator ${matchedUser.name}. Session token compiled under role: ${matchedUser.role}.`
+          message: `Welcome back, Admin Operator ${data.user.name}. Session token issued under role: ${data.user.role}.`
         });
-      } else {
-        // Create an on-the-fly default account matching or toast error
+      } catch (err: any) {
         addToast({
           type: 'danger',
-          title: '🔑 Cryptographic Credentials Miss',
-          message: `No active federated license found matching "${email}". Please register below to generate temporary keycards.`
+          title: '🔑 Authentication Network Error',
+          message: 'Unable to reach authentication gateway endpoint.'
         });
       }
     } else {
-      // Register new user
-      const existingUser = users.find(u => u.email.toLowerCase().trim() === email.toLowerCase().trim());
-      if (existingUser) {
+      if (selectedRole === 'SuperAdmin' && email.toLowerCase().trim() !== 'mritunjoysingh@gmail.com') {
         addToast({
           type: 'danger',
-          title: '⚠️ License Collision Detected',
-          message: `The corporate email ID "${email}" index is already mapped to user "${existingUser.name}". Please log in instead.`
+          title: '🔒 Access Denied: SuperAdmin Restrained',
+          message: 'Super Admin rights are strictly tied to the Master Workspace Owner email address (mritunjoysingh@gmail.com).'
         });
         return;
       }
 
-      // Safe new administrative registration
-      const userRegId = `USR-REQ-${Math.floor(100 + Math.random() * 900)}`;
-      
-      // Secure role authorization check
-      let finalRole = selectedRole;
-      if (selectedRole === 'SuperAdmin') {
-        if (email.toLowerCase().trim() !== 'mritunjoysingh@gmail.com') {
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: name.trim(),
+            email: email.trim(),
+            role: selectedRole,
+            organization: orgName.trim()
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
           addToast({
             type: 'danger',
-            title: '🔒 Access Denied: SuperAdmin Restrained',
-            message: `Super Admin rights are strictly tied to the Master Workspace Owner email address (mritunjoysingh@gmail.com).`
+            title: '⚠️ Registration Failed',
+            message: data.error || 'Unable to register account.'
           });
           return;
         }
+
+        onRegisterUser(data.user);
+        addToast({
+          type: 'success',
+          title: '🛡️ License Authorization Active',
+          message: `Registered successfully! Authenticating session...`
+        });
+
+        setTimeout(() => {
+          onLoginSuccess(data.user);
+        }, 300);
+      } catch (err) {
+        addToast({
+          type: 'danger',
+          title: 'Network Error',
+          message: 'Failed to connect to registration backend service.'
+        });
       }
-
-      const newAdminRecord: AdminUser = {
-        id: userRegId,
-        name: name.trim(),
-        email: email.toLowerCase().trim(),
-        role: finalRole,
-        status: 'ACTIVE',
-        mfaEnabled: true,
-        lastLogin: 'Just Registered (Portal Access Captured)'
-      };
-
-      // Push registration upward
-      onRegisterUser(newAdminRecord);
-      
-      addToast({
-        type: 'success',
-        title: '🛡️ License Authorization Active',
-        message: `Registered successfully! Account verification token generated. Automatically authenticating session...`
-      });
-
-      // Directly authorize session
-      setTimeout(() => {
-        onLoginSuccess(newAdminRecord);
-      }, 500);
     }
-  };
-
-  // Demo user quick-fill shortcuts for outstanding UX evaluation
-  const handleQuickDemoClick = (demoUser: AdminUser) => {
-    setEmail(demoUser.email);
-    setPassword('demo-guardian-secure-pass-7104');
-    setIsLoginView(true);
-    setFormErrors({});
-    addToast({
-      type: 'info',
-      title: '📁 Quick Credentials Loaded',
-      message: `Loaded credentials index for ${demoUser.name} (${demoUser.role}). Click Sign In to execute payload.`
-    });
   };
 
   return (
