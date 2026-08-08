@@ -139,7 +139,7 @@
       "blastRadius": "Tenant Gateway Infrastructure",
       "threshold": "Halt Instantly",
       "enabled": true,
-      "tenantId": "tenant_mkt_real_1786207724491"
+      "tenantId": "tenant_mkt_real_1786212571179"
     },
     {
       "id": "POL-TENANT-ETH",
@@ -150,7 +150,7 @@
       "blastRadius": "Agent Execution Pool",
       "threshold": "Warn & Audit",
       "enabled": true,
-      "tenantId": "tenant_mkt_real_1786207724491"
+      "tenantId": "tenant_mkt_real_1786212571179"
     },
     {
       "id": "POL-TENANT-FIN",
@@ -161,7 +161,7 @@
       "blastRadius": "API Gateway Node",
       "threshold": "$500.00 Ceiling",
       "enabled": true,
-      "tenantId": "tenant_mkt_real_1786207724491"
+      "tenantId": "tenant_mkt_real_1786212571179"
     },
     {
       "id": "POL-ISO-tenant_alpha-1786120960662",
@@ -360,6 +360,39 @@
       "threshold": "Strict",
       "enabled": true,
       "tenantId": "tenant_beta"
+    },
+    {
+      "id": "POL-CONV-1786212556475",
+      "code": "POL-CONV-99",
+      "name": "Converged Test Policy",
+      "description": "Enforce convergence across Go gateway and Node BFF",
+      "category": "security",
+      "blastRadius": "All Agent Services",
+      "threshold": "Strict",
+      "enabled": true,
+      "tenantId": "tenant_default"
+    },
+    {
+      "id": "POL-ISO-tenant_alpha-1786212575388",
+      "code": "POL-TENANTALPHA-01",
+      "name": "Isolation Rule tenant_alpha",
+      "description": "Strict isolation rule for tenant_alpha",
+      "category": "security",
+      "blastRadius": "Tenant Alpha Scope",
+      "threshold": "Strict",
+      "enabled": true,
+      "tenantId": "tenant_alpha"
+    },
+    {
+      "id": "POL-ISO-tenant_beta-1786212575389",
+      "code": "POL-TENANTBETA-01",
+      "name": "Isolation Rule tenant_beta",
+      "description": "Strict isolation rule for tenant_beta",
+      "category": "security",
+      "blastRadius": "Tenant Beta Scope",
+      "threshold": "Strict",
+      "enabled": true,
+      "tenantId": "tenant_beta"
     }
   ],
   "iam_users": [
@@ -425,6 +458,188 @@
     }
   ],
   "audit_ledger": [
+    {
+      "id": "LEDGER-1786212590148-8017",
+      "message_id": "MSG-1786212590148",
+      "tenant_id": "tenant_default",
+      "agent_id": "AG-SEMANTIC-04",
+      "event_type": "ACTION_HALTED",
+      "payload_hash": "54b036223d47010d19a7d589c390d66277a0b68cf90d4068da639a2feb893cb2",
+      "prev_hash": "c7760bc85c7f28b2d3cc679850115e8d00c9e4cfb2d3865c1946dd128bdf89d7",
+      "entry_hash": "6a1703c664cd7c745c6ff12b1e94daa53859e605b51b1231867710aa0f5209b4",
+      "signature": "gcp-kms-rsa4096-sig:7d522de56ce747394e40927de03f3ef466e4baad8dec65f8aa235a243d8a8b57",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:50.148Z"
+    },
+    {
+      "id": "LEDGER-1786212586524-659",
+      "message_id": "MSG-1786212586524",
+      "tenant_id": "tenant_default",
+      "agent_id": "AG-SEMANTIC-03",
+      "event_type": "ACTION_HALTED",
+      "payload_hash": "2cc8bd8cc5f4dda2e079c1bc6146e59d2c8483e84c17c3807e54bbec0820f47a",
+      "prev_hash": "3dc9966af239323ee820f475aa78c45e7e15e69fa8bcf204e611a8d92d735310",
+      "entry_hash": "c7760bc85c7f28b2d3cc679850115e8d00c9e4cfb2d3865c1946dd128bdf89d7",
+      "signature": "gcp-kms-rsa4096-sig:c1ba3e12a0f06502ed5070c6ed2faaac0b7cbdd6ab538244efdf27f0790f2c37",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:46.524Z"
+    },
+    {
+      "id": "LEDGER-1786212582817-2335",
+      "message_id": "MSG-1786212582817",
+      "tenant_id": "tenant_default",
+      "agent_id": "AG-SEMANTIC-02",
+      "event_type": "ACTION_HALTED",
+      "payload_hash": "862e5d8a11e12296235abf9f9d849c1ac1dc2dc87afffd0d69272b66fb14c514",
+      "prev_hash": "abc2b2c6fd27696bb71c62ae6e0bef89f2c575bfb77d5e731cf37448b0bf9b68",
+      "entry_hash": "3dc9966af239323ee820f475aa78c45e7e15e69fa8bcf204e611a8d92d735310",
+      "signature": "gcp-kms-rsa4096-sig:2fd7f7913d03567ca2cc32b982a186d18d615ffd0f13b508fc8b0dac6dd372d3",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:42.817Z"
+    },
+    {
+      "id": "LEDGER-1786212578921-4229",
+      "message_id": "MSG-1786212578921",
+      "tenant_id": "tenant_default",
+      "agent_id": "AG-SEMANTIC-01",
+      "event_type": "ACTION_HALTED",
+      "payload_hash": "6472527e690db084b4376ff5af1e67f5fe50969510334c97505f741b4ef0355f",
+      "prev_hash": "45d5ed79f578b839fa214732c7071e8c4206a885c3e84d263605ba2d3eff769d",
+      "entry_hash": "abc2b2c6fd27696bb71c62ae6e0bef89f2c575bfb77d5e731cf37448b0bf9b68",
+      "signature": "gcp-kms-rsa4096-sig:3bb6b2c5c8c7b81c7905ae40549f8dd2e78009330fafa800c1f2106c0cd36684",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:38.921Z"
+    },
+    {
+      "id": "LEDGER-1786212575397-6033",
+      "message_id": "MSG-1786212575398",
+      "tenant_id": "tenant_default",
+      "agent_id": "GA-MARKETPLACE",
+      "event_type": "METERING_RECONCILED",
+      "payload_hash": "8e708fe10c0772c03e1acfb69041f8a093c815b380efad61bbe1ee927e80ecdd",
+      "prev_hash": "e6ae6c614377bffc170cd2f65c11e597b8d211d5afd897126008685dc3681365",
+      "entry_hash": "45d5ed79f578b839fa214732c7071e8c4206a885c3e84d263605ba2d3eff769d",
+      "signature": "gcp-kms-rsa4096-sig:126841b3984908a91e2e8d976f9797f48c86e0520224f49f08198baf2f9ae46d",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:35.398Z"
+    },
+    {
+      "id": "LEDGER-1786212575397-3114",
+      "message_id": "MSG-1786212575397",
+      "tenant_id": "tenant_default",
+      "agent_id": "GA-MARKETPLACE",
+      "event_type": "MARKETPLACE_METERING_EMITTED",
+      "payload_hash": "f7d395a4e686221a2a14506ec9fcbec06ce9ab0c5db0f1ed663a953198617ce4",
+      "prev_hash": "6137b41d6e113ee6bb5ce875a41b1fef3ae35156928cb7fa4d0d9e9f66b0a7b1",
+      "entry_hash": "e6ae6c614377bffc170cd2f65c11e597b8d211d5afd897126008685dc3681365",
+      "signature": "gcp-kms-rsa4096-sig:7ebc50f684dcba7e26890927e2de5dbaaf0a143408559f69dfcc765e6dd331b5",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:35.397Z"
+    },
+    {
+      "id": "LEDGER-1786212575392-8376",
+      "message_id": "MSG-1786212575392",
+      "tenant_id": "tenant_beta",
+      "agent_id": "AGENT-B1",
+      "event_type": "TEST_ISOLATION_B",
+      "payload_hash": "1e163f20be2cde02d56bba27f0bf0f7b0ead7b583b693e09daf234926071b12d",
+      "prev_hash": "69460d884e2847fbb1198ceda896a93bb873b17bc85657e3165e4bfee8296921",
+      "entry_hash": "6137b41d6e113ee6bb5ce875a41b1fef3ae35156928cb7fa4d0d9e9f66b0a7b1",
+      "signature": "gcp-kms-rsa4096-sig:5f7fcf1bbd8ee46a71e758f7944824dae98bc34d96bddf470c6a413b56a63498",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:35.392Z"
+    },
+    {
+      "id": "LEDGER-1786212575390-539",
+      "message_id": "MSG-1786212575390",
+      "tenant_id": "tenant_alpha",
+      "agent_id": "AGENT-A1",
+      "event_type": "TEST_ISOLATION_A",
+      "payload_hash": "7b60883759df73631c78db03b303d29cad78614fbb8a535869fda317bc0c1a14",
+      "prev_hash": "be9a1e3f45a3f8e57eee87486ac801e93d6c1a91dc3711fc30b1c9e08f2c48b6",
+      "entry_hash": "69460d884e2847fbb1198ceda896a93bb873b17bc85657e3165e4bfee8296921",
+      "signature": "gcp-kms-rsa4096-sig:080263c4857b968bbeb48bef7301476eaf49ac5c283cf57529fd48a7b9b77507",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:35.390Z"
+    },
+    {
+      "id": "LEDGER-1786212575381-7110",
+      "message_id": "MSG-1786212575381",
+      "tenant_id": "tenant_default",
+      "agent_id": "AG-TEST-02",
+      "event_type": "ACTION_HALTED",
+      "payload_hash": "6275ff459353b1c58030a78e7dc52b74456e5139b24b282091a73d21b471deef",
+      "prev_hash": "ecf62fd8fcd13b66a3e19609cbbebc72023ceddeb1575a20206dda7c9930fb40",
+      "entry_hash": "be9a1e3f45a3f8e57eee87486ac801e93d6c1a91dc3711fc30b1c9e08f2c48b6",
+      "signature": "gcp-kms-rsa4096-sig:7a879f5c0a4b6c6d16c6d10351441357ccb785428fbe1ff87a3c95409ed94be8",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:35.381Z"
+    },
+    {
+      "id": "LEDGER-1786212575373-3655",
+      "message_id": "MSG-1786212575373",
+      "tenant_id": "tenant_default",
+      "agent_id": "AG-TEST-01",
+      "event_type": "ACTION_HALTED",
+      "payload_hash": "e14fc66be90b7e5cfc1376c4f9a4cd8928fd2c43b1ed4ebe292a6902766d072c",
+      "prev_hash": "141e9c8c0100854d40ce6c2f8b0867f1e5b4161c8a8c651ba2db403d97970d48",
+      "entry_hash": "ecf62fd8fcd13b66a3e19609cbbebc72023ceddeb1575a20206dda7c9930fb40",
+      "signature": "gcp-kms-rsa4096-sig:5a2d59911a6c40aefb380a963ab52ffbc983e1a4f4415a9e6cd34d1f6764db8c",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:35.373Z"
+    },
+    {
+      "id": "LEDGER-1786212571206-28",
+      "message_id": "MSG-1786212571206",
+      "tenant_id": "tenant_mkt_real_1786212571179",
+      "agent_id": "AG-PUBSUB-PUSH",
+      "event_type": "PUBSUB_PUSH_EVENT",
+      "payload_hash": "2e0fc50ca1ba13c19fd7844e51e6b498a1f799da148e0f81fb19aea48dcd8ce0",
+      "prev_hash": "084c82b50fba0d83f8aa76ca2af8dec32681add7df9e63dd56f55b22aae2971a",
+      "entry_hash": "141e9c8c0100854d40ce6c2f8b0867f1e5b4161c8a8c651ba2db403d97970d48",
+      "signature": "gcp-kms-rsa4096-sig:67788e519ac6db2734170aceacfd9a936f1df9274c300f876a28418b212cdeee",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:31.206Z"
+    },
+    {
+      "id": "LEDGER-1786212571188-5750",
+      "message_id": "MSG-1786212571188",
+      "tenant_id": "tenant_mkt_real_1786212571179",
+      "agent_id": "GA-MARKETPLACE",
+      "event_type": "TENANT_PROVISIONED",
+      "payload_hash": "c14500042b5df456ebee4986be9798a3be615a793b3e569a8a0f4252697d2111",
+      "prev_hash": "GENESIS_00000000000000000000000000000000",
+      "entry_hash": "084c82b50fba0d83f8aa76ca2af8dec32681add7df9e63dd56f55b22aae2971a",
+      "signature": "gcp-kms-rsa4096-sig:a455a854b0d93aa9121485cb18bc971d9684b8337a414f526af584232cb11bb2",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:31.188Z"
+    },
+    {
+      "id": "LEDGER-1786212562683-5307",
+      "message_id": "MSG-1786212562683",
+      "tenant_id": "tenant_default",
+      "agent_id": "GA-TEST-02",
+      "event_type": "ACTION_HALTED",
+      "payload_hash": "051ac8dc7287b85c15333eecc489da20f8a82e99426f1ca9e93249b64d88c0b4",
+      "prev_hash": "d9fdb28e91edc8192008b27f59cbba5d912bb5b784a177bb1afbeed1540b9269",
+      "entry_hash": "d4dfe8b6c0f01e646379a5ad4c756383db65b385c0aa708729c196cc3ba79aa8",
+      "signature": "gcp-kms-rsa4096-sig:3a3648f3b21795b5bc2a3aa4818530b08aa30ef46b9d588931c80da9f6c439f2",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:22.683Z"
+    },
+    {
+      "id": "LEDGER-1786212562681-9526",
+      "message_id": "MSG-1786212562681",
+      "tenant_id": "tenant_default",
+      "agent_id": "GA-TEST-01",
+      "event_type": "ACTION_HALTED",
+      "payload_hash": "6ad0ef80339609092b2b96b1f9433ee046592775bd10e9f9557ca3d808f31e8d",
+      "prev_hash": "GENESIS_00000000000000000000000000000000",
+      "entry_hash": "d9fdb28e91edc8192008b27f59cbba5d912bb5b784a177bb1afbeed1540b9269",
+      "signature": "gcp-kms-rsa4096-sig:085e91f6945e6c5c715a1b39052b419532cd574e001237bd15032c0b7f3e8c41",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-08T18:09:22.681Z"
+    },
     {
       "id": "LEDGER-1786207746543-515",
       "message_id": "MSG-1786207746543",
@@ -1518,8 +1733,8 @@
       "updated_at": "2026-08-08T16:46:17.361Z"
     },
     "tenant:tenant_alpha:agent:GA-DEFAULT:spend": {
-      "v": "94.5",
-      "updated_at": "2026-08-08T16:48:49.702Z"
+      "v": "105",
+      "updated_at": "2026-08-08T18:09:35.393Z"
     }
   }
 }

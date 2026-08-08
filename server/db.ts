@@ -44,9 +44,20 @@ class StorageEngine {
   private redisClient: Redis | null = null;
   private isPgConnected: boolean = false;
   private isRedisConnected: boolean = false;
+  private degraded: boolean = false;
+  private degradedReason: string = '';
   private initPromise: Promise<void>;
   private memoryStore: PersistentSchema;
   private dbFilePath: string;
+
+  public getHealthStatus(): { degraded: boolean; reason: string; isPgConnected: boolean; isRedisConnected: boolean } {
+    return {
+      degraded: this.degraded,
+      reason: this.degradedReason,
+      isPgConnected: this.isPgConnected,
+      isRedisConnected: this.isRedisConnected
+    };
+  }
 
   constructor() {
     const dbDir = path.resolve(process.cwd(), '.data');
@@ -102,6 +113,11 @@ class StorageEngine {
   }
 
   private async initializeStores() {
+    let pgFailed = false;
+    let pgErrMsg = '';
+    let redisFailed = false;
+    let redisErrMsg = '';
+
     // 1. Attempt PostgreSQL connection
     const pgHost = process.env.DB_HOST || process.env.POSTGRES_HOST || 'localhost';
     const pgUser = process.env.DB_USER || process.env.POSTGRES_USER || 'agentsguardian_app_runtime';
@@ -124,12 +140,14 @@ class StorageEngine {
 
       const client = await this.pgPool.connect();
       client.release();
+      await this.verifyPgSchema();
       this.isPgConnected = true;
-      console.log('[StorageEngine] Connected to Cloud SQL PostgreSQL.');
-      await this.initPgTables();
+      console.log('[StorageEngine] Connected to Cloud SQL PostgreSQL and verified schema.');
     } catch (err: any) {
       this.isPgConnected = false;
-      console.log(`[StorageEngine] PostgreSQL unavailable (${err.message}). Operating in persistent storage mode.`);
+      pgFailed = true;
+      pgErrMsg = err.message || 'PostgreSQL connection or schema verification failed';
+      console.error(`[STORAGE_ALERT_ERROR] CRITICAL: PostgreSQL unavailable (${pgErrMsg}).`);
     }
 
     // 2. Attempt Redis connection
@@ -153,95 +171,58 @@ class StorageEngine {
       console.log('[StorageEngine] Connected to Memorystore Redis.');
     } catch (err: any) {
       this.isRedisConnected = false;
-      console.log(`[StorageEngine] Redis unavailable (${err.message}). Operating in persistent KV mode.`);
+      redisFailed = true;
+      redisErrMsg = err.message || 'Redis connection failed';
+      console.error(`[STORAGE_ALERT_ERROR] CRITICAL: Redis unavailable (${redisErrMsg}).`);
     }
 
-    // 3. Seed initial canonical data if fresh
+    // 3. Evaluate degraded state & fail fast if required
+    if (pgFailed || redisFailed) {
+      this.degraded = true;
+      const reasons: string[] = [];
+      if (pgFailed) reasons.push(`PostgreSQL: ${pgErrMsg}`);
+      if (redisFailed) reasons.push(`Redis: ${redisErrMsg}`);
+      this.degradedReason = reasons.join('; ');
+
+      // Structured ERROR log line for monitoring pipelines
+      console.error(JSON.stringify({
+        level: 'ERROR',
+        event: 'STORAGE_DEGRADED_ALERT',
+        degraded: true,
+        reason: this.degradedReason,
+        timestamp: new Date().toISOString()
+      }));
+
+      const requirePersistent = process.env.REQUIRE_PERSISTENT_STORAGE === 'true' ||
+        (process.env.NODE_ENV === 'production' && process.env.STRICT_STORAGE === 'true');
+
+      if (requirePersistent) {
+        console.error('[STORAGE_FATAL] REQUIRE_PERSISTENT_STORAGE is enabled and required storage services are unavailable. Process exiting non-zero (exit code 1).');
+        process.exit(1);
+      }
+    }
+
+    // 4. Seed initial canonical data if fresh
     await this.seedDefaultDataIfNeeded();
   }
 
-  private async initPgTables() {
+  private async verifyPgSchema() {
     if (!this.pgPool) return;
     const client = await this.pgPool.connect();
     try {
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS tenants (
-          id VARCHAR(100) PRIMARY KEY,
-          name TEXT NOT NULL,
-          organization TEXT,
-          plan_tier TEXT NOT NULL,
-          billing_status TEXT NOT NULL,
-          budget_cap NUMERIC DEFAULT 500.0,
-          current_spend NUMERIC DEFAULT 0.0,
-          api_key TEXT,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+      const requiredTables = ['audit_ledger', 'tenants', 'policies', 'iam_users', 'tenant_api_keys', 'kv_store'];
+      const res = await client.query(`
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = ANY($1)
+      `, [requiredTables]);
 
-        CREATE TABLE IF NOT EXISTS policies (
-          id VARCHAR(100) PRIMARY KEY,
-          code VARCHAR(50) NOT NULL,
-          name TEXT NOT NULL,
-          description TEXT,
-          category TEXT,
-          blast_radius TEXT,
-          threshold TEXT,
-          tenant_id VARCHAR(100) NOT NULL,
-          enabled BOOLEAN DEFAULT TRUE,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+      const existingTables = new Set(res.rows.map((r: any) => r.table_name));
+      const missingTables = requiredTables.filter(t => !existingTables.has(t));
 
-        CREATE TABLE IF NOT EXISTS iam_users (
-          id VARCHAR(100) PRIMARY KEY,
-          name TEXT NOT NULL,
-          email TEXT UNIQUE NOT NULL,
-          role TEXT NOT NULL,
-          status TEXT DEFAULT 'ACTIVE',
-          mfa_enabled BOOLEAN DEFAULT TRUE,
-          tenant_id VARCHAR(100) DEFAULT 'tenant_default',
-          password_hash TEXT,
-          password_salt TEXT,
-          reset_token TEXT,
-          reset_token_expires TEXT,
-          last_login TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS audit_ledger (
-          id VARCHAR(100) PRIMARY KEY,
-          message_id VARCHAR(100) NOT NULL,
-          tenant_id VARCHAR(100) NOT NULL,
-          agent_id VARCHAR(100) NOT NULL,
-          event_type VARCHAR(50) NOT NULL,
-          payload_hash TEXT NOT NULL,
-          prev_hash TEXT NOT NULL,
-          entry_hash TEXT NOT NULL,
-          signature TEXT NOT NULL,
-          signature_status VARCHAR(50) DEFAULT 'VALID_KMS',
-          timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS tenant_api_keys (
-          key_hash VARCHAR(128) PRIMARY KEY,
-          tenant_id VARCHAR(100) NOT NULL,
-          raw_key_prefix VARCHAR(50),
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS market_metering (
-          id VARCHAR(100) PRIMARY KEY,
-          tenant_id VARCHAR(100) NOT NULL,
-          metric_name TEXT NOT NULL,
-          value NUMERIC DEFAULT 0,
-          ledger_hash TEXT,
-          timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS kv_store (
-          k VARCHAR(255) PRIMARY KEY,
-          v TEXT NOT NULL,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-      `);
+      if (missingTables.length > 0) {
+        throw new Error(`Missing required database tables: ${missingTables.join(', ')}. Schema migration via schema.sql required.`);
+      }
     } finally {
       client.release();
     }
@@ -251,9 +232,22 @@ class StorageEngine {
     const existingUsers = await this.getUsers();
     if (existingUsers.length === 0) {
       console.log('[StorageEngine] Seeding initial canonical users, policies, and tenants...');
-      const defaultPassword = hashPassword('admin123');
+      const isProd = process.env.NODE_ENV === 'production' || process.env.ENV === 'production';
 
       for (const admin of INITIAL_ADMINS) {
+        let userHash = admin.passwordHash;
+        let userSalt = admin.passwordSalt;
+        let mustReset = true;
+
+        if (isProd || !userHash || !userSalt) {
+          const randomPass = crypto.randomBytes(16).toString('hex');
+          const hashed = hashPassword(randomPass);
+          userHash = hashed.hash;
+          userSalt = hashed.salt;
+          mustReset = true;
+          console.log(`[SECURITY] Initialized seed user '${admin.email}' with random startup password: ${randomPass}. First login requires password change.`);
+        }
+
         await this.createUser({
           id: admin.id,
           name: admin.name,
@@ -262,9 +256,10 @@ class StorageEngine {
           status: admin.status,
           mfaEnabled: admin.mfaEnabled,
           tenantId: admin.tenantId || 'tenant_default',
-          passwordHash: admin.passwordHash || defaultPassword.hash,
-          passwordSalt: admin.passwordSalt || defaultPassword.salt,
-          lastLogin: admin.lastLogin
+          passwordHash: userHash,
+          passwordSalt: userSalt,
+          lastLogin: admin.lastLogin,
+          mustResetPassword: mustReset
         });
       }
 
@@ -584,7 +579,6 @@ class StorageEngine {
 
     this.memoryStore = this.loadPersistentFileStore();
     this.memoryStore.audit_ledger.unshift(entry);
-    if (this.memoryStore.audit_ledger.length > 1000) this.memoryStore.audit_ledger.pop();
     this.flushPersistentFileStore();
   }
 

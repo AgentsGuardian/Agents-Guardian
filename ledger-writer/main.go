@@ -374,11 +374,10 @@ func verifyPubSubOIDCToken(tokenStr string) error {
 	}
 
 	// 4. Verify Signature via JWKS or Test Key
+	env := getEnv("NODE_ENV", getEnv("ENV", getEnv("GO_ENV", "development")))
+	isProduction := strings.EqualFold(env, "production")
 	testRsaPubKeyPem := os.Getenv("TEST_RSA_PUBLIC_KEY")
-	if testRsaPubKeyPem == "" && header.Pubkey != "" {
-		testRsaPubKeyPem = header.Pubkey
-	}
-	if header.Alg == "RS256" && testRsaPubKeyPem != "" && (header.Kid == "test-key-id" || strings.HasPrefix(header.Kid, "test-")) {
+	if !isProduction && testRsaPubKeyPem != "" && header.Alg == "RS256" && (header.Kid == "test-key-id" || strings.HasPrefix(header.Kid, "test-")) {
 		block, _ := pem.Decode([]byte(testRsaPubKeyPem))
 		if block != nil {
 			parsedKey, err := x509.ParsePKIXPublicKey(block.Bytes)

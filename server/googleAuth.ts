@@ -95,9 +95,10 @@ export async function verifyGoogleOidcToken(
     return { valid: false, error: 'Missing kid in JWT header' };
   }
 
-  // Check test key bypass if test RSA public key is configured or embedded in header
-  const testPubKey = (header.pubkey as string) || (header.test_pubkey as string) || process.env.TEST_RSA_PUBLIC_KEY;
-  if (header.alg === 'RS256' && (kid === 'test-key-id' || kid.startsWith('test-')) && testPubKey) {
+  // Check test key bypass ONLY if TEST_RSA_PUBLIC_KEY env var is explicitly configured by deployer AND env is non-production
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.ENV === 'production';
+  const testPubKey = process.env.TEST_RSA_PUBLIC_KEY;
+  if (!isProduction && testPubKey && header.alg === 'RS256' && (kid === 'test-key-id' || kid.startsWith('test-'))) {
     try {
       const verify = crypto.createVerify('SHA256');
       verify.update(`${headerB64}.${payloadB64}`);

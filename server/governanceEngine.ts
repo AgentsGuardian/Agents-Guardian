@@ -349,16 +349,31 @@ class GovernanceEngineStore {
   }
 
   private initCanonicalDB(): GovernanceDB {
-    // Canonical in-memory state initialized from predefined system standards with salted password hashes
-    const defaultPassword = hashPassword('admin123');
+    // Canonical in-memory state initialized from predefined system standards
+    const isProd = process.env.NODE_ENV === 'production' || process.env.ENV === 'production';
     const initialPolicies = INITIAL_POLICIES.map(p => ({ ...p, tenantId: p.tenantId || 'tenant_default' }));
     const initialAgents = INITIAL_GOVERNED_AGENTS.map(a => ({ ...a, tenantId: a.tenantId || 'tenant_default' }));
-    const initialUsers = INITIAL_ADMINS.map(u => ({
-      ...u,
-      tenantId: u.tenantId || 'tenant_default',
-      passwordHash: u.passwordHash || defaultPassword.hash,
-      passwordSalt: u.passwordSalt || defaultPassword.salt
-    }));
+    const initialUsers = INITIAL_ADMINS.map(u => {
+      let hash = u.passwordHash;
+      let salt = u.passwordSalt;
+      let mustReset = true;
+
+      if (isProd || !hash || !salt) {
+        const randomPass = crypto.randomBytes(16).toString('hex');
+        const hashed = hashPassword(randomPass);
+        hash = hashed.hash;
+        salt = hashed.salt;
+        mustReset = true;
+      }
+
+      return {
+        ...u,
+        tenantId: u.tenantId || 'tenant_default',
+        passwordHash: hash,
+        passwordSalt: salt,
+        mustResetPassword: mustReset
+      };
+    });
 
     return {
       policies: [...initialPolicies],

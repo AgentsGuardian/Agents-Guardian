@@ -72,6 +72,10 @@ const requireAdminAuth = (req: AuthenticatedRequest, res: express.Response, next
     return res.status(403).json({ error: 'Forbidden: Account is suspended' });
   }
 
+  if (authUser.mustResetPassword && req.path !== '/api/auth/change-password' && req.path !== '/api/auth/reset-password' && req.path !== '/api/auth/logout' && req.path !== '/api/auth/me') {
+    return res.status(403).json({ error: 'Password reset required before proceeding. Please update your password.', mustResetPassword: true });
+  }
+
   req.authUser = authUser;
   next();
 };
@@ -100,6 +104,32 @@ const requireRole = (allowedRoles: string[]) => {
 // REAL GAAS GOVERNANCE ENGINE API ENDPOINTS
 // ==========================================
 
+// Health Check Endpoint (Reports storage degradation status for monitoring)
+const handleHealthCheck = async (req: express.Request, res: express.Response) => {
+  await storageEngine.waitUntilReady();
+  const status = storageEngine.getHealthStatus();
+  if (status.degraded) {
+    return res.status(200).json({
+      status: 'degraded',
+      degraded: true,
+      reason: status.reason,
+      postgresConnected: status.isPgConnected,
+      redisConnected: status.isRedisConnected,
+      timestamp: new Date().toISOString()
+    });
+  }
+  return res.json({
+    status: 'ok',
+    degraded: false,
+    postgresConnected: status.isPgConnected,
+    redisConnected: status.isRedisConnected,
+    timestamp: new Date().toISOString()
+  });
+};
+
+app.get('/healthz', handleHealthCheck);
+app.get('/api/health', handleHealthCheck);
+
 // 0. Auth Session Routes (Real Admin & Identity Platform Gateway)
 app.post('/api/auth/login', (req: express.Request, res: express.Response) => {
   const { email, password } = req.body || {};
@@ -125,8 +155,7 @@ app.post('/api/auth/login', (req: express.Request, res: express.Response) => {
   if (user.passwordHash && user.passwordSalt) {
     isValidPassword = verifyPassword(password, user.passwordHash, user.passwordSalt);
   } else {
-    const defaultCheck = hashPassword('admin123');
-    isValidPassword = verifyPassword(password, defaultCheck.hash, defaultCheck.salt);
+    isValidPassword = false;
   }
 
   if (!isValidPassword) {
@@ -146,7 +175,10 @@ app.post('/api/auth/login', (req: express.Request, res: express.Response) => {
     success: true,
     user,
     token,
-    message: `Session token issued for ${user.name} under role ${user.role}`
+    mustResetPassword: !!user.mustResetPassword,
+    message: user.mustResetPassword 
+      ? `Session token issued. Password reset required for initial seed account.`
+      : `Session token issued for ${user.name} under role ${user.role}`
   });
 });
 
@@ -155,6 +187,10 @@ app.post('/api/auth/register', (req: express.Request, res: express.Response) => 
   const sanitizedEmail = (email || '').toLowerCase().trim();
   if (!sanitizedEmail || !name) {
     return res.status(400).json({ error: 'Name and valid email are required for account registration' });
+  }
+
+  if (!password || password.length < 5) {
+    return res.status(400).json({ error: 'Password is required and must be at least 5 characters long' });
   }
 
   const allUsers = governanceEngine.getUsers();
@@ -175,8 +211,7 @@ app.post('/api/auth/register', (req: express.Request, res: express.Response) => 
     }
   }
 
-  const userPassword = password && password.length >= 5 ? password : 'admin123';
-  const { hash, salt } = hashPassword(userPassword);
+  const { hash, salt } = hashPassword(password);
 
   const newUser: any = {
     id: `USR-REQ-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -188,7 +223,8 @@ app.post('/api/auth/register', (req: express.Request, res: express.Response) => 
     mfaEnabled: true,
     lastLogin: new Date().toISOString(),
     passwordHash: hash,
-    passwordSalt: salt
+    passwordSalt: salt,
+    mustResetPassword: false
   };
 
   allUsers.push(newUser);
@@ -205,6 +241,31 @@ app.post('/api/auth/register', (req: express.Request, res: express.Response) => 
     user: newUser,
     token,
     message: `Registration successful for ${newUser.name}`
+  });
+});
+
+app.post('/api/auth/change-password', requireAdminAuth, (req: AuthenticatedRequest, res: express.Response) => {
+  const { oldPassword, newPassword } = req.body || {};
+  if (!newPassword || newPassword.length < 5) {
+    return res.status(400).json({ error: 'New password must be at least 5 characters long' });
+  }
+
+  const user = req.authUser;
+  if (user.passwordHash && user.passwordSalt && !user.mustResetPassword) {
+    const isValid = verifyPassword(oldPassword, user.passwordHash, user.passwordSalt);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid current password' });
+    }
+  }
+
+  const { hash, salt } = hashPassword(newPassword);
+  user.passwordHash = hash;
+  user.passwordSalt = salt;
+  user.mustResetPassword = false;
+
+  return res.json({
+    success: true,
+    message: 'Password changed successfully. Password reset requirement cleared.'
   });
 });
 

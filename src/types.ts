@@ -137,6 +137,7 @@ export interface AdminUser {
   passwordSalt?: string;
   resetToken?: string;
   resetTokenExpires?: string;
+  mustResetPassword?: boolean;
 }
 
 export interface RolePermission {
