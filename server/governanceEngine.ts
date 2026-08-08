@@ -356,14 +356,21 @@ class GovernanceEngineStore {
     const initialUsers = INITIAL_ADMINS.map(u => {
       let hash = u.passwordHash;
       let salt = u.passwordSalt;
-      let mustReset = true;
+      let mustReset = u.mustResetPassword ?? false;
 
-      if (isProd || !hash || !salt) {
-        const randomPass = crypto.randomBytes(16).toString('hex');
-        const hashed = hashPassword(randomPass);
-        hash = hashed.hash;
-        salt = hashed.salt;
-        mustReset = true;
+      if (!hash || !salt) {
+        if (isProd) {
+          const randomPass = crypto.randomBytes(16).toString('hex');
+          const hashed = hashPassword(randomPass);
+          hash = hashed.hash;
+          salt = hashed.salt;
+          mustReset = true;
+        } else {
+          const hashed = hashPassword('admin123', 'c94d6e09811e26c3f02a5a8ae47945ff');
+          hash = hashed.hash;
+          salt = hashed.salt;
+          mustReset = false;
+        }
       }
 
       return {

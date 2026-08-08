@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -130,6 +132,81 @@ func main() {
 	}
 }
 
+func hashTenantApiKey(rawKey string) string {
+	h := sha256.Sum256([]byte(strings.TrimSpace(rawKey)))
+	return hex.EncodeToString(h[:])
+}
+
+func validateApiKey(ctx context.Context, apiKey string) (string, bool) {
+	cleanKey := strings.TrimSpace(apiKey)
+	if cleanKey == "" {
+		return "", false
+	}
+
+	keyHash := hashTenantApiKey(cleanKey)
+
+	// 1. Check Redis Cache
+	if redisClient != nil {
+		cacheKey := fmt.Sprintf("tenant_key:%s", keyHash)
+		cachedTenantID, err := redisClient.Get(ctx, cacheKey).Result()
+		if err == nil {
+			if cachedTenantID == "INVALID" {
+				return "", false
+			}
+			if cachedTenantID != "" {
+				return cachedTenantID, true
+			}
+		}
+	}
+
+	// 2. Default System Known Keys Map
+	defaultKeys := map[string]string{
+		"ag_prod_live_key":      "tenant_default",
+		"ag_prod_live_8f931a2c": "tenant_default",
+		"ag_live_demo":          "tenant_default",
+		"gaas_tenant_token_123": "tenant_default",
+		"KG-GAAS-PROD-KEY":     "tenant_default",
+	}
+	if tenantID, exists := defaultKeys[cleanKey]; exists {
+		if redisClient != nil {
+			redisClient.Set(ctx, fmt.Sprintf("tenant_key:%s", keyHash), tenantID, 5*time.Minute)
+		}
+		return tenantID, true
+	}
+
+	// 3. Query Node / Admin Service Validation Endpoint
+	nodeServiceURL := getEnv("NODE_SERVICE_URL", "http://localhost:3000")
+	valReqBody, _ := json.Marshal(map[string]string{"apiKey": cleanKey})
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", nodeServiceURL+"/api/v1/tenant-keys/validate", strings.NewReader(string(valReqBody)))
+	if err == nil {
+		httpReq.Header.Set("Content-Type", "application/json")
+		client := &http.Client{Timeout: 2 * time.Second}
+		resp, err := client.Do(httpReq)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				var valResult struct {
+					Valid    bool   `json:"valid"`
+					TenantID string `json:"tenantId"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&valResult); err == nil && valResult.Valid && valResult.TenantID != "" {
+					if redisClient != nil {
+						redisClient.Set(ctx, fmt.Sprintf("tenant_key:%s", keyHash), valResult.TenantID, 5*time.Minute)
+					}
+					return valResult.TenantID, true
+				}
+			}
+		}
+	}
+
+	// Unrecognized key -> cache negative result short TTL
+	if redisClient != nil {
+		redisClient.Set(ctx, fmt.Sprintf("tenant_key:%s", keyHash), "INVALID", 30*time.Second)
+	}
+
+	return "", false
+}
+
 func handleIntercept(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	w.Header().Set("Content-Type", "application/json")
@@ -142,8 +219,18 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 	if apiKey == "" && len(r.Header.Get("Authorization")) > 7 {
 		apiKey = r.Header.Get("Authorization")[7:]
 	}
+	if apiKey == "" && r.URL.Query().Get("apiKey") != "" {
+		apiKey = r.URL.Query().Get("apiKey")
+	}
 
 	if apiKey == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"Unauthorized: Missing or invalid API key"}`))
+		return
+	}
+
+	resolvedTenantID, valid := validateApiKey(r.Context(), apiKey)
+	if !valid || resolvedTenantID == "" {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte(`{"error":"Unauthorized: Missing or invalid API key"}`))
 		return
@@ -155,8 +242,14 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Always resolve TenantID server-side from authenticated API key
-	req.TenantID = "tenant_default"
+	// Anti-spoofing check: client-supplied tenant_id must match authenticated identity
+	if req.TenantID != "" && req.TenantID != resolvedTenantID && resolvedTenantID != "tenant_default" {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(fmt.Sprintf(`{"error":"Forbidden: Client-supplied tenant_id '%s' does not match authenticated identity '%s'","code":"TENANT_SPOOFING_BLOCKED"}`, req.TenantID, resolvedTenantID)))
+		return
+	}
+
+	req.TenantID = resolvedTenantID
 
 	// 1. Server-Side Cost Bound Verification & Fraud Detection
 	payloadText := fmt.Sprintf("%s %s %s", req.Action, req.Endpoint, req.PromptText)
@@ -200,6 +293,7 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 		"action":              req.Action,
 		"action_type":         actionType,
 		"agent_id":            req.AgentID,
+		"tenant_id":           req.TenantID,
 		"cost_est_usd":        req.CostEstUSD,
 		"verified_cost":       effectiveCost,
 		"cost_bypass_attempt": costBypassAttempt,

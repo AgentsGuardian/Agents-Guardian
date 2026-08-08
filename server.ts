@@ -1,9 +1,11 @@
 import express from 'express';
+import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { governanceEngine } from './server/governanceEngine';
+import { storageEngine } from './server/db';
 import { signJwt, verifyJwt, hashPassword, verifyPassword } from './server/authUtils';
 import { verifyGoogleOidcToken } from './server/googleAuth';
 
@@ -62,7 +64,7 @@ const requireAdminAuth = (req: AuthenticatedRequest, res: express.Response, next
   }
 
   const allUsers = governanceEngine.getUsers();
-  const authUser = allUsers.find(u => u.id === verification.payload.userId);
+  const authUser = allUsers.find(u => u.id === verification.payload.userId || (verification.payload.email && u.email.toLowerCase() === verification.payload.email.toLowerCase()));
 
   if (!authUser) {
     return res.status(401).json({ error: 'Unauthorized: User account not found' });
@@ -355,6 +357,7 @@ app.post('/api/auth/reset-password', (req: express.Request, res: express.Respons
   const { hash, salt } = hashPassword(newPassword);
   user.passwordHash = hash;
   user.passwordSalt = salt;
+  user.mustResetPassword = false;
   user.resetToken = undefined;
   user.resetTokenExpires = undefined;
 
@@ -385,7 +388,7 @@ app.get('/api/state', requireAdminAuth, (req: AuthenticatedRequest, res) => {
 });
 
 // 2. Real-Time Interception Engine Endpoint (<10ms Deterministic SLA)
-app.post('/api/v1/intercept', requireTenantApiKey, async (req: AuthenticatedRequest, res) => {
+app.post(['/api/v1/intercept', '/v1/intercept', '/intercept'], requireTenantApiKey, async (req: AuthenticatedRequest, res) => {
   try {
     const payload = req.body || {};
     const tenantId = req.tenantId || 'tenant_default';
@@ -876,6 +879,54 @@ app.get('/api/v1/marketplace/tenants', requireAdminAuth, (req: AuthenticatedRequ
     total: governanceEngine.getTenants().length,
     timestamp: new Date().toISOString()
   });
+});
+
+app.post('/api/v1/marketplace/tenants', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), async (req: AuthenticatedRequest, res: express.Response) => {
+  try {
+    const { name, planTier, apiKey, tenantId: requestedTenantId, budgetCap = 500 } = req.body || {};
+    const tenantId = requestedTenantId || `tenant_${Date.now()}`;
+    const rawKey = apiKey || `ag_live_${crypto.randomBytes(24).toString('hex')}`;
+
+    governanceEngine.registerTenantApiKey(rawKey, tenantId);
+    try {
+      await storageEngine.registerApiKey(rawKey, tenantId);
+    } catch (e) {
+      console.warn('StorageEngine registerApiKey warning:', e);
+    }
+
+    const tenantRecord = {
+      id: tenantId,
+      name: name || `Tenant ${tenantId}`,
+      planTier: planTier || 'ENTERPRISE',
+      gcpMarketplaceAccountId: `MKT-${Date.now()}`,
+      billingStatus: 'ACTIVE' as const,
+      apiKey: rawKey,
+      budgetCap: Number(budgetCap),
+      currentSpend: 0.0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    (governanceEngine as any).tenantsMap.set(tenantId, tenantRecord);
+    governanceEngine.setTenantBudgetCap(tenantId, Number(budgetCap));
+
+    return res.json({ success: true, tenant: tenantRecord, apiKey: rawKey });
+  } catch (err: any) {
+    console.error('Error in POST /api/v1/marketplace/tenants:', err);
+    return res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+});
+
+app.post('/api/v1/tenant-keys/validate', async (req: express.Request, res: express.Response) => {
+  const apiKey = (req.body?.apiKey || req.body?.api_key) as string;
+  const validation = governanceEngine.validateTenantApiKey(apiKey);
+  return res.json(validation);
+});
+
+app.get('/api/v1/tenant-keys/validate', async (req: express.Request, res: express.Response) => {
+  const apiKey = (req.query.apiKey || req.query.api_key || req.query.key) as string;
+  const validation = governanceEngine.validateTenantApiKey(apiKey);
+  return res.json(validation);
 });
 
 app.get('/api/v1/marketplace/reconcile', requireAdminAuth, (req: AuthenticatedRequest, res) => {
