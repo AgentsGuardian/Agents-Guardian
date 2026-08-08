@@ -50,11 +50,11 @@ export default function GaaSAccessGate({
   const [resetNewPassword, setResetNewPassword] = useState<string>('');
   const [resetConfirmPassword, setResetConfirmPassword] = useState<string>('');
   const [resetError, setResetError] = useState<string>('');
+  const [resetTokenState, setResetTokenState] = useState<string>('');
   const [showSimulatedEmailNotification, setShowSimulatedEmailNotification] = useState<boolean>(false);
 
   const isGoogleAccount = (emailAddress: string) => {
     const normalized = emailAddress.toLowerCase().trim();
-    if (normalized === 'mritunjoysingh@gmail.com') return true;
     const found = users.find(u => u.email.toLowerCase().trim() === normalized);
     return found?.lastLogin === 'Google SSO Registered' || found?.lastLogin.includes('Google SSO');
   };
@@ -111,6 +111,10 @@ export default function GaaSAccessGate({
           return;
         }
 
+        if (data.token) {
+          localStorage.setItem('ag_session_token', data.token);
+        }
+
         onLoginSuccess(data.user);
         addToast({
           type: 'success',
@@ -125,15 +129,6 @@ export default function GaaSAccessGate({
         });
       }
     } else {
-      if (selectedRole === 'SuperAdmin' && email.toLowerCase().trim() !== 'mritunjoysingh@gmail.com') {
-        addToast({
-          type: 'danger',
-          title: '🔒 Access Denied: SuperAdmin Restrained',
-          message: 'Super Admin rights are strictly tied to the Master Workspace Owner email address (mritunjoysingh@gmail.com).'
-        });
-        return;
-      }
-
       try {
         const res = await fetch('/api/auth/register', {
           method: 'POST',
@@ -141,6 +136,7 @@ export default function GaaSAccessGate({
           body: JSON.stringify({
             name: name.trim(),
             email: email.trim(),
+            password,
             role: selectedRole,
             organization: orgName.trim()
           })
@@ -154,6 +150,10 @@ export default function GaaSAccessGate({
             message: data.error || 'Unable to register account.'
           });
           return;
+        }
+
+        if (data.token) {
+          localStorage.setItem('ag_session_token', data.token);
         }
 
         onRegisterUser(data.user);
@@ -965,7 +965,7 @@ export default function GaaSAccessGate({
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       const emailVal = resetEmail.trim().toLowerCase();
                       if (!emailVal) {
                         setResetError('Please enter your license email address.');
@@ -976,32 +976,32 @@ export default function GaaSAccessGate({
                         return;
                       }
 
-                      // Check if account exists
-                      const matchedUser = users.find(u => u.email.toLowerCase().trim() === emailVal);
-                      if (!matchedUser) {
-                        setResetError(`No active administrative license found matching "${emailVal}". Recovery is only available for active system users.`);
-                        return;
+                      try {
+                        const res = await fetch('/api/auth/forgot-password', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ email: emailVal })
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          setResetError(data.error || 'Password reset request failed.');
+                          return;
+                        }
+
+                        if (data.resetToken) {
+                          setResetTokenState(data.resetToken);
+                        }
+
+                        addToast({
+                          type: 'info',
+                          title: '📧 Reset Token Issued',
+                          message: data.message || `Password reset token generated for ${emailVal}.`
+                        });
+
+                        setResetStep('newpass');
+                      } catch (err) {
+                        setResetError('Failed to connect to password reset service.');
                       }
-
-                      // Check if it is a Google authenticated account
-                      if (isGoogleAccount(emailVal)) {
-                        setResetError(`Account "${emailVal}" is registered via Google SSO. Please return to the login screen and select "Sign In with Google Account" to manage access securely.`);
-                        return;
-                      }
-
-                      // Safe Account Recovery Generation (Standard Account)
-                      const secureCode = `GUARDIAN-${Math.floor(100000 + Math.random() * 900000)}`;
-                      setGeneratedOtp(secureCode);
-                      
-                      // Simulating sending email
-                      addToast({
-                        type: 'info',
-                        title: '📧 Simulated Recovery Email',
-                        message: `A secure credentials reset key has been compiled and dispatched to ${emailVal}.`
-                      });
-
-                      setResetStep('otp');
-                      setShowSimulatedEmailNotification(true);
                     }}
                     className="flex-1 py-2 rounded-lg bg-teal-500 hover:bg-teal-400 text-white text-xs font-bold transition-colors cursor-pointer"
                   >
@@ -1136,7 +1136,7 @@ export default function GaaSAccessGate({
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       if (!resetNewPassword) {
                         setResetError('New password is required.');
                         return;
@@ -1150,25 +1150,42 @@ export default function GaaSAccessGate({
                         return;
                       }
 
-                      addToast({
-                        type: 'success',
-                        title: '🔒 Credentials Overridden',
-                        message: `Successfully updated the administrative codecard password for ${resetEmail}. You may now sign in.`
-                      });
+                      try {
+                        const res = await fetch('/api/auth/reset-password', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            token: resetTokenState,
+                            newPassword: resetNewPassword
+                          })
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          setResetError(data.error || 'Failed to update password.');
+                          return;
+                        }
 
-                      // Automatically populate field for ease of use
-                      setPassword(resetNewPassword);
-                      setEmail(resetEmail);
-                      setIsLoginView(true);
+                        addToast({
+                          type: 'success',
+                          title: '🔒 Password Updated',
+                          message: `Successfully updated password for ${resetEmail}. You may now sign in.`
+                        });
 
-                      // Close modal and reset states
-                      setShowResetModal(false);
-                      setResetEmail('');
-                      setResetError('');
-                      setResetOtpCode('');
-                      setResetNewPassword('');
-                      setResetConfirmPassword('');
-                      setShowSimulatedEmailNotification(false);
+                        setPassword(resetNewPassword);
+                        setEmail(resetEmail);
+                        setIsLoginView(true);
+
+                        setShowResetModal(false);
+                        setResetEmail('');
+                        setResetError('');
+                        setResetOtpCode('');
+                        setResetNewPassword('');
+                        setResetConfirmPassword('');
+                        setResetTokenState('');
+                        setShowSimulatedEmailNotification(false);
+                      } catch (err) {
+                        setResetError('Network error resetting password.');
+                      }
                     }}
                     className="flex-1 py-2 rounded-lg bg-teal-500 hover:bg-teal-400 text-white text-xs font-bold transition-colors cursor-pointer"
                   >

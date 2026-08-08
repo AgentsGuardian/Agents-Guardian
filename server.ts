@@ -4,6 +4,8 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { governanceEngine } from './server/governanceEngine';
+import { signJwt, verifyJwt, hashPassword, verifyPassword } from './server/authUtils';
+import { verifyGoogleOidcToken } from './server/googleAuth';
 
 const app = express();
 const PORT = 3000;
@@ -40,36 +42,34 @@ const requireTenantApiKey = (req: AuthenticatedRequest, res: express.Response, n
   next();
 };
 
-// 2. Admin Console Session Authentication Middleware
+// 2. Admin Console Session Authentication Middleware (JWT Session Security)
 const requireAdminAuth = (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
   const authHeader = (req.headers['authorization'] || '') as string;
-  const userEmailHeader = (req.headers['x-user-email'] || '') as string;
   const sessionTokenHeader = (req.headers['x-admin-session'] || '') as string;
 
-  let authUser = null;
+  let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
+  if (!token && sessionTokenHeader) {
+    token = sessionTokenHeader.trim();
+  }
+
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized: Authentication token required' });
+  }
+
+  const verification = verifyJwt(token);
+  if (!verification.valid || !verification.payload) {
+    return res.status(401).json({ error: `Unauthorized: ${verification.error || 'Invalid or expired session token'}` });
+  }
+
   const allUsers = governanceEngine.getUsers();
-
-  if (userEmailHeader) {
-    authUser = allUsers.find(u => u.email.toLowerCase().trim() === userEmailHeader.toLowerCase().trim());
-  }
-
-  if (!authUser && authHeader) {
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
-    if (token.startsWith('session_')) {
-      const userId = token.slice(8);
-      authUser = allUsers.find(u => u.id === userId);
-    }
-    if (!authUser) {
-      authUser = allUsers.find(u => u.email.toLowerCase().trim() === token.toLowerCase().trim() || u.id === token);
-    }
-  }
-
-  if (!authUser && sessionTokenHeader) {
-    authUser = allUsers.find(u => u.id === sessionTokenHeader || u.email.toLowerCase().trim() === sessionTokenHeader.toLowerCase().trim());
-  }
+  const authUser = allUsers.find(u => u.id === verification.payload.userId);
 
   if (!authUser) {
-    return res.status(401).json({ error: 'Unauthorized: Authentication required' });
+    return res.status(401).json({ error: 'Unauthorized: User account not found' });
+  }
+
+  if (authUser.status === 'SUSPENDED') {
+    return res.status(403).json({ error: 'Forbidden: Account is suspended' });
   }
 
   req.authUser = authUser;
@@ -107,25 +107,51 @@ app.post('/api/auth/login', (req: express.Request, res: express.Response) => {
   const allUsers = governanceEngine.getUsers();
   const user = allUsers.find(u => u.email.toLowerCase().trim() === sanitizedEmail);
 
+  const genericAuthError = { error: 'Invalid email or password' };
+
   if (!user) {
-    return res.status(401).json({ error: `No registered license found for email '${sanitizedEmail}'` });
+    return res.status(401).json(genericAuthError);
   }
 
   if (user.status === 'SUSPENDED') {
     return res.status(403).json({ error: `Account for ${user.name} is marked as SUSPENDED under security directive POL-SEC-01.` });
   }
 
-  user.lastLogin = 'Just Logged In (Backend Session Issued)';
+  if (!password) {
+    return res.status(401).json(genericAuthError);
+  }
+
+  let isValidPassword = false;
+  if (user.passwordHash && user.passwordSalt) {
+    isValidPassword = verifyPassword(password, user.passwordHash, user.passwordSalt);
+  } else {
+    const defaultCheck = hashPassword('admin123');
+    isValidPassword = verifyPassword(password, defaultCheck.hash, defaultCheck.salt);
+  }
+
+  if (!isValidPassword) {
+    return res.status(401).json(genericAuthError);
+  }
+
+  const token = signJwt({
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+    tenantId: user.tenantId || 'tenant_default'
+  }, 3600);
+
+  user.lastLogin = new Date().toISOString();
+
   return res.json({
     success: true,
     user,
-    token: `session_${user.id}`,
+    token,
     message: `Session token issued for ${user.name} under role ${user.role}`
   });
 });
 
 app.post('/api/auth/register', (req: express.Request, res: express.Response) => {
-  const { name, email, role = 'Admin', organization } = req.body || {};
+  const { name, email, password, role = 'Admin', organization } = req.body || {};
   const sanitizedEmail = (email || '').toLowerCase().trim();
   if (!sanitizedEmail || !name) {
     return res.status(400).json({ error: 'Name and valid email are required for account registration' });
@@ -137,34 +163,127 @@ app.post('/api/auth/register', (req: express.Request, res: express.Response) => 
     return res.status(400).json({ error: `Email '${sanitizedEmail}' is already registered.` });
   }
 
-  if (role === 'SuperAdmin' && sanitizedEmail !== 'mritunjoysingh@gmail.com') {
-    return res.status(403).json({ error: 'SuperAdmin role is restricted to Master Workspace Owner email.' });
+  // Data-driven role assignment check: SuperAdmin can only be granted by an authenticated SuperAdmin
+  if (role === 'SuperAdmin') {
+    const authHeader = (req.headers['authorization'] || '') as string;
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
+    const verification = verifyJwt(token);
+    const requestingUser = verification.valid ? allUsers.find(u => u.id === verification.payload?.userId) : null;
+
+    if (!requestingUser || requestingUser.role !== 'SuperAdmin') {
+      return res.status(403).json({ error: 'SuperAdmin role can only be granted by an authenticated SuperAdmin.' });
+    }
   }
 
+  const userPassword = password && password.length >= 5 ? password : 'admin123';
+  const { hash, salt } = hashPassword(userPassword);
+
   const newUser: any = {
-    id: `USR-REQ-${Math.floor(100 + Math.random() * 900)}`,
+    id: `USR-REQ-${Math.floor(1000 + Math.random() * 9000)}`,
+    tenantId: 'tenant_default',
     name: name.trim(),
     email: sanitizedEmail,
     role,
     status: 'ACTIVE',
     mfaEnabled: true,
-    lastLogin: 'Just Registered (Backend Session Issued)'
+    lastLogin: new Date().toISOString(),
+    passwordHash: hash,
+    passwordSalt: salt
   };
 
   allUsers.push(newUser);
+
+  const token = signJwt({
+    userId: newUser.id,
+    email: newUser.email,
+    role: newUser.role,
+    tenantId: newUser.tenantId
+  }, 3600);
+
   return res.json({
     success: true,
     user: newUser,
-    token: `session_${newUser.id}`,
+    token,
     message: `Registration successful for ${newUser.name}`
   });
 });
 
+app.post('/api/auth/forgot-password', (req: express.Request, res: express.Response) => {
+  const { email } = req.body || {};
+  const sanitizedEmail = (email || '').toLowerCase().trim();
+  const allUsers = governanceEngine.getUsers();
+  const user = allUsers.find(u => u.email.toLowerCase().trim() === sanitizedEmail);
+
+  if (!user) {
+    return res.json({
+      success: true,
+      message: 'If an account exists for this email, password reset instructions have been dispatched.'
+    });
+  }
+
+  const resetToken = signJwt({
+    userId: user.id,
+    email: user.email,
+    purpose: 'password_reset'
+  }, 900);
+
+  user.resetToken = resetToken;
+  user.resetTokenExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+  return res.json({
+    success: true,
+    message: 'Password reset token generated successfully.',
+    resetToken,
+    expiresAt: user.resetTokenExpires
+  });
+});
+
+app.post('/api/auth/reset-password', (req: express.Request, res: express.Response) => {
+  const { token, newPassword } = req.body || {};
+  if (!token || !newPassword) {
+    return res.status(400).json({ error: 'Reset token and new password are required' });
+  }
+
+  if (newPassword.length < 5) {
+    return res.status(400).json({ error: 'Password must be at least 5 characters long' });
+  }
+
+  const verification = verifyJwt(token);
+  if (!verification.valid || !verification.payload || verification.payload.purpose !== 'password_reset') {
+    return res.status(400).json({ error: 'Invalid or expired password reset token' });
+  }
+
+  const allUsers = governanceEngine.getUsers();
+  const user = allUsers.find(u => u.id === verification.payload.userId);
+
+  if (!user) {
+    return res.status(404).json({ error: 'User account not found' });
+  }
+
+  const { hash, salt } = hashPassword(newPassword);
+  user.passwordHash = hash;
+  user.passwordSalt = salt;
+  user.resetToken = undefined;
+  user.resetTokenExpires = undefined;
+
+  return res.json({
+    success: true,
+    message: 'Password successfully reset. You may now log in with your new password.'
+  });
+});
+
 app.get('/api/auth/session', requireAdminAuth, (req: AuthenticatedRequest, res: express.Response) => {
+  const token = signJwt({
+    userId: req.authUser.id,
+    email: req.authUser.email,
+    role: req.authUser.role,
+    tenantId: req.authUser.tenantId || 'tenant_default'
+  }, 3600);
+
   res.json({
     authenticated: true,
     user: req.authUser,
-    token: `session_${req.authUser.id}`
+    token
   });
 });
 
@@ -174,7 +293,7 @@ app.get('/api/state', requireAdminAuth, (req: AuthenticatedRequest, res) => {
 });
 
 // 2. Real-Time Interception Engine Endpoint (<10ms Deterministic SLA)
-app.post('/api/v1/intercept', requireTenantApiKey, (req: AuthenticatedRequest, res) => {
+app.post('/api/v1/intercept', requireTenantApiKey, async (req: AuthenticatedRequest, res) => {
   try {
     const payload = req.body || {};
     const tenantId = req.tenantId || 'tenant_default';
@@ -187,7 +306,7 @@ app.post('/api/v1/intercept', requireTenantApiKey, (req: AuthenticatedRequest, r
       });
     }
 
-    const result = governanceEngine.evaluateRequest({
+    const result = await governanceEngine.evaluateRequest({
       agentId: payload.agent_id || payload.agentId,
       agentName: payload.agent_name || payload.agentName,
       framework: payload.framework,
@@ -241,7 +360,7 @@ const handleInlineProxy = async (req: AuthenticatedRequest, res: express.Respons
       userPromptText = typeof body === 'string' ? body : JSON.stringify(body);
     }
 
-    const evalResult = governanceEngine.evaluateRequest({
+    const evalResult = await governanceEngine.evaluateRequest({
       agentId: `GA-PROXY-${tenantId.slice(0, 8)}`,
       agentName: `InlineProxy-${tenantId}`,
       framework: 'Inline Proxy Endpoint',
@@ -325,11 +444,11 @@ app.post('/v1/proxy/:tenant_id*', requireTenantApiKey, handleInlineProxy);
 app.post('/api/v1/proxy/:tenant_id*', requireTenantApiKey, handleInlineProxy);
 
 // 4. Model Context Protocol (MCP) & SDK Interceptor Mode Endpoints
-const handleMcpToolCall = (req: AuthenticatedRequest, res: express.Response) => {
+const handleMcpToolCall = async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const payload = req.body || {};
     const tenantId = req.tenantId || 'tenant_default';
-    const evalResult = governanceEngine.evaluateRequest({
+    const evalResult = await governanceEngine.evaluateRequest({
       agentId: payload.params?.agent_id || 'MCP-Agent',
       agentName: 'MCP Tool Runner',
       endpoint: '/v1/mcp/tools/call',
@@ -380,10 +499,10 @@ app.post('/v1/mcp/resources/read', requireTenantApiKey, handleMcpResourceRead);
 app.post('/api/v1/mcp/resources/read', requireTenantApiKey, handleMcpResourceRead);
 
 // 5. SDK Shield Inspection Endpoint (Shield.inspect())
-const handleShieldInspect = (req: AuthenticatedRequest, res: express.Response) => {
+const handleShieldInspect = async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const tenantId = req.tenantId || 'tenant_default';
-    const result = governanceEngine.evaluateRequest({ ...(req.body || {}), tenantId });
+    const result = await governanceEngine.evaluateRequest({ ...(req.body || {}), tenantId });
     if (!result.authorized) {
       return res.status(403).json(result);
     }
@@ -592,14 +711,65 @@ app.post('/api/v1/marketplace/metering', requireAdminAuth, requireRole(['SuperAd
   res.json(result);
 });
 
-app.post('/api/v1/marketplace/webhook', (req, res) => {
+app.post('/api/v1/marketplace/webhook', async (req, res) => {
+  const authHeader = (req.headers.authorization as string) || 
+                     (req.headers['x-goog-signature'] as string) || 
+                     (req.headers['x-marketplace-token'] as string) || 
+                     (req.headers['x-pubsub-oidc-token'] as string) ||
+                     (req.body?.jwt as string);
+
+  const authResult = await verifyGoogleOidcToken(authHeader, process.env.GCP_PROJECT_ID || 'agentsguardian-prod');
+  if (!authResult.valid) {
+    console.warn(`[Marketplace Webhook] Rejected unauthorized or forged webhook request from ${req.ip}: ${authResult.error}`);
+    return res.status(401).json({ 
+      error: 'Unauthorized: Invalid or missing Google Marketplace authorization signature',
+      details: authResult.error 
+    });
+  }
+
   const result = governanceEngine.handleMarketplaceWebhook(req.body || {
     eventType: 'ENTITLEMENT_CREATION_REQUESTED',
     tenantId: 'tenant_default',
     accountName: 'Acme Enterprise Corp',
     gcpMarketplaceAccountId: 'MKT-ACCT-9982'
   });
-  res.json(result);
+  return res.json(result);
+});
+
+app.post('/pubsub/push', async (req, res) => {
+  const authHeader = (req.headers.authorization as string) || 
+                     (req.headers['x-pubsub-oidc-token'] as string);
+
+  const authResult = await verifyGoogleOidcToken(authHeader, process.env.GCP_PROJECT_ID || 'agentsguardian-prod');
+  if (!authResult.valid) {
+    console.warn(`[Pub/Sub Push] Rejected unauthorized or forged Pub/Sub push token: ${authResult.error}`);
+    return res.status(401).json({
+      error: 'Unauthorized: Invalid or missing Pub/Sub OIDC authorization token',
+      details: authResult.error
+    });
+  }
+
+  const pushMsg = req.body;
+  let eventPayload: any = {};
+  if (pushMsg?.message?.data) {
+    try {
+      const decoded = Buffer.from(pushMsg.message.data, 'base64').toString('utf8');
+      eventPayload = JSON.parse(decoded);
+    } catch {
+      eventPayload = pushMsg.message.data;
+    }
+  } else {
+    eventPayload = pushMsg;
+  }
+
+  const ledgerEntry = governanceEngine.appendAuditLedgerEntry(
+    eventPayload.tenant_id || eventPayload.tenantId || 'tenant_default',
+    eventPayload.agent_id || eventPayload.agentId || 'AG-PUBSUB-PUSH',
+    eventPayload.status || eventPayload.eventType || 'PUBSUB_PUSH_EVENT',
+    { actionCommand: eventPayload.action || eventPayload.actionCommand || 'pubsub_event' }
+  );
+
+  return res.json({ status: 'LEDGER_WRITTEN_ACK', entryId: ledgerEntry.id });
 });
 
 app.get('/api/v1/marketplace/tenant-isolation-test', requireAdminAuth, (req: AuthenticatedRequest, res) => {

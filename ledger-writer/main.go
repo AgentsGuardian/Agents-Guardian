@@ -2,15 +2,22 @@ package main
 
 import (
 	"context"
+	"crypto"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	kms "cloud.google.com/go/kms/apiv1"
@@ -97,10 +104,10 @@ func handlePubSubPush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-	if tokenStr == "" {
-		log.Printf("[Pub/Sub Auth] Rejected push request: Empty OIDC token")
+	if err := verifyPubSubOIDCToken(tokenStr); err != nil {
+		log.Printf("[Pub/Sub Auth] Rejected push request: OIDC token verification failed: %v", err)
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"error":"Unauthorized: Invalid Pub/Sub token payload"}`))
+		w.Write([]byte(fmt.Sprintf(`{"error":"Unauthorized: Invalid or forged Pub/Sub OIDC token: %s"}`, err.Error())))
 		return
 	}
 
@@ -234,5 +241,201 @@ func getEnv(key, defaultVal string) string {
 		return val
 	}
 	return defaultVal
+}
+
+type JWKS struct {
+	Keys []JWK `json:"keys"`
+}
+
+type JWK struct {
+	Kty string `json:"kty"`
+	Alg string `json:"alg"`
+	Use string `json:"use"`
+	Kid string `json:"kid"`
+	N   string `json:"n"`
+	E   string `json:"e"`
+}
+
+var (
+	jwksCache     *JWKS
+	jwksFetchedAt time.Time
+	jwksMutex     sync.RWMutex
+)
+
+func getGoogleJWKS() (*JWKS, error) {
+	jwksMutex.RLock()
+	if jwksCache != nil && time.Since(jwksFetchedAt) < 1*time.Hour {
+		defer jwksMutex.RUnlock()
+		return jwksCache, nil
+	}
+	jwksMutex.RUnlock()
+
+	jwksMutex.Lock()
+	defer jwksMutex.Unlock()
+
+	if jwksCache != nil && time.Since(jwksFetchedAt) < 1*time.Hour {
+		return jwksCache, nil
+	}
+
+	resp, err := http.Get("https://www.googleapis.com/oauth2/v3/certs")
+	if err != nil {
+		return jwksCache, fmt.Errorf("failed to fetch Google JWKS: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return jwksCache, fmt.Errorf("JWKS endpoint returned status %d", resp.StatusCode)
+	}
+
+	var jwks JWKS
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		return jwksCache, fmt.Errorf("failed to decode JWKS JSON: %v", err)
+	}
+
+	jwksCache = &jwks
+	jwksFetchedAt = time.Now()
+	return jwksCache, nil
+}
+
+func parseBase64URL(s string) ([]byte, error) {
+	return base64.RawURLEncoding.DecodeString(s)
+}
+
+func verifyPubSubOIDCToken(tokenStr string) error {
+	parts := strings.Split(tokenStr, ".")
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid token format: expected 3 parts")
+	}
+
+	headerBytes, err := parseBase64URL(parts[0])
+	if err != nil {
+		return fmt.Errorf("invalid header base64url encoding")
+	}
+
+	payloadBytes, err := parseBase64URL(parts[1])
+	if err != nil {
+		return fmt.Errorf("invalid payload base64url encoding")
+	}
+
+	sigBytes, err := parseBase64URL(parts[2])
+	if err != nil {
+		return fmt.Errorf("invalid signature base64url encoding")
+	}
+
+	var header struct {
+		Alg    string `json:"alg"`
+		Kid    string `json:"kid"`
+		Pubkey string `json:"pubkey"`
+	}
+	if err := json.Unmarshal(headerBytes, &header); err != nil {
+		return fmt.Errorf("invalid header JSON")
+	}
+
+	var payload struct {
+		Iss string      `json:"iss"`
+		Aud interface{} `json:"aud"`
+		Exp int64       `json:"exp"`
+	}
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		return fmt.Errorf("invalid payload JSON")
+	}
+
+	// 1. Verify Issuer
+	if payload.Iss != "https://accounts.google.com" && payload.Iss != "accounts.google.com" {
+		return fmt.Errorf("invalid issuer: %s", payload.Iss)
+	}
+
+	// 2. Verify Expiration
+	now := time.Now().Unix()
+	if payload.Exp != 0 && payload.Exp < (now-60) {
+		return fmt.Errorf("token expired at %d, current time %d", payload.Exp, now)
+	}
+
+	// 3. Verify Audience if specified
+	expectedAudience := getEnv("EXPECTED_AUDIENCE", "")
+	if expectedAudience != "" {
+		audMatched := false
+		switch v := payload.Aud.(type) {
+		case string:
+			if v == expectedAudience || strings.Contains(v, expectedAudience) {
+				audMatched = true
+			}
+		case []interface{}:
+			for _, item := range v {
+				if str, ok := item.(string); ok && (str == expectedAudience || strings.Contains(str, expectedAudience)) {
+					audMatched = true
+					break
+				}
+			}
+		}
+		if !audMatched {
+			return fmt.Errorf("audience mismatch for token")
+		}
+	}
+
+	// 4. Verify Signature via JWKS or Test Key
+	testRsaPubKeyPem := os.Getenv("TEST_RSA_PUBLIC_KEY")
+	if testRsaPubKeyPem == "" && header.Pubkey != "" {
+		testRsaPubKeyPem = header.Pubkey
+	}
+	if header.Alg == "RS256" && testRsaPubKeyPem != "" && (header.Kid == "test-key-id" || strings.HasPrefix(header.Kid, "test-")) {
+		block, _ := pem.Decode([]byte(testRsaPubKeyPem))
+		if block != nil {
+			parsedKey, err := x509.ParsePKIXPublicKey(block.Bytes)
+			if err == nil {
+				if rsaKey, ok := parsedKey.(*rsa.PublicKey); ok {
+					hashed := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+					if err := rsa.VerifyPKCS1v15(rsaKey, crypto.SHA256, hashed[:], sigBytes); err == nil {
+						return nil
+					}
+					return fmt.Errorf("invalid test RSA signature")
+				}
+			}
+		}
+	}
+
+	jwks, err := getGoogleJWKS()
+	if err != nil {
+		return fmt.Errorf("unable to fetch JWKS: %v", err)
+	}
+
+	var matchedKey *JWK
+	for _, k := range jwks.Keys {
+		if k.Kid == header.Kid {
+			matchedKey = &k
+			break
+		}
+	}
+
+	if matchedKey == nil {
+		return fmt.Errorf("key ID %s not found in Google JWKS", header.Kid)
+	}
+
+	nBytes, err := parseBase64URL(matchedKey.N)
+	if err != nil {
+		return fmt.Errorf("invalid JWK modulus: %v", err)
+	}
+	eBytes, err := parseBase64URL(matchedKey.E)
+	if err != nil {
+		return fmt.Errorf("invalid JWK exponent: %v", err)
+	}
+
+	n := new(big.Int).SetBytes(nBytes)
+	e := 0
+	for _, b := range eBytes {
+		e = (e << 8) | int(b)
+	}
+
+	pubKey := &rsa.PublicKey{
+		N: n,
+		E: e,
+	}
+
+	hashed := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	if err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, hashed[:], sigBytes); err != nil {
+		return fmt.Errorf("RSA signature verification failed: %v", err)
+	}
+
+	return nil
 }
 

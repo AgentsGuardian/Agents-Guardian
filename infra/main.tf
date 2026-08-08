@@ -34,15 +34,13 @@ variable "vpc_network_id" {
 variable "db_password" {
   type        = string
   sensitive   = true
-  default     = "runtime_secure_password_gaas_v12"
-  description = "PostgreSQL Application User Password"
+  description = "PostgreSQL Application User Password (MUST be supplied via .tfvars or CI secret)"
 }
 
 variable "jwt_secret" {
   type        = string
   sensitive   = true
-  default     = "gaas_sovereign_jwt_secret_token_2026_prod"
-  description = "JWT Signing Secret for Authentication"
+  description = "JWT Signing Secret for Authentication (MUST be supplied via .tfvars or CI secret)"
 }
 
 provider "google" {

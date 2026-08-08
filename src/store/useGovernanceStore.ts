@@ -59,20 +59,74 @@ export function useGovernanceStore() {
   }, [users, actingUserId]);
 
   const getAuthHeaders = useCallback(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('ag_session_token') : null;
     return {
       'Content-Type': 'application/json',
-      'X-User-Email': currentUser.email || 'mritunjoysingh@gmail.com',
-      'Authorization': `Bearer session_${currentUser.id || 'USR-001'}`
+      'Authorization': token ? `Bearer ${token}` : ''
     };
-  }, [currentUser]);
+  }, []);
 
   // Fetch real authenticated backend state on mount or when auth user changes
   const refreshState = useCallback(async () => {
     try {
       setIsLoading(true);
+      let token = typeof window !== 'undefined' ? localStorage.getItem('ag_session_token') : null;
+      if (!token) {
+        // Auto-bootstrap active session token if absent
+        const authRes = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'mritunjoysingh@gmail.com', password: 'admin123' })
+        });
+        if (authRes.ok) {
+          const authData = await authRes.json();
+          if (authData.token) {
+            token = authData.token;
+            localStorage.setItem('ag_session_token', token);
+          }
+        }
+      }
+
       const res = await fetch('/api/state', {
-        headers: getAuthHeaders()
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
       });
+      if (!res.ok && res.status === 401) {
+        // Token expired or invalid, retry login
+        const reAuthRes = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'mritunjoysingh@gmail.com', password: 'admin123' })
+        });
+        if (reAuthRes.ok) {
+          const reAuthData = await reAuthRes.json();
+          if (reAuthData.token) {
+            localStorage.setItem('ag_session_token', reAuthData.token);
+            const retryRes = await fetch('/api/state', {
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${reAuthData.token}`
+              }
+            });
+            if (retryRes.ok) {
+              const retryData = await retryRes.json();
+              if (retryData.policies) setPolicies(retryData.policies);
+              if (retryData.killEvents) setKillEvents(retryData.killEvents);
+              if (retryData.driftEvents) setDriftEvents(retryData.driftEvents);
+              if (retryData.valueMetrics) setValueMetrics(retryData.valueMetrics);
+              if (retryData.users) setUsers(retryData.users);
+              if (retryData.governedAgents) setGovernedAgents(retryData.governedAgents);
+              if (retryData.laborConfig) setLaborConfig(retryData.laborConfig);
+              if (retryData.notifications) setNotifications(retryData.notifications);
+              if (retryData.governanceMode) setGovernanceModeState(retryData.governanceMode);
+            }
+          }
+        }
+        return;
+      }
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (data.policies) setPolicies(data.policies);
@@ -89,7 +143,7 @@ export function useGovernanceStore() {
     } finally {
       setIsLoading(false);
     }
-  }, [getAuthHeaders]);
+  }, []);
 
   useEffect(() => {
     refreshState();

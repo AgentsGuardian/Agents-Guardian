@@ -133,6 +133,10 @@ export interface AdminUser {
   status: 'ACTIVE' | 'SUSPENDED';
   mfaEnabled: boolean;
   lastLogin: string;
+  passwordHash?: string;
+  passwordSalt?: string;
+  resetToken?: string;
+  resetTokenExpires?: string;
 }
 
 export interface RolePermission {
