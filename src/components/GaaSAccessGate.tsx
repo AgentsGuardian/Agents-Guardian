@@ -82,7 +82,7 @@ export default function GaaSAccessGate({
       if (!email.trim()) errors.email = 'Email address is required.';
       else if (!email.includes('@')) errors.email = 'Please provide a valid email format (e.g. name@domain.com).';
       if (!password) errors.password = 'A secure entry password is required.';
-      else if (password.length < 5) errors.password = 'Security password must contain at least 5 alphanumeric keys.';
+      else if (password.length < 12) errors.password = 'Security password must contain at least 12 characters.';
       if (!acceptTerms) errors.accept = 'You must accept compliance terms of the safety system.';
     }
     setFormErrors(errors);
@@ -1141,8 +1141,8 @@ export default function GaaSAccessGate({
                         setResetError('New password is required.');
                         return;
                       }
-                      if (resetNewPassword.length < 5) {
-                        setResetError('Password must contain at least 5 characters.');
+                      if (resetNewPassword.length < 12) {
+                        setResetError('Password must contain at least 12 characters.');
                         return;
                       }
                       if (resetNewPassword !== resetConfirmPassword) {

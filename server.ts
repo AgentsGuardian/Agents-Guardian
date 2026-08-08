@@ -189,8 +189,8 @@ app.post('/api/auth/register', (req: express.Request, res: express.Response) => 
     return res.status(400).json({ error: 'Name and valid email are required for account registration' });
   }
 
-  if (!password || password.length < 5) {
-    return res.status(400).json({ error: 'Password is required and must be at least 5 characters long' });
+  if (!password || password.length < 12) {
+    return res.status(400).json({ error: 'Password is required and must be at least 12 characters long' });
   }
 
   const allUsers = governanceEngine.getUsers();
@@ -244,10 +244,34 @@ app.post('/api/auth/register', (req: express.Request, res: express.Response) => 
   });
 });
 
+// Rate Limiter for Password Reset Requests (In-memory token bucket per IP / email)
+interface RateLimitRecord {
+  count: number;
+  resetAt: number;
+}
+const forgotPasswordLimits = new Map<string, RateLimitRecord>();
+
+function isForgotRateLimited(key: string, maxRequests = 5, windowMs = 60 * 60 * 1000): boolean {
+  const now = Date.now();
+  const record = forgotPasswordLimits.get(key);
+
+  if (!record || now > record.resetAt) {
+    forgotPasswordLimits.set(key, { count: 1, resetAt: now + windowMs });
+    return false;
+  }
+
+  if (record.count >= maxRequests) {
+    return true;
+  }
+
+  record.count += 1;
+  return false;
+}
+
 app.post('/api/auth/change-password', requireAdminAuth, (req: AuthenticatedRequest, res: express.Response) => {
   const { oldPassword, newPassword } = req.body || {};
-  if (!newPassword || newPassword.length < 5) {
-    return res.status(400).json({ error: 'New password must be at least 5 characters long' });
+  if (!newPassword || newPassword.length < 12) {
+    return res.status(400).json({ error: 'New password must be at least 12 characters long' });
   }
 
   const user = req.authUser;
@@ -272,14 +296,23 @@ app.post('/api/auth/change-password', requireAdminAuth, (req: AuthenticatedReque
 app.post('/api/auth/forgot-password', (req: express.Request, res: express.Response) => {
   const { email } = req.body || {};
   const sanitizedEmail = (email || '').toLowerCase().trim();
+  const clientIp = req.ip || req.socket?.remoteAddress || 'unknown-ip';
+
+  // Enforce rate limit (per IP and per email)
+  if ((sanitizedEmail && isForgotRateLimited(`email:${sanitizedEmail}`, 3)) || isForgotRateLimited(`ip:${clientIp}`, 30)) {
+    return res.status(429).json({ error: 'Too many password reset requests. Please try again later.' });
+  }
+
+  const genericResponse = {
+    success: true,
+    message: 'If an account exists for this email, password reset instructions have been dispatched.'
+  };
+
   const allUsers = governanceEngine.getUsers();
   const user = allUsers.find(u => u.email.toLowerCase().trim() === sanitizedEmail);
 
   if (!user) {
-    return res.json({
-      success: true,
-      message: 'If an account exists for this email, password reset instructions have been dispatched.'
-    });
+    return res.json(genericResponse);
   }
 
   const resetToken = signJwt({
@@ -291,12 +324,10 @@ app.post('/api/auth/forgot-password', (req: express.Request, res: express.Respon
   user.resetToken = resetToken;
   user.resetTokenExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
-  return res.json({
-    success: true,
-    message: 'Password reset token generated successfully.',
-    resetToken,
-    expiresAt: user.resetTokenExpires
-  });
+  // Out-of-Band Delivery: Token logged server-side only. Never return token in HTTP response.
+  console.log(`[OUT_OF_BAND_DISPATCH_PLACEHOLDER] Out-of-Band Password Reset Dispatch for ${user.email}: Token=${resetToken}. Note: Token logged server-side for development/testing. Replace with real transactional email service in production.`);
+
+  return res.json(genericResponse);
 });
 
 app.post('/api/auth/reset-password', (req: express.Request, res: express.Response) => {
@@ -305,8 +336,8 @@ app.post('/api/auth/reset-password', (req: express.Request, res: express.Respons
     return res.status(400).json({ error: 'Reset token and new password are required' });
   }
 
-  if (newPassword.length < 5) {
-    return res.status(400).json({ error: 'Password must be at least 5 characters long' });
+  if (newPassword.length < 12) {
+    return res.status(400).json({ error: 'Password must be at least 12 characters long' });
   }
 
   const verification = verifyJwt(token);
