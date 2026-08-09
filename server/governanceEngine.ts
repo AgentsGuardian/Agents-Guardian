@@ -174,13 +174,7 @@ const INITIAL_GLOBAL_SETTINGS: GlobalAdminSettings = {
 };
 
 // Registered Valid Tenant API Keys (Map API Key -> Tenant Identity)
-const TENANT_API_KEYS: Record<string, string> = {
-  'ag_prod_live_key': 'tenant_default',
-  'ag_prod_live_8f931a2c': 'tenant_default',
-  'ag_live_demo': 'tenant_default',
-  'gaas_tenant_token_123': 'tenant_default',
-  'KG-GAAS-PROD-KEY': 'tenant_default'
-};
+const TENANT_API_KEYS: Record<string, string> = {};
 
 export function classifySemanticActionType(payloadStr: string, actionStr: string): 'shell.exec' | 'db.write' | 'file.delete' | 'standard' {
   const combined = `${actionStr || ''} ${payloadStr || ''}`.toLowerCase();
@@ -305,17 +299,7 @@ class GovernanceEngineStore {
   }
 
   private initDefaultKeyHashes() {
-    const defaultKeys = [
-      'ag_prod_live_key',
-      'ag_prod_live_8f931a2c',
-      'ag_live_demo',
-      'gaas_tenant_token_123',
-      'KG-GAAS-PROD-KEY'
-    ];
-    defaultKeys.forEach(k => {
-      const hash = hashTenantApiKey(k);
-      this.tenantKeyHashes.set(hash, 'tenant_default');
-    });
+    // No hardcoded default keys. Real keys must be provisioned.
   }
 
   private initDefaultTenants() {
@@ -325,7 +309,7 @@ class GovernanceEngineStore {
       planTier: 'ENTERPRISE',
       gcpMarketplaceAccountId: 'MKT-ACCT-9982',
       billingStatus: 'ACTIVE',
-      apiKey: 'ag_prod_live_key',
+      apiKey: '',
       budgetCap: 500.0,
       currentSpend: 0.0,
       createdAt: new Date().toISOString(),

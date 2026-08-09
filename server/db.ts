@@ -284,23 +284,12 @@ class StorageEngine {
         planTier: 'ENTERPRISE',
         gcpMarketplaceAccountId: 'acc_master_default_01',
         billingStatus: 'ACTIVE',
-        apiKey: 'ag_prod_live_key',
+        apiKey: '',
         budgetCap: 500.0,
         currentSpend: 0.0,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
-
-      const defaultKeys = [
-        'ag_prod_live_key',
-        'ag_prod_live_8f931a2c',
-        'ag_live_demo',
-        'gaas_tenant_token_123',
-        'KG-GAAS-PROD-KEY'
-      ];
-      for (const k of defaultKeys) {
-        await this.registerApiKey(k, 'tenant_default');
-      }
     }
   }
 

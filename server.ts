@@ -252,6 +252,7 @@ interface RateLimitRecord {
   resetAt: number;
 }
 const forgotPasswordLimits = new Map<string, RateLimitRecord>();
+const validateKeyLimits = new Map<string, RateLimitRecord>();
 
 function isForgotRateLimited(key: string, maxRequests = 5, windowMs = 60 * 60 * 1000): boolean {
   const now = Date.now();
@@ -259,6 +260,23 @@ function isForgotRateLimited(key: string, maxRequests = 5, windowMs = 60 * 60 * 
 
   if (!record || now > record.resetAt) {
     forgotPasswordLimits.set(key, { count: 1, resetAt: now + windowMs });
+    return false;
+  }
+
+  if (record.count >= maxRequests) {
+    return true;
+  }
+
+  record.count += 1;
+  return false;
+}
+
+function isValidateKeyRateLimited(key: string, maxRequests = 60, windowMs = 60 * 1000): boolean {
+  const now = Date.now();
+  const record = validateKeyLimits.get(key);
+
+  if (!record || now > record.resetAt) {
+    validateKeyLimits.set(key, { count: 1, resetAt: now + windowMs });
     return false;
   }
 
@@ -918,13 +936,18 @@ app.post('/api/v1/marketplace/tenants', requireAdminAuth, requireRole(['SuperAdm
 });
 
 app.post('/api/v1/tenant-keys/validate', async (req: express.Request, res: express.Response) => {
-  const apiKey = (req.body?.apiKey || req.body?.api_key) as string;
-  const validation = governanceEngine.validateTenantApiKey(apiKey);
-  return res.json(validation);
-});
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown_caller';
+  if (isValidateKeyRateLimited(`ip:${clientIp}`, 60, 60 * 1000)) {
+    return res.status(429).json({ error: 'Too many key validation requests. Rate limit exceeded.' });
+  }
 
-app.get('/api/v1/tenant-keys/validate', async (req: express.Request, res: express.Response) => {
-  const apiKey = (req.query.apiKey || req.query.api_key || req.query.key) as string;
+  const internalSecret = process.env.INTERNAL_SERVICE_SECRET || 'ag_internal_svc_sec_8f93a2b1c4e7';
+  const providedSecret = req.headers['x-internal-service-key'];
+  if (!providedSecret || providedSecret !== internalSecret) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid or missing internal service credential' });
+  }
+
+  const apiKey = (req.body?.apiKey || req.body?.api_key) as string;
   const validation = governanceEngine.validateTenantApiKey(apiKey);
   return res.json(validation);
 });
@@ -1633,6 +1656,11 @@ Return ONLY a valid raw JSON array containing exactly these 3 objects. Do not in
     console.error('Error in /api/parse-law-pdf:', error);
     return res.status(500).json({ error: 'Internal Server Error' });
   }
+});
+
+// API 404 Handler for unmatched /api routes
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
 });
 
 async function startServer() {

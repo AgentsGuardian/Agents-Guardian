@@ -159,27 +159,14 @@ func validateApiKey(ctx context.Context, apiKey string) (string, bool) {
 		}
 	}
 
-	// 2. Default System Known Keys Map
-	defaultKeys := map[string]string{
-		"ag_prod_live_key":      "tenant_default",
-		"ag_prod_live_8f931a2c": "tenant_default",
-		"ag_live_demo":          "tenant_default",
-		"gaas_tenant_token_123": "tenant_default",
-		"KG-GAAS-PROD-KEY":     "tenant_default",
-	}
-	if tenantID, exists := defaultKeys[cleanKey]; exists {
-		if redisClient != nil {
-			redisClient.Set(ctx, fmt.Sprintf("tenant_key:%s", keyHash), tenantID, 5*time.Minute)
-		}
-		return tenantID, true
-	}
-
-	// 3. Query Node / Admin Service Validation Endpoint
+	// 2. Query Node / Admin Service Validation Endpoint
 	nodeServiceURL := getEnv("NODE_SERVICE_URL", "http://localhost:3000")
+	internalSecret := getEnv("INTERNAL_SERVICE_SECRET", "ag_internal_svc_sec_8f93a2b1c4e7")
 	valReqBody, _ := json.Marshal(map[string]string{"apiKey": cleanKey})
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", nodeServiceURL+"/api/v1/tenant-keys/validate", strings.NewReader(string(valReqBody)))
 	if err == nil {
 		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("X-Internal-Service-Key", internalSecret)
 		client := &http.Client{Timeout: 2 * time.Second}
 		resp, err := client.Do(httpReq)
 		if err == nil {

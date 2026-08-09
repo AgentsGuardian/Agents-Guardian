@@ -216,6 +216,76 @@ async function runPhaseGTests() {
   assert.strictEqual(spoofData.code, 'TENANT_SPOOFING_BLOCKED', 'Error code indicates TENANT_SPOOFING_BLOCKED');
   console.log('✔ Anti-spoofing guard successfully blocked client-supplied tenant_id mismatch.');
 
+
+  // 6. TEST HARDCODED DEFAULT KEYS REJECTION
+  console.log('\n--- TEST 6: Hardcoded Default Keys Rejection (401) ---');
+  const hardcodedKeys = [
+    'ag_prod_live_key',
+    'ag_prod_live_8f931a2c',
+    'ag_live_demo',
+    'gaas_tenant_token_123',
+    'KG-GAAS-PROD-KEY'
+  ];
+
+  for (const key of hardcodedKeys) {
+    const res = await fetch(`${baseUrl}/api/v1/intercept`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Guardian-Key': key
+      },
+      body: JSON.stringify({ action: 'shell.exec', agent_id: 'AGENT-TEST' })
+    });
+    assert.strictEqual(res.status, 401, `Hardcoded key '${key}' must be rejected with 401`);
+  }
+  console.log('✔ All 5 previously hardcoded default keys rejected with HTTP 401.');
+
+
+  // 7. TEST /api/v1/tenant-keys/validate INTERNAL CREDENTIAL ENFORCEMENT
+  console.log('\n--- TEST 7: Lock Down /api/v1/tenant-keys/validate to Internal Service Credential ---');
+  // Attempt POST without internal credential
+  const unauthValRes = await fetch(`${baseUrl}/api/v1/tenant-keys/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey: tenantAKey })
+  });
+  assert.strictEqual(unauthValRes.status, 401, 'Calling /api/v1/tenant-keys/validate without internal credential returns 401');
+
+  // Attempt POST with invalid internal credential
+  const badSecretValRes = await fetch(`${baseUrl}/api/v1/tenant-keys/validate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-Service-Key': 'invalid_secret_key'
+    },
+    body: JSON.stringify({ apiKey: tenantAKey })
+  });
+  assert.strictEqual(badSecretValRes.status, 401, 'Calling /api/v1/tenant-keys/validate with wrong internal credential returns 401');
+
+  // Call POST with valid internal credential
+  const validSecretValRes = await fetch(`${baseUrl}/api/v1/tenant-keys/validate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-Service-Key': process.env.INTERNAL_SERVICE_SECRET || 'ag_internal_svc_sec_8f93a2b1c4e7'
+    },
+    body: JSON.stringify({ apiKey: tenantAKey })
+  });
+  assert.strictEqual(validSecretValRes.status, 200, 'Calling /api/v1/tenant-keys/validate with correct internal credential returns 200');
+  const validValData = await validSecretValRes.json();
+  assert.strictEqual(validValData.valid, true, 'Internal key validation returns valid: true');
+  assert.strictEqual(validValData.tenantId, tenantAId, 'Internal key validation resolves tenantId correctly');
+  console.log('✔ Internal service key endpoint correctly enforced and validated.');
+
+
+  // 8. TEST GET /api/v1/tenant-keys/validate NON-EXISTENCE (404)
+  console.log('\n--- TEST 8: GET /api/v1/tenant-keys/validate Non-Existence (404) ---');
+  const getValRes = await fetch(`${baseUrl}/api/v1/tenant-keys/validate?apiKey=${tenantAKey}`, {
+    method: 'GET'
+  });
+  assert.strictEqual(getValRes.status, 404, 'GET /api/v1/tenant-keys/validate returns 404 Not Found');
+  console.log('✔ GET /api/v1/tenant-keys/validate removed and returns HTTP 404.');
+
   console.log('\n====================================================');
   console.log('   ALL PHASE G SECURITY INTEGRATION TESTS PASSED!   ');
   console.log('====================================================');
