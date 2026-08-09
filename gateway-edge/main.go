@@ -68,6 +68,11 @@ var (
 func main() {
 	ctx := context.Background()
 
+	// Enforce required INTERNAL_SERVICE_SECRET
+	if strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_SECRET")) == "" {
+		log.Fatalf("FATAL: INTERNAL_SERVICE_SECRET environment variable is required and must be set")
+	}
+
 	// Initialize Redis Connection (Tier 1 Cache)
 	redisHost := getEnv("REDIS_HOST", "localhost:6379")
 	redisClient = redis.NewClient(&redis.Options{
@@ -161,7 +166,7 @@ func validateApiKey(ctx context.Context, apiKey string) (string, bool) {
 
 	// 2. Query Node / Admin Service Validation Endpoint
 	nodeServiceURL := getEnv("NODE_SERVICE_URL", "http://localhost:3000")
-	internalSecret := getEnv("INTERNAL_SERVICE_SECRET", "ag_internal_svc_sec_8f93a2b1c4e7")
+	internalSecret := os.Getenv("INTERNAL_SERVICE_SECRET")
 	valReqBody, _ := json.Marshal(map[string]string{"apiKey": cleanKey})
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", nodeServiceURL+"/api/v1/tenant-keys/validate", strings.NewReader(string(valReqBody)))
 	if err == nil {

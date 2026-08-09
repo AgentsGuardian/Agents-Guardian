@@ -43,6 +43,12 @@ variable "jwt_secret" {
   description = "JWT Signing Secret for Authentication (MUST be supplied via .tfvars or CI secret)"
 }
 
+variable "internal_service_secret" {
+  type        = string
+  sensitive   = true
+  description = "Internal Service Credential for Gateway-to-BFF Communication (MUST be supplied via .tfvars or CI secret)"
+}
+
 provider "google" {
   project = var.gcp_project_id
   region  = var.gcp_region
@@ -71,6 +77,18 @@ resource "google_secret_manager_secret" "jwt_secret" {
 resource "google_secret_manager_secret_version" "jwt_secret_val" {
   secret      = google_secret_manager_secret.jwt_secret.id
   secret_data = var.jwt_secret
+}
+
+resource "google_secret_manager_secret" "internal_service_secret" {
+  secret_id = "agentsguardian-internal-service-secret"
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "internal_service_secret_val" {
+  secret      = google_secret_manager_secret.internal_service_secret.id
+  secret_data = var.internal_service_secret
 }
 
 resource "google_secret_manager_secret" "gemini_api_key" {
@@ -260,6 +278,15 @@ resource "google_cloud_run_v2_service" "gateway_edge" {
         }
       }
       env {
+        name = "INTERNAL_SERVICE_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.internal_service_secret.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
         name = "GEMINI_API_KEY"
         value_source {
           secret_key_ref {
@@ -304,6 +331,15 @@ resource "google_cloud_run_v2_service" "ledger_writer" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.database_password.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "INTERNAL_SERVICE_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.internal_service_secret.secret_id
             version = "latest"
           }
         }

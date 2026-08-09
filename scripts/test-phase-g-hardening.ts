@@ -4,6 +4,7 @@
  * Anti-Spoofing Isolation, and Unregistered Key Rejection (401).
  */
 
+import 'dotenv/config';
 import assert from 'assert';
 import { signJwt } from '../server/authUtils';
 
@@ -243,6 +244,9 @@ async function runPhaseGTests() {
 
   // 7. TEST /api/v1/tenant-keys/validate INTERNAL CREDENTIAL ENFORCEMENT
   console.log('\n--- TEST 7: Lock Down /api/v1/tenant-keys/validate to Internal Service Credential ---');
+  const configuredInternalSecret = process.env.INTERNAL_SERVICE_SECRET;
+  assert.ok(configuredInternalSecret, 'INTERNAL_SERVICE_SECRET environment variable must be set in test environment');
+
   // Attempt POST without internal credential
   const unauthValRes = await fetch(`${baseUrl}/api/v1/tenant-keys/validate`, {
     method: 'POST',
@@ -262,12 +266,24 @@ async function runPhaseGTests() {
   });
   assert.strictEqual(badSecretValRes.status, 401, 'Calling /api/v1/tenant-keys/validate with wrong internal credential returns 401');
 
-  // Call POST with valid internal credential
+  // Attempt POST with OLD hardcoded secret string (must be rejected)
+  const oldSecretValRes = await fetch(`${baseUrl}/api/v1/tenant-keys/validate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-Service-Key': 'ag_internal_svc_sec_8f93a2b1c4e7'
+    },
+    body: JSON.stringify({ apiKey: tenantAKey })
+  });
+  assert.strictEqual(oldSecretValRes.status, 401, 'Calling /api/v1/tenant-keys/validate with old hardcoded secret returns 401');
+  console.log('✔ Old hardcoded secret string strictly rejected with HTTP 401.');
+
+  // Call POST with valid configured internal credential
   const validSecretValRes = await fetch(`${baseUrl}/api/v1/tenant-keys/validate`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Internal-Service-Key': process.env.INTERNAL_SERVICE_SECRET || 'ag_internal_svc_sec_8f93a2b1c4e7'
+      'X-Internal-Service-Key': configuredInternalSecret
     },
     body: JSON.stringify({ apiKey: tenantAKey })
   });

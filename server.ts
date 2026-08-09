@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import crypto from 'crypto';
 import path from 'path';
@@ -8,6 +9,12 @@ import { governanceEngine } from './server/governanceEngine';
 import { storageEngine } from './server/db';
 import { signJwt, verifyJwt, hashPassword, verifyPassword } from './server/authUtils';
 import { verifyGoogleOidcToken } from './server/googleAuth';
+
+// Startup Guard: Enforce required INTERNAL_SERVICE_SECRET
+if (!process.env.INTERNAL_SERVICE_SECRET || !process.env.INTERNAL_SERVICE_SECRET.trim()) {
+  console.error('FATAL: INTERNAL_SERVICE_SECRET environment variable is required and must be set.');
+  process.exit(1);
+}
 
 const app = express();
 const PORT = 3000;
@@ -941,9 +948,9 @@ app.post('/api/v1/tenant-keys/validate', async (req: express.Request, res: expre
     return res.status(429).json({ error: 'Too many key validation requests. Rate limit exceeded.' });
   }
 
-  const internalSecret = process.env.INTERNAL_SERVICE_SECRET || 'ag_internal_svc_sec_8f93a2b1c4e7';
+  const internalSecret = process.env.INTERNAL_SERVICE_SECRET;
   const providedSecret = req.headers['x-internal-service-key'];
-  if (!providedSecret || providedSecret !== internalSecret) {
+  if (!internalSecret || !providedSecret || providedSecret !== internalSecret) {
     return res.status(401).json({ error: 'Unauthorized: Invalid or missing internal service credential' });
   }
 
