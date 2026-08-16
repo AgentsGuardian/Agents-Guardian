@@ -469,7 +469,13 @@ app.post(['/api/v1/intercept', '/v1/intercept', '/intercept'], requireTenantApiK
     return res.status(gwResult.status).json(gwResult.data);
   } catch (error) {
     console.error('Error in /api/v1/intercept proxy:', error);
-    return res.status(500).json({ error: 'Interception Gateway Proxy Failure' });
+    return res.status(503).json({
+      status: 'HALTED',
+      authorized: false,
+      error: 'Gateway Edge Interception Service Unavailable',
+      code: 'GATEWAY_EDGE_OFFLINE',
+      reason: 'The canonical gateway-edge governance engine is unreachable.'
+    });
   }
 });
 
@@ -515,7 +521,19 @@ const handleInlineProxy = async (req: AuthenticatedRequest, res: express.Respons
       prompt_text: userPromptText
     };
 
+    // Forward authorization decision directly to canonical Go gateway-edge service
     const gwResult = await forwardToGatewayEdge(gatewayPayload, req.headers as Record<string, string>);
+
+    if (gwResult.status === 503 || gwResult.data.code === 'GATEWAY_EDGE_OFFLINE') {
+      return res.status(503).json({
+        error: {
+          message: '[AgentsGuardian Proxy] Gateway Edge Interception Service Unavailable',
+          type: 'gateway_offline',
+          code: 'GATEWAY_EDGE_OFFLINE',
+          reason: 'The canonical gateway-edge governance engine is unreachable.'
+        }
+      });
+    }
 
     if (gwResult.status !== 200 || !gwResult.data.authorized) {
       return res.status(gwResult.status === 200 ? 403 : gwResult.status).json({
@@ -530,7 +548,9 @@ const handleInlineProxy = async (req: AuthenticatedRequest, res: express.Respons
       });
     }
 
-    // Call upstream LLM API (Gemini via @google/genai) when authorized
+    // --- Inline Proxy Upstream LLM Execution ---
+    // Note: The authorization and policy evaluation decision was strictly evaluated by gateway-edge above.
+    // When authorized, we proceed with upstream model execution and attach verified AgentsGuardian audit headers.
     let upstreamContent = '';
     const ai = getAiClient();
     if (ai) {
@@ -580,7 +600,13 @@ const handleInlineProxy = async (req: AuthenticatedRequest, res: express.Respons
     });
   } catch (error) {
     console.error('Error in Inline Proxy Handler:', error);
-    return res.status(500).json({ error: { message: 'Inline Proxy Engine Error' } });
+    return res.status(503).json({
+      error: {
+        message: 'Inline Proxy Service Unavailable',
+        code: 'GATEWAY_EDGE_OFFLINE',
+        reason: 'The canonical gateway-edge governance engine is unreachable.'
+      }
+    });
   }
 };
 
@@ -608,6 +634,18 @@ const handleMcpToolCall = async (req: AuthenticatedRequest, res: express.Respons
 
     const gwResult = await forwardToGatewayEdge(gatewayPayload, req.headers as Record<string, string>);
 
+    if (gwResult.status === 503 || gwResult.data.code === 'GATEWAY_EDGE_OFFLINE') {
+      return res.status(503).json({
+        jsonrpc: '2.0',
+        error: {
+          code: -32603,
+          message: 'Gateway Edge Interception Service Unavailable: canonical governance engine is unreachable.',
+          data: { code: 'GATEWAY_EDGE_OFFLINE' }
+        },
+        id: payload.id || 1
+      });
+    }
+
     if (gwResult.status !== 200 || !gwResult.data.authorized) {
       return res.status(gwResult.status === 200 ? 403 : gwResult.status).json({
         jsonrpc: '2.0',
@@ -623,13 +661,27 @@ const handleMcpToolCall = async (req: AuthenticatedRequest, res: express.Respons
     return res.json({
       jsonrpc: '2.0',
       result: {
-        content: [{ type: 'text', text: `Tool ${toolName} executed cleanly under AgentsGuardian GaaS Interceptor.` }]
+        content: [{ type: 'text', text: `Tool ${toolName} executed cleanly under AgentsGuardian GaaS Interceptor.` }],
+        _agentsguardian: {
+          authorized: true,
+          latency_ms: gwResult.data.latency_ms,
+          ledger_hash: gwResult.data.ledger_hash,
+          tenant_id: tenantId
+        }
       },
       id: payload.id || 1
     });
   } catch (error) {
     console.error('Error in MCP tool call proxy:', error);
-    return res.status(500).json({ error: 'MCP Proxy Engine Error' });
+    return res.status(503).json({
+      jsonrpc: '2.0',
+      error: {
+        code: -32603,
+        message: 'MCP Proxy Gateway Edge Offline',
+        data: { code: 'GATEWAY_EDGE_OFFLINE' }
+      },
+      id: req.body?.id || 1
+    });
   }
 };
 
@@ -655,6 +707,18 @@ const handleMcpResourceRead = async (req: AuthenticatedRequest, res: express.Res
 
     const gwResult = await forwardToGatewayEdge(gatewayPayload, req.headers as Record<string, string>);
 
+    if (gwResult.status === 503 || gwResult.data.code === 'GATEWAY_EDGE_OFFLINE') {
+      return res.status(503).json({
+        jsonrpc: '2.0',
+        id: payload.id || 1,
+        error: {
+          code: -32603,
+          message: 'Gateway Edge Interception Service Unavailable: canonical governance engine is unreachable.',
+          data: { code: 'GATEWAY_EDGE_OFFLINE' }
+        }
+      });
+    }
+
     if (gwResult.status !== 200 || !gwResult.data.authorized) {
       return res.status(gwResult.status === 200 ? 403 : gwResult.status).json({
         jsonrpc: '2.0',
@@ -677,12 +741,26 @@ const handleMcpResourceRead = async (req: AuthenticatedRequest, res: express.Res
             mimeType: 'text/plain',
             text: `[AgentsGuardian MCP Proxy AUTHORIZED] Resource "${resourceUri}" read authorized in ${gwResult.data.latency_ms}ms.`
           }
-        ]
+        ],
+        _agentsguardian: {
+          authorized: true,
+          latency_ms: gwResult.data.latency_ms,
+          ledger_hash: gwResult.data.ledger_hash,
+          tenant_id: tenantId
+        }
       }
     });
   } catch (error) {
     console.error('Error in MCP resource read proxy:', error);
-    return res.status(500).json({ error: 'MCP Resource Proxy Error' });
+    return res.status(503).json({
+      jsonrpc: '2.0',
+      id: req.body?.id || 1,
+      error: {
+        code: -32603,
+        message: 'MCP Resource Proxy Gateway Edge Offline',
+        data: { code: 'GATEWAY_EDGE_OFFLINE' }
+      }
+    });
   }
 };
 
@@ -711,7 +789,13 @@ const handleShieldInspect = async (req: AuthenticatedRequest, res: express.Respo
     return res.status(gwResult.status).json(gwResult.data);
   } catch (error) {
     console.error('Error in Shield Inspect proxy:', error);
-    return res.status(500).json({ error: 'Shield Inspection Engine Error' });
+    return res.status(503).json({
+      status: 'HALTED',
+      authorized: false,
+      error: 'Shield Inspect Gateway Edge Offline',
+      code: 'GATEWAY_EDGE_OFFLINE',
+      reason: 'The canonical gateway-edge governance engine is unreachable.'
+    });
   }
 };
 
