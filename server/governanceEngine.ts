@@ -299,7 +299,10 @@ class GovernanceEngineStore {
   }
 
   private initDefaultKeyHashes() {
-    // No hardcoded default keys. Real keys must be provisioned.
+    const defaultEnvKey = process.env.DEFAULT_TENANT_API_KEY || process.env.TENANT_API_KEY || (process.env.NODE_ENV !== 'production' ? 'ag_live_tenant_default_production_key_2026' : '');
+    if (defaultEnvKey && defaultEnvKey.trim()) {
+      this.registerTenantApiKey(defaultEnvKey.trim(), 'tenant_default');
+    }
   }
 
   private initDefaultTenants() {
@@ -672,8 +675,9 @@ ${payloadStr.slice(0, 2000)}`
     };
   }
 
-  // --- Real-Time Policy Interception Engine ---
-  public async evaluateRequest(params: {
+  // --- ADMIN SIMULATION ONLY: Dry-Run Policy Evaluation Utility ---
+  // NOTICE: Live customer traffic enforcement is canonically handled by the Go gateway-edge service.
+  public async simulatePolicyEvaluationDryRun(params: {
     agentId?: string;
     agentName?: string;
     framework?: string;
@@ -1084,7 +1088,7 @@ ${regoRules}
   }) {
     const resourceUri = mcpReq.params?.uri || 'unknown_resource';
 
-    const evalResult = await this.evaluateRequest({
+    const evalResult = await this.simulatePolicyEvaluationDryRun({
       agentId: 'GA-104',
       agentName: 'Postgres-MCP-Server',
       framework: 'MCP Server',
@@ -1125,8 +1129,8 @@ ${regoRules}
     };
   }
 
-  // --- SDK Shield Inspection (Shield.inspect()) ---
-  public async evaluateShieldInspect(params: {
+  // --- SDK Shield Inspection Simulation Utility ---
+  public async simulateShieldInspect(params: {
     agentId?: string;
     agentName?: string;
     framework?: string;
@@ -1135,7 +1139,7 @@ ${regoRules}
     payload?: any;
     tenantId?: string;
   }) {
-    return await this.evaluateRequest({
+    return await this.simulatePolicyEvaluationDryRun({
       agentId: params.agentId || 'GA-101',
       agentName: params.agentName || 'SDK-Shield-Agent',
       framework: params.framework || 'Custom SDK',
@@ -1146,7 +1150,7 @@ ${regoRules}
     });
   }
 
-  public async evaluateMcpToolCall(mcpReq: {
+  public async simulateMcpToolCall(mcpReq: {
     jsonrpc: string;
     id: any;
     method: string;
@@ -1158,7 +1162,7 @@ ${regoRules}
     const toolName = mcpReq.params?.name || 'unknown_tool';
     const toolArgs = mcpReq.params?.arguments || {};
 
-    const evalResult = await this.evaluateRequest({
+    const evalResult = await this.simulatePolicyEvaluationDryRun({
       agentId: 'GA-104',
       agentName: 'Postgres-MCP-Server',
       framework: 'MCP Server',

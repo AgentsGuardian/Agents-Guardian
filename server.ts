@@ -11,6 +11,7 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { governanceEngine } from './server/governanceEngine';
+import { forwardToGatewayEdge } from './server/gatewayClient';
 import { storageEngine } from './server/db';
 import { signJwt, verifyJwt, hashPassword, verifyPassword } from './server/authUtils';
 import { verifyGoogleOidcToken } from './server/googleAuth';
@@ -421,7 +422,24 @@ app.get('/api/state', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json(governanceEngine.getState());
 });
 
-// 2. Real-Time Interception Engine Endpoint (<10ms Deterministic SLA)
+// 1.5. Internal Tier 2 Semantic Scan Service Endpoint (Private Service-to-Service)
+app.post('/api/v1/internal/semantic-scan', async (req: express.Request, res: express.Response) => {
+  const internalSecret = process.env.INTERNAL_SERVICE_SECRET;
+  const incomingKey = req.header('X-Internal-Service-Key');
+  if (!internalSecret || incomingKey !== internalSecret) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid internal service key' });
+  }
+
+  try {
+    const scanResult = await governanceEngine.evaluateTier2SemanticScan(req.body || {});
+    return res.json(scanResult);
+  } catch (err: any) {
+    console.error('Error during internal semantic scan:', err?.message || err);
+    return res.status(500).json({ error: 'Internal Semantic Scan Error' });
+  }
+});
+
+// 2. Canonical Gateway Edge Interception Proxy Endpoint (<10ms Deterministic SLA)
 app.post(['/api/v1/intercept', '/v1/intercept', '/intercept'], requireTenantApiKey, async (req: AuthenticatedRequest, res) => {
   try {
     const payload = req.body || {};
@@ -435,25 +453,23 @@ app.post(['/api/v1/intercept', '/v1/intercept', '/intercept'], requireTenantApiK
       });
     }
 
-    const result = await governanceEngine.evaluateRequest({
-      agentId: payload.agent_id || payload.agentId,
-      agentName: payload.agent_name || payload.agentName,
-      framework: payload.framework,
+    const gatewayPayload = {
+      tenant_id: tenantId,
+      agent_id: payload.agent_id || payload.agentId || 'GA-101',
+      agent_name: payload.agent_name || payload.agentName || 'Production-Agent',
+      action: payload.action || payload.actionCommand || 'standard_action',
       endpoint: payload.endpoint || '/v1/intercept',
-      actionCommand: payload.action || payload.actionCommand,
-      rawJsonIntent: typeof payload.parameters === 'object' ? JSON.stringify(payload.parameters, null, 2) : payload.parameters || payload.rawJsonIntent,
-      estimatedCost: typeof payload.estimated_cost === 'number' ? payload.estimated_cost : payload.estimatedCost,
-      promptText: payload.prompt_text || payload.promptText,
-      tenantId
-    });
+      session_id: payload.session_id || payload.sessionId,
+      cost_est_usd: typeof payload.cost_est_usd === 'number' ? payload.cost_est_usd : (typeof payload.estimated_cost === 'number' ? payload.estimated_cost : payload.estimatedCost),
+      parameters: payload.parameters || (payload.rawJsonIntent ? { rawIntent: payload.rawJsonIntent } : undefined),
+      prompt_text: payload.prompt_text || payload.promptText || payload.action || ''
+    };
 
-    if (!result.authorized) {
-      return res.status(403).json(result);
-    }
-    return res.json(result);
+    const gwResult = await forwardToGatewayEdge(gatewayPayload, req.headers as Record<string, string>);
+    return res.status(gwResult.status).json(gwResult.data);
   } catch (error) {
-    console.error('Error in /api/v1/intercept:', error);
-    return res.status(500).json({ error: 'Interception Engine Failure' });
+    console.error('Error in /api/v1/intercept proxy:', error);
+    return res.status(500).json({ error: 'Interception Gateway Proxy Failure' });
   }
 });
 
@@ -489,28 +505,27 @@ const handleInlineProxy = async (req: AuthenticatedRequest, res: express.Respons
       userPromptText = typeof body === 'string' ? body : JSON.stringify(body);
     }
 
-    const evalResult = await governanceEngine.evaluateRequest({
-      agentId: `GA-PROXY-${tenantId.slice(0, 8)}`,
-      agentName: `InlineProxy-${tenantId}`,
-      framework: 'Inline Proxy Endpoint',
+    const gatewayPayload = {
+      tenant_id: tenantId,
+      agent_id: `GA-PROXY-${tenantId.slice(0, 8)}`,
+      agent_name: `InlineProxy-${tenantId}`,
+      action: `llm_chat_completion_${model}`,
       endpoint: req.originalUrl,
-      actionCommand: `llm_chat_completion_${model}`,
-      rawJsonIntent: userPromptText,
-      estimatedCost: 0.03,
-      promptText: userPromptText,
-      tenantId
-    });
+      cost_est_usd: 0.03,
+      prompt_text: userPromptText
+    };
 
-    if (!evalResult.authorized) {
-      return res.status(403).json({
+    const gwResult = await forwardToGatewayEdge(gatewayPayload, req.headers as Record<string, string>);
+
+    if (gwResult.status !== 200 || !gwResult.data.authorized) {
+      return res.status(gwResult.status === 200 ? 403 : gwResult.status).json({
         error: {
-          message: `[AgentsGuardian Proxy] Request blocked by policy: ${evalResult.policy_violated}`,
+          message: `[AgentsGuardian Proxy] Request blocked by policy: ${gwResult.data.policy_violated || 'POL-SEC-01'}`,
           type: 'governance_policy_violation',
-          code: evalResult.policy_code,
-          latency_ms: evalResult.latency_ms,
-          timestamp_annex_iv: evalResult.timestamp_annex_iv,
-          ledger_hash: evalResult.ledger_hash,
-          reason: evalResult.reason
+          code: gwResult.data.policy_violated || 'POL-SEC-01',
+          latency_ms: gwResult.data.latency_ms,
+          ledger_hash: gwResult.data.ledger_hash,
+          reason: gwResult.data.reason
         }
       });
     }
@@ -527,10 +542,10 @@ const handleInlineProxy = async (req: AuthenticatedRequest, res: express.Respons
         upstreamContent = geminiRes.text || '';
       } catch (geminiErr: any) {
         console.warn('Gemini API call error in proxy handler:', geminiErr?.message || geminiErr);
-        upstreamContent = `[Upstream LLM] Evaluated and authorized by AgentsGuardian Policy Engine (${evalResult.latency_ms}ms SLA). Input cleared without policy violation.`;
+        upstreamContent = `[Upstream LLM] Evaluated and authorized by AgentsGuardian Policy Engine (${gwResult.data.latency_ms}ms SLA). Input cleared without policy violation.`;
       }
     } else {
-      upstreamContent = `[Upstream LLM] Evaluated and authorized by AgentsGuardian Policy Engine (${evalResult.latency_ms}ms SLA). Input cleared without policy violation.`;
+      upstreamContent = `[Upstream LLM] Evaluated and authorized by AgentsGuardian Policy Engine (${gwResult.data.latency_ms}ms SLA). Input cleared without policy violation.`;
     }
 
     const promptTokens = Math.max(10, Math.floor(userPromptText.length / 4));
@@ -558,8 +573,8 @@ const handleInlineProxy = async (req: AuthenticatedRequest, res: express.Respons
       },
       _agentsguardian: {
         authorized: true,
-        latency_ms: evalResult.latency_ms,
-        ledger_hash: evalResult.ledger_hash,
+        latency_ms: gwResult.data.latency_ms,
+        ledger_hash: gwResult.data.ledger_hash,
         tenant_id: tenantId
       }
     });
@@ -577,23 +592,29 @@ const handleMcpToolCall = async (req: AuthenticatedRequest, res: express.Respons
   try {
     const payload = req.body || {};
     const tenantId = req.tenantId || 'tenant_default';
-    const evalResult = await governanceEngine.evaluateRequest({
-      agentId: payload.params?.agent_id || 'MCP-Agent',
-      agentName: 'MCP Tool Runner',
-      endpoint: '/v1/mcp/tools/call',
-      actionCommand: `mcp_tool_${payload.params?.name || 'call'}`,
-      rawJsonIntent: JSON.stringify(payload.params?.arguments || {}),
-      estimatedCost: 0.01,
-      tenantId
-    });
+    const toolName = payload.params?.name || 'call';
+    const toolArgs = payload.params?.arguments;
 
-    if (!evalResult.authorized) {
-      return res.status(403).json({
+    const gatewayPayload = {
+      tenant_id: tenantId,
+      agent_id: payload.params?.agent_id || 'MCP-Agent',
+      agent_name: 'MCP Tool Runner',
+      endpoint: '/v1/mcp/tools/call',
+      action: `mcp_tool_${toolName}`,
+      parameters: toolArgs,
+      prompt_text: typeof toolArgs === 'object' ? JSON.stringify(toolArgs) : String(toolArgs || ''),
+      cost_est_usd: 0.01
+    };
+
+    const gwResult = await forwardToGatewayEdge(gatewayPayload, req.headers as Record<string, string>);
+
+    if (gwResult.status !== 200 || !gwResult.data.authorized) {
+      return res.status(gwResult.status === 200 ? 403 : gwResult.status).json({
         jsonrpc: '2.0',
         error: {
           code: -32600,
-          message: `[AgentsGuardian MCP] Blocked by policy ${evalResult.policy_violated}`,
-          data: evalResult
+          message: `[AgentsGuardian MCP] Blocked by policy ${gwResult.data.policy_violated || 'POL-SEC-01'}`,
+          data: gwResult.data
         },
         id: payload.id || 1
       });
@@ -602,12 +623,12 @@ const handleMcpToolCall = async (req: AuthenticatedRequest, res: express.Respons
     return res.json({
       jsonrpc: '2.0',
       result: {
-        content: [{ type: 'text', text: `Tool ${payload.params?.name} executed cleanly under AgentsGuardian GaaS Interceptor.` }]
+        content: [{ type: 'text', text: `Tool ${toolName} executed cleanly under AgentsGuardian GaaS Interceptor.` }]
       },
       id: payload.id || 1
     });
   } catch (error) {
-    console.error('Error in MCP tool call:', error);
+    console.error('Error in MCP tool call proxy:', error);
     return res.status(500).json({ error: 'MCP Proxy Engine Error' });
   }
 };
@@ -615,11 +636,52 @@ const handleMcpToolCall = async (req: AuthenticatedRequest, res: express.Respons
 app.post('/v1/mcp/tools/call', requireTenantApiKey, handleMcpToolCall);
 app.post('/api/v1/mcp/tools/call', requireTenantApiKey, handleMcpToolCall);
 
-const handleMcpResourceRead = (req: AuthenticatedRequest, res: express.Response) => {
+const handleMcpResourceRead = async (req: AuthenticatedRequest, res: express.Response) => {
   try {
-    return res.json({ jsonrpc: '2.0', result: { contents: [] }, id: req.body?.id || 1 });
+    const payload = req.body || {};
+    const tenantId = req.tenantId || 'tenant_default';
+    const resourceUri = payload.params?.uri || 'unknown_resource';
+
+    const gatewayPayload = {
+      tenant_id: tenantId,
+      agent_id: 'GA-104',
+      agent_name: 'Postgres-MCP-Server',
+      endpoint: '/v1/mcp/resources/read',
+      action: `mcp_read_${resourceUri}`,
+      parameters: { uri: resourceUri },
+      prompt_text: resourceUri,
+      cost_est_usd: 0.01
+    };
+
+    const gwResult = await forwardToGatewayEdge(gatewayPayload, req.headers as Record<string, string>);
+
+    if (gwResult.status !== 200 || !gwResult.data.authorized) {
+      return res.status(gwResult.status === 200 ? 403 : gwResult.status).json({
+        jsonrpc: '2.0',
+        id: payload.id || 1,
+        error: {
+          code: -32600,
+          message: `[AgentsGuardian MCP Interceptor] RESOURCE ACCESS BLOCKED by Policy ${gwResult.data.policy_violated || 'POL-SEC-01'}. Latency: ${gwResult.data.latency_ms}ms`,
+          data: gwResult.data
+        }
+      });
+    }
+
+    return res.json({
+      jsonrpc: '2.0',
+      id: payload.id || 1,
+      result: {
+        contents: [
+          {
+            uri: resourceUri,
+            mimeType: 'text/plain',
+            text: `[AgentsGuardian MCP Proxy AUTHORIZED] Resource "${resourceUri}" read authorized in ${gwResult.data.latency_ms}ms.`
+          }
+        ]
+      }
+    });
   } catch (error) {
-    console.error('Error in MCP resource read:', error);
+    console.error('Error in MCP resource read proxy:', error);
     return res.status(500).json({ error: 'MCP Resource Proxy Error' });
   }
 };
@@ -631,13 +693,24 @@ app.post('/api/v1/mcp/resources/read', requireTenantApiKey, handleMcpResourceRea
 const handleShieldInspect = async (req: AuthenticatedRequest, res: express.Response) => {
   try {
     const tenantId = req.tenantId || 'tenant_default';
-    const result = await governanceEngine.evaluateRequest({ ...(req.body || {}), tenantId });
-    if (!result.authorized) {
-      return res.status(403).json(result);
-    }
-    return res.json(result);
+    const body = req.body || {};
+    const payloadContent = body.payload !== undefined ? (typeof body.payload === 'object' ? JSON.stringify(body.payload) : String(body.payload)) : (body.target || body.prompt_text || body.promptText || '');
+
+    const gatewayPayload = {
+      tenant_id: tenantId,
+      agent_id: body.agent_id || body.agentId || 'SDK-Shield-Agent',
+      agent_name: body.agent_name || body.agentName || 'Shield Inspector',
+      endpoint: '/v1/shield/inspect',
+      action: body.action || body.actionCommand || 'inspect_action',
+      parameters: typeof body.payload === 'object' ? body.payload : undefined,
+      prompt_text: payloadContent,
+      cost_est_usd: typeof body.cost_est_usd === 'number' ? body.cost_est_usd : (typeof body.estimated_cost === 'number' ? body.estimated_cost : 0.02)
+    };
+
+    const gwResult = await forwardToGatewayEdge(gatewayPayload, req.headers as Record<string, string>);
+    return res.status(gwResult.status).json(gwResult.data);
   } catch (error) {
-    console.error('Error in Shield Inspect:', error);
+    console.error('Error in Shield Inspect proxy:', error);
     return res.status(500).json({ error: 'Shield Inspection Engine Error' });
   }
 };

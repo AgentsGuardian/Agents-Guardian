@@ -45,7 +45,7 @@ async function runPhaseBVerification() {
 
   // 4. Test End-to-End Interception Enforcement
   console.log('Test 4: End-to-End Interception & Threat Defense...');
-  const blockedResult = await governanceEngine.evaluateRequest({
+  const blockedResult = await governanceEngine.simulatePolicyEvaluationDryRun({
     agentId: 'GA-TEST-01',
     agentName: 'TestAgent-GoConverged',
     actionCommand: 'exec sudo rm -rf /var/db',
@@ -62,7 +62,7 @@ async function runPhaseBVerification() {
 
   // 5. Test Budget Bypass Detection
   console.log('Test 5: Budget Bypass Fraud Detection...');
-  const fraudResult = await governanceEngine.evaluateRequest({
+  const fraudResult = await governanceEngine.simulatePolicyEvaluationDryRun({
     agentId: 'GA-TEST-02',
     agentName: 'FraudAgent-ZeroCost',
     actionCommand: 'complex data processing payload requiring high context token usage',

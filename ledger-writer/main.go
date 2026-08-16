@@ -66,8 +66,9 @@ func main() {
 		log.Fatalf("FATAL: DB_PASS (or POSTGRES_PASSWORD) environment variable is required and must be set")
 	}
 	dbName := getEnv("DB_NAME", "agentsguardian_production")
+	sslMode := getEnv("DB_SSLMODE", "require")
 
-	connStr := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=disable", dbHost, dbUser, dbPass, dbName)
+	connStr := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=%s", dbHost, dbUser, dbPass, dbName, sslMode)
 	var err error
 	db, err = sql.Open("postgres", connStr)
 	if err != nil {

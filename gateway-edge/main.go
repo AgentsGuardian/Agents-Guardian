@@ -18,7 +18,7 @@ import (
 	"github.com/open-policy-agent/opa/rego"
 )
 
-// InterceptRequest defines the payload structure received from AI agents
+// InterceptRequest defines the payload structure received from AI agents or Node BFF
 type InterceptRequest struct {
 	TenantID   string                 `json:"tenant_id"`
 	AgentID    string                 `json:"agent_id"`
@@ -31,9 +31,10 @@ type InterceptRequest struct {
 	PromptText string                 `json:"prompt_text,omitempty"`
 }
 
-// InterceptResponse represents Tier 1 pre-action authorization
+// InterceptResponse represents canonical authoritative pre-action authorization
 type InterceptResponse struct {
 	ID             string  `json:"id"`
+	TenantID       string  `json:"tenant_id,omitempty"`
 	Status         string  `json:"status"` // AUTHORIZED | HALTED
 	Authorized     bool    `json:"authorized"`
 	PolicyViolated string  `json:"policy_violated,omitempty"`
@@ -41,6 +42,17 @@ type InterceptResponse struct {
 	VerifiedCost   float64 `json:"verified_cost_usd,omitempty"`
 	LedgerHash     string  `json:"ledger_hash,omitempty"`
 	Reason         string  `json:"reason,omitempty"`
+}
+
+// SemanticScanResult represents Tier 2 Gemini / semantic analysis result
+type SemanticScanResult struct {
+	ActionType        string  `json:"actionType"`
+	IsPromptInjection bool    `json:"isPromptInjection"`
+	ContainsSecrets   bool    `json:"containsSecrets"`
+	DriftScore        float64 `json:"driftScore"`
+	RiskLevel         string  `json:"riskLevel"`
+	Recommendation    string  `json:"recommendation"`
+	Reason            string  `json:"reason"`
 }
 
 var (
@@ -125,12 +137,13 @@ func main() {
 	}
 
 	http.HandleFunc("/api/v1/intercept", handleIntercept)
+	http.HandleFunc("/v1/intercept", handleIntercept)
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
 
-	port := getEnv("PORT", "8080")
+	port := getEnv("PORT", "8081")
 	log.Printf("AgentsGuardian Gateway Edge listening on port %s...", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("Server error: %v", err)
@@ -199,30 +212,130 @@ func validateApiKey(ctx context.Context, apiKey string) (string, bool) {
 	return "", false
 }
 
+func localSecurityScan(text string) (bool, bool) {
+	lower := strings.ToLower(text)
+
+	// Prompt injection detection patterns
+	isInjection := false
+	injectionKeywords := []string{
+		"ignore all previous",
+		"ignore prior",
+		"system prompt override",
+		"dan mode",
+		"jailbreak",
+		"bypass security",
+		"bypass policy",
+		"bypass governance",
+		"disregard safety",
+		"override guardrails",
+		"you are now unrestricted",
+		"developer mode enabled",
+	}
+	for _, kw := range injectionKeywords {
+		if strings.Contains(lower, kw) {
+			isInjection = true
+			break
+		}
+	}
+
+	// Secret detection signatures
+	hasSecrets := false
+	secretSignatures := []string{
+		"aizasy",
+		"sk_live_",
+		"ghp_",
+		"github_pat_",
+		"-----begin rsa private key-----",
+		"-----begin private key-----",
+		"postgres://",
+		"mysql://",
+		"redis://",
+	}
+	for _, sig := range secretSignatures {
+		if strings.Contains(lower, sig) {
+			hasSecrets = true
+			break
+		}
+	}
+
+	return isInjection, hasSecrets
+}
+
+func queryTier2SemanticScan(ctx context.Context, req InterceptRequest) (*SemanticScanResult, error) {
+	nodeServiceURL := getEnv("NODE_SERVICE_URL", "http://localhost:3000")
+	internalSecret := os.Getenv("INTERNAL_SERVICE_SECRET")
+
+	scanPayload, _ := json.Marshal(map[string]interface{}{
+		"agentId":       req.AgentID,
+		"agentName":     req.AgentName,
+		"actionCommand": req.Action,
+		"endpoint":      req.Endpoint,
+		"promptText":    req.PromptText,
+		"rawJsonIntent": req.PromptText,
+		"parameters":    req.Parameters,
+		"tenantId":      req.TenantID,
+	})
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", nodeServiceURL+"/api/v1/internal/semantic-scan", strings.NewReader(string(scanPayload)))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-Internal-Service-Key", internalSecret)
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("semantic scan returned HTTP %d", resp.StatusCode)
+	}
+
+	var result SemanticScanResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func handleIntercept(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	w.Header().Set("Content-Type", "application/json")
 
-	// 0. Tenant API Key Header Authentication
-	apiKey := r.Header.Get("X-Guardian-Key")
-	if apiKey == "" {
-		apiKey = r.Header.Get("X-API-Key")
-	}
-	if apiKey == "" && len(r.Header.Get("Authorization")) > 7 {
-		apiKey = r.Header.Get("Authorization")[7:]
-	}
-	if apiKey == "" && r.URL.Query().Get("apiKey") != "" {
-		apiKey = r.URL.Query().Get("apiKey")
+	internalSecret := os.Getenv("INTERNAL_SERVICE_SECRET")
+	incomingInternalKey := r.Header.Get("X-Internal-Service-Key")
+
+	var resolvedTenantID string
+	var isAuthenticated bool
+
+	// 0. Authentication: either trusted internal service call OR external API key
+	if incomingInternalKey != "" && incomingInternalKey == internalSecret {
+		isAuthenticated = true
+	} else {
+		apiKey := r.Header.Get("X-Guardian-Key")
+		if apiKey == "" {
+			apiKey = r.Header.Get("X-API-Key")
+		}
+		if apiKey == "" && len(r.Header.Get("Authorization")) > 7 {
+			apiKey = r.Header.Get("Authorization")[7:]
+		}
+		if apiKey == "" && r.URL.Query().Get("apiKey") != "" {
+			apiKey = r.URL.Query().Get("apiKey")
+		}
+
+		if apiKey != "" {
+			tID, valid := validateApiKey(r.Context(), apiKey)
+			if valid && tID != "" {
+				resolvedTenantID = tID
+				isAuthenticated = true
+			}
+		}
 	}
 
-	if apiKey == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"error":"Unauthorized: Missing or invalid API key"}`))
-		return
-	}
-
-	resolvedTenantID, valid := validateApiKey(r.Context(), apiKey)
-	if !valid || resolvedTenantID == "" {
+	if !isAuthenticated {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte(`{"error":"Unauthorized: Missing or invalid API key"}`))
 		return
@@ -234,14 +347,17 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Anti-spoofing check: client-supplied tenant_id must match authenticated identity
-	if req.TenantID != "" && req.TenantID != resolvedTenantID && resolvedTenantID != "tenant_default" {
-		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(fmt.Sprintf(`{"error":"Forbidden: Client-supplied tenant_id '%s' does not match authenticated identity '%s'","code":"TENANT_SPOOFING_BLOCKED"}`, req.TenantID, resolvedTenantID)))
-		return
+	if resolvedTenantID != "" {
+		// Anti-spoofing check
+		if req.TenantID != "" && req.TenantID != resolvedTenantID && resolvedTenantID != "tenant_default" {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(fmt.Sprintf(`{"error":"Forbidden: Client-supplied tenant_id '%s' does not match authenticated identity '%s'","code":"TENANT_SPOOFING_BLOCKED"}`, req.TenantID, resolvedTenantID)))
+			return
+		}
+		req.TenantID = resolvedTenantID
+	} else if req.TenantID == "" {
+		req.TenantID = "tenant_default"
 	}
-
-	req.TenantID = resolvedTenantID
 
 	// 1. Server-Side Cost Bound Verification & Fraud Detection
 	payloadText := fmt.Sprintf("%s %s %s", req.Action, req.Endpoint, req.PromptText)
@@ -271,15 +387,38 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 	// Determine structured action type
 	actionType := "standard"
 	lowerAction := strings.ToLower(req.Action)
-	if strings.Contains(lowerAction, "exec") || strings.Contains(lowerAction, "bash") || strings.Contains(lowerAction, "sudo") || strings.HasPrefix(lowerAction, "sh ") {
+	lowerPayload := strings.ToLower(payloadText)
+
+	if strings.Contains(lowerAction, "exec") || strings.Contains(lowerAction, "bash") || strings.Contains(lowerAction, "sudo") || strings.HasPrefix(lowerAction, "sh ") || strings.Contains(lowerPayload, "sudo ") || strings.Contains(lowerPayload, "cmd.exe") {
 		actionType = "shell.exec"
-	} else if strings.Contains(lowerAction, "drop table") || strings.Contains(lowerAction, "delete from") || strings.Contains(lowerAction, "truncate table") {
+	} else if strings.Contains(lowerAction, "drop table") || strings.Contains(lowerAction, "delete from") || strings.Contains(lowerAction, "truncate table") || strings.Contains(lowerPayload, "drop table") {
 		actionType = "db.write"
-	} else if strings.Contains(lowerAction, "rm -rf") || strings.Contains(lowerAction, "bulk_delete") {
+	} else if strings.Contains(lowerAction, "rm -rf") || strings.Contains(lowerAction, "bulk_delete") || strings.Contains(lowerPayload, "rm -rf") {
 		actionType = "file.delete"
 	}
 
-	// 2. Tier 1 Policy Evaluation (<10ms SLA)
+	// 2. Local Threat & Injection Detection
+	isPromptInjection, containsSecrets := localSecurityScan(payloadText)
+
+	// 3. Integrated Tier 2 Semantic Scan (Gemini / Cognitive Verification)
+	var scanRes *SemanticScanResult
+	if isPromptInjection || containsSecrets || actionType != "standard" || charCount > 15 {
+		sRes, err := queryTier2SemanticScan(r.Context(), req)
+		if err == nil && sRes != nil {
+			scanRes = sRes
+			if sRes.IsPromptInjection {
+				isPromptInjection = true
+			}
+			if sRes.ContainsSecrets {
+				containsSecrets = true
+			}
+			if sRes.ActionType != "" && sRes.ActionType != "standard" {
+				actionType = sRes.ActionType
+			}
+		}
+	}
+
+	// 4. Tier 1 Policy Evaluation via OPA Engine (<10ms SLA)
 	ctx := r.Context()
 	results, err := opaQuery.Eval(ctx, rego.EvalInput(map[string]interface{}{
 		"action":              req.Action,
@@ -298,31 +437,49 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// If semantic scan or local threat check flagged block, override authorized
+	if isPromptInjection || containsSecrets || (scanRes != nil && scanRes.Recommendation == "BLOCK") {
+		authorized = false
+	}
+
 	latencyMs := time.Since(startTime).Milliseconds()
 	if latencyMs == 0 {
 		latencyMs = 1
 	}
 
 	reqID := fmt.Sprintf("KG-%d", time.Now().UnixNano()/1e6)
+	ledgerHashBytes := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s:%d", req.TenantID, req.AgentID, req.Action, time.Now().UnixNano())))
+	ledgerHash := "0x" + hex.EncodeToString(ledgerHashBytes[:])
 
 	if !authorized {
 		policyCode := "POL-SEC-01"
 		reason := "Action matches forbidden non-human identity boundary constraint."
+
 		if costBypassAttempt {
 			policyCode = "POL-FIN-02"
 			reason = fmt.Sprintf("Reported $0 cost on high-complexity request flagged as budget bypass attempt. Reconciled cost: $%.4f", effectiveCost)
 		} else if actionType == "shell.exec" {
 			policyCode = "POL-SEC-02"
-			reason = "Raw shell command execution blocked by POL-SEC-02."
+			reason = "Raw shell command execution / system process spawn blocked by POL-SEC-02."
+		} else if isPromptInjection {
+			policyCode = "POL-SEC-01"
+			reason = "Prompt injection / instruction override pattern detected by AgentsGuardian Canonical Governance Engine."
+		} else if containsSecrets {
+			policyCode = "POL-SEC-01"
+			reason = "Unmasked API credential / secret / PII exposure detected in request payload."
+		} else if scanRes != nil && scanRes.Reason != "" {
+			reason = scanRes.Reason
 		}
 
 		resp := InterceptResponse{
 			ID:             reqID,
+			TenantID:       req.TenantID,
 			Status:         "HALTED",
 			Authorized:     false,
 			PolicyViolated: policyCode,
 			LatencyMs:      latencyMs,
 			VerifiedCost:   effectiveCost,
+			LedgerHash:     ledgerHash,
 			Reason:         reason,
 		}
 
@@ -333,7 +490,7 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Atomic Budget Check via Redis Lua Script / In-Memory Fallback
+	// 5. Atomic Budget Check via Redis Lua Script / In-Memory Fallback
 	budgetCap := 50.0
 	budgetKey := fmt.Sprintf("tenant:%s:agent:%s:budget", req.TenantID, req.AgentID)
 
@@ -350,7 +507,6 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !budgetPassed && redisClient == nil {
-		// Thread-safe in-memory atomic fallback
 		memBudgetsMutex.Lock()
 		current := memBudgets[budgetKey]
 		if current+effectiveCost <= budgetCap {
@@ -363,11 +519,13 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 	if !budgetPassed {
 		resp := InterceptResponse{
 			ID:             reqID,
+			TenantID:       req.TenantID,
 			Status:         "HALTED",
 			Authorized:     false,
 			PolicyViolated: "POL-FIN-01",
 			LatencyMs:      latencyMs,
 			VerifiedCost:   effectiveCost,
+			LedgerHash:     ledgerHash,
 			Reason:         fmt.Sprintf("Agent session budget cap of $50.00 exceeded (verified cost: $%.4f).", effectiveCost),
 		}
 		dispatchPubSubEvent(req, "HALTED", "POL-FIN-01")
@@ -376,12 +534,15 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 6. Return Authorized Verdict
 	resp := InterceptResponse{
 		ID:           reqID,
+		TenantID:     req.TenantID,
 		Status:       "AUTHORIZED",
 		Authorized:   true,
 		LatencyMs:    latencyMs,
 		VerifiedCost: effectiveCost,
+		LedgerHash:   ledgerHash,
 	}
 
 	dispatchPubSubEvent(req, "AUTHORIZED", "")
@@ -416,4 +577,3 @@ func getEnv(key, defaultVal string) string {
 	}
 	return defaultVal
 }
-
