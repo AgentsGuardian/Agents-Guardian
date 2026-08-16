@@ -1,6 +1,15 @@
 import crypto from 'crypto';
+import { validateStartupEnv } from './startupValidator';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'ag_jwt_secret_sovereign_key_2026';
+export function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || !secret.trim()) {
+    validateStartupEnv();
+    console.error('FATAL: JWT_SECRET environment variable is required and must be set.');
+    process.exit(1);
+  }
+  return secret;
+}
 
 export interface PasswordHashResult {
   hash: string;
@@ -36,7 +45,8 @@ export function signJwt(payload: Record<string, any>, expiresInSeconds: number =
   const b64Payload = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
   const dataToSign = `${b64Header}.${b64Payload}`;
 
-  const signature = crypto.createHmac('sha256', JWT_SECRET).update(dataToSign).digest('base64url');
+  const secret = getJwtSecret();
+  const signature = crypto.createHmac('sha256', secret).update(dataToSign).digest('base64url');
   return `${dataToSign}.${signature}`;
 }
 
@@ -53,7 +63,8 @@ export function verifyJwt(token: string): { valid: boolean; payload?: any; error
 
   const [b64Header, b64Payload, signature] = parts;
   const dataToSign = `${b64Header}.${b64Payload}`;
-  const expectedSignature = crypto.createHmac('sha256', JWT_SECRET).update(dataToSign).digest('base64url');
+  const secret = getJwtSecret();
+  const expectedSignature = crypto.createHmac('sha256', secret).update(dataToSign).digest('base64url');
 
   try {
     const sigBuf = Buffer.from(signature);

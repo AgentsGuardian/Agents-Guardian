@@ -58,7 +58,13 @@ func main() {
 	// 1. Connect to Cloud SQL PostgreSQL
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbUser := getEnv("DB_USER", "agentsguardian_app_runtime")
-	dbPass := getEnv("DB_PASS", "runtime_secure_password_gaas")
+	dbPass := os.Getenv("DB_PASS")
+	if dbPass == "" {
+		dbPass = os.Getenv("POSTGRES_PASSWORD")
+	}
+	if strings.TrimSpace(dbPass) == "" {
+		log.Fatalf("FATAL: DB_PASS (or POSTGRES_PASSWORD) environment variable is required and must be set")
+	}
 	dbName := getEnv("DB_NAME", "agentsguardian_production")
 
 	connStr := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=disable", dbHost, dbUser, dbPass, dbName)

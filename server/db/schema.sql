@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS audit_ledger (
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'agentsguardian_app_runtime') THEN
-    CREATE ROLE agentsguardian_app_runtime WITH LOGIN PASSWORD 'runtime_secure_password_gaas';
+    CREATE ROLE agentsguardian_app_runtime WITH LOGIN;
   END IF;
 END
 $$;

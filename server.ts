@@ -1,4 +1,9 @@
 import 'dotenv/config';
+import { validateStartupEnv } from './server/startupValidator';
+
+// Consolidated Startup Guard: Validate all required secrets at once
+validateStartupEnv();
+
 import express from 'express';
 import crypto from 'crypto';
 import path from 'path';
@@ -10,10 +15,14 @@ import { storageEngine } from './server/db';
 import { signJwt, verifyJwt, hashPassword, verifyPassword } from './server/authUtils';
 import { verifyGoogleOidcToken } from './server/googleAuth';
 
-// Startup Guard: Enforce required INTERNAL_SERVICE_SECRET
-if (!process.env.INTERNAL_SERVICE_SECRET || !process.env.INTERNAL_SERVICE_SECRET.trim()) {
-  console.error('FATAL: INTERNAL_SERVICE_SECRET environment variable is required and must be set.');
-  process.exit(1);
+// Helper to resolve GCP_PROJECT_ID with explicit warning when falling back to default
+function getGcpProjectId(): string {
+  const proj = process.env.GCP_PROJECT_ID;
+  if (!proj || !proj.trim()) {
+    console.warn('[CONFIG_WARNING] GCP_PROJECT_ID environment variable is not set. Defaulting explicitly to "agentsguardian-prod".');
+    return 'agentsguardian-prod';
+  }
+  return proj.trim();
 }
 
 const app = express();
@@ -838,7 +847,7 @@ app.post('/api/v1/marketplace/webhook', async (req, res) => {
                      (req.headers['x-pubsub-oidc-token'] as string) ||
                      (req.body?.jwt as string);
 
-  const authResult = await verifyGoogleOidcToken(authHeader, process.env.GCP_PROJECT_ID || 'agentsguardian-prod');
+  const authResult = await verifyGoogleOidcToken(authHeader, getGcpProjectId());
   if (!authResult.valid) {
     console.warn(`[Marketplace Webhook] Rejected unauthorized or forged webhook request from ${req.ip}: ${authResult.error}`);
     return res.status(401).json({ 
@@ -860,7 +869,7 @@ app.post('/pubsub/push', async (req, res) => {
   const authHeader = (req.headers.authorization as string) || 
                      (req.headers['x-pubsub-oidc-token'] as string);
 
-  const authResult = await verifyGoogleOidcToken(authHeader, process.env.GCP_PROJECT_ID || 'agentsguardian-prod');
+  const authResult = await verifyGoogleOidcToken(authHeader, getGcpProjectId());
   if (!authResult.valid) {
     console.warn(`[Pub/Sub Push] Rejected unauthorized or forged Pub/Sub push token: ${authResult.error}`);
     return res.status(401).json({

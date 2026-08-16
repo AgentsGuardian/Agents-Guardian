@@ -13,6 +13,7 @@ import {
   INITIAL_ADMINS 
 } from '../src/data';
 import { hashPassword, hashTenantApiKey } from './authUtils.js';
+import { validateStartupEnv } from './startupValidator';
 
 const { Pool } = pg;
 
@@ -122,7 +123,10 @@ class StorageEngine {
     // 1. Attempt PostgreSQL connection
     const pgHost = process.env.DB_HOST || process.env.POSTGRES_HOST || 'localhost';
     const pgUser = process.env.DB_USER || process.env.POSTGRES_USER || 'agentsguardian_app_runtime';
-    const pgPass = process.env.DB_PASS || process.env.POSTGRES_PASSWORD || 'runtime_secure_password_gaas';
+    const pgPass = process.env.DB_PASS || process.env.POSTGRES_PASSWORD || '';
+    if (!pgPass && !process.env.DATABASE_URL) {
+      validateStartupEnv();
+    }
     const pgName = process.env.DB_NAME || process.env.POSTGRES_DB || 'agentsguardian_production';
     const pgPort = parseInt(process.env.DB_PORT || '5432', 10);
 
