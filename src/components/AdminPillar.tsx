@@ -7,11 +7,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Key, ShieldAlert, SlidersHorizontal, Plus, Trash2, 
   Fingerprint, Globe, Check, AlertTriangle, ShieldCheck, 
-  Search, UserCheck, Shield, Lock, Eye, AlertCircle
+  Search, UserCheck, Shield, Lock, Eye, AlertCircle, KeyRound
 } from 'lucide-react';
 import { AdminUser, AdminRole, RolePermission, GlobalAdminSettings } from '../types';
 import { RefreshCw, Link2, LogOut, BellOff } from 'lucide-react';
 import ConfirmationModal from './ConfirmationModal';
+import UpdatePasswordModal from './UpdatePasswordModal';
 
 interface AdminPillarProps {
   currentUser: AdminUser;
@@ -86,6 +87,7 @@ export default function AdminPillar({
   // User list searches
   const [searchQuery, setSearchQuery] = useState('');
   const [inspectedUser, setInspectedUser] = useState<AdminUser | null>(null);
+  const [passwordTargetUser, setPasswordTargetUser] = useState<AdminUser | null>(null);
   
   // Create user form
   const [newName, setNewName] = useState('');
@@ -1634,6 +1636,16 @@ export default function AdminPillar({
 
                   <div className="flex items-center gap-2">
                     <button
+                      type="button"
+                      onClick={() => {
+                        setPasswordTargetUser(inspectedUser);
+                      }}
+                      className="px-3 py-1.5 rounded text-xs font-bold border cursor-pointer transition-colors bg-teal-950/40 hover:bg-teal-900/60 text-teal-300 border-teal-500/40 flex items-center gap-1.5"
+                    >
+                      <KeyRound size={12} /> Update Password
+                    </button>
+
+                    <button
                       onClick={() => {
                         handleToggleUserStatus(inspectedUser.id);
                         setInspectedUser(prev => prev ? { ...prev, status: prev.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE' } : null);
@@ -1722,6 +1734,16 @@ export default function AdminPillar({
           "15-minute auto-revert timer will automatically re-engage protection"
         ]}
       />
+
+      {/* Admin Password Re-Keying Modal */}
+      {passwordTargetUser && (
+        <UpdatePasswordModal
+          isOpen={Boolean(passwordTargetUser)}
+          onClose={() => setPasswordTargetUser(null)}
+          currentUser={passwordTargetUser}
+          addToast={addToast}
+        />
+      )}
     </div>
   );
 }

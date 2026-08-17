@@ -527,9 +527,7 @@ html.light-theme table th {
 
 /* Specific Section Contrast Fixes */
 html.light-theme #sso-role-matrix-section,
-html.light-theme #federated-iam-integration-block,
-html.light-theme #google-id-federated-bypass-container,
-html.light-theme #google-id-federated-register-container {
+html.light-theme #federated-iam-integration-block {
   background-color: #ffffff !important;
   border-color: #cbd5e1 !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);

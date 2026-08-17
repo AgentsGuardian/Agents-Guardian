@@ -802,13 +802,6 @@ export default function HelpCenter({
       keywords: ['inject drift locked', 'auditor restriction', '15% drift model', 'simulation lock', 'read-only role', 'security policy']
     },
     {
-      id: 'google-sso-registration-flow',
-      category: 'general',
-      question: "How does the Google Account authentication and registration work?",
-      answer: "AgentsGuardian supports secure Single Sign-On (SSO) with your Google credentials. On the landing page, clicking the 'Sign In with Google' button will automatically verify your operator email. If your email is already registered in our secure memory database, you are immediately logged in. If your email is NOT registered yet, AgentsGuardian redirects you to the 'Register' tab, pre-fills your secure Google details (including name, email, role, and a secure federated password), and guides you to complete your administrative profile setup with a single click.",
-      keywords: ['google sso', 'register with google', 'google account login', 'sign in google', 'prefill credentials', 'federated login']
-    },
-    {
       id: 'labor-config',
       category: 'financial',
       question: "How do I configure regional human labor wage benchmarks and ticket handling times?",

@@ -17,8 +17,9 @@ import CustomerOnboarding from './components/CustomerOnboarding';
 import ToastNotifier from './components/ToastNotifier';
 import GaaSAccessGate from './components/GaaSAccessGate';
 import NotificationCenter from './components/NotificationCenter';
+import UpdatePasswordModal from './components/UpdatePasswordModal';
 import { useGovernanceStore } from './store/useGovernanceStore';
-import { Sliders, Palette, ChevronDown, Check, LogOut, Users } from 'lucide-react';
+import { Sliders, Palette, ChevronDown, Check, LogOut, Users, KeyRound } from 'lucide-react';
 
 import { Policy, KillSignalEvent, DriftLogEvent, ValueMeterMetric, GoverningAgent, ApiRequestLog, Toast, AdminUser, LaborConfig } from './types';
 import { GUARANTEED_SLA_MS, generateTransactionId } from './utils';
@@ -102,6 +103,7 @@ export default function App() {
     return saved === 'light' ? 'light' : 'dark';
   });
   const [showAppearanceMenu, setShowAppearanceMenu] = useState<boolean>(false);
+  const [showUpdatePasswordModal, setShowUpdatePasswordModal] = useState<boolean>(false);
 
   useEffect(() => {
     localStorage.setItem('gaas_active_theme_v1', activeTheme);
@@ -854,6 +856,20 @@ export default function App() {
                       </span>
                     </div>
 
+                    {/* Update Administrative Password Button */}
+                    <div className="pt-2 border-t border-[#1F2E40]/50">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAppearanceMenu(false);
+                          setShowUpdatePasswordModal(true);
+                        }}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-teal-950/30 hover:bg-teal-900/40 border border-teal-500/30 hover:border-teal-500/50 text-teal-300 text-[10.5px] font-mono font-bold rounded-lg transition-all cursor-pointer transform active:scale-98"
+                      >
+                        <KeyRound size={13} className="text-teal-400" /> UPDATE ADMIN PASSWORD
+                      </button>
+                    </div>
+
                     {/* Sign Out Trigger Button */}
                     <div className="pt-2 border-t border-[#1F2E40]/55">
                       <button
@@ -993,6 +1009,14 @@ export default function App() {
 
       {/* Real-time Sentinel Toaster layer */}
       <ToastNotifier toasts={toasts} onRemoveToast={handleRemoveToast} />
+
+      {/* Account Security Password Modal */}
+      <UpdatePasswordModal
+        isOpen={showUpdatePasswordModal}
+        onClose={() => setShowUpdatePasswordModal(false)}
+        currentUser={currentUser}
+        addToast={addToast}
+      />
     </div>
   );
 }
