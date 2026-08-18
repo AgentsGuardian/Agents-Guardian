@@ -151,6 +151,32 @@
   ],
   "audit_ledger": [
     {
+      "id": "LEDGER-1787049044918-3846",
+      "message_id": "MSG-1787049044918",
+      "tenant_id": "tenant_default",
+      "agent_id": "ACTOR-USR-ADMIN-TEST",
+      "event_type": "ADMIN_INITIATED_PASSWORD_RESET",
+      "payload_hash": "adc1f8b3ccc40dbf10aa06f5c68baa9e73e0674b87bba393ffb808573d77f910",
+      "prev_hash": "GENESIS_00000000000000000000000000000000",
+      "entry_hash": "37a6e13d7e925692fbcd1bb4aa0a8a97418260d099c5e805b21a00e6807f54f5",
+      "signature": "gcp-kms-rsa4096-sig:fe3840ddcf7e514afc87ee60963456da19ddac63b43ab95a596eb5ba8e0d417c",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-18T10:30:44.918Z"
+    },
+    {
+      "id": "LEDGER-1787048982956-4467",
+      "message_id": "MSG-1787048982956",
+      "tenant_id": "tenant_default",
+      "agent_id": "ACTOR-USR-ADMIN-TEST",
+      "event_type": "ADMIN_INITIATED_PASSWORD_RESET",
+      "payload_hash": "5b3579298251a73d01907ff3510a02a5cad1fb24f1ebe9581afc8680ac4535e5",
+      "prev_hash": "GENESIS_00000000000000000000000000000000",
+      "entry_hash": "c3a654908def61adda4b424e71298234002ef42970f157831344a7cec7f9f796",
+      "signature": "gcp-kms-rsa4096-sig:552be3fd6cdeb207b52f9dc2e03c8c0bb3834e4ba33f71f3d948dd7a267c1662",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-18T10:29:42.956Z"
+    },
+    {
       "id": "LEDGER-1786299943634-1242",
       "message_id": "MSG-1786299943634",
       "tenant_id": "tenant_beta_1786299939282",

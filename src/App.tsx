@@ -920,6 +920,7 @@ export default function App() {
             policies={policies}
             onRemediateDrift={handleRemediateDrift}
             onAddDriftEvent={handleAddDriftEvent}
+            onSetDriftEvents={setDriftEvents}
             addToast={addToast}
             currentUser={currentUser}
           />

@@ -840,11 +840,24 @@ app.get('/api/ledger', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   });
 });
 
-// 7. Cognitive Drift Analyzer & Remediation
+// 7. Cognitive Drift Analyzer & Telemetry Endpoints
+app.get(['/api/drift-events', '/api/v1/drift-events', '/api/drift/events'], requireAdminAuth, (req: AuthenticatedRequest, res) => {
+  const tenantId = (req.query.tenant_id as string) || (req.query.tenantId as string) || req.tenantId || req.authUser?.tenantId || 'tenant_default';
+  const since = (req.query.since as string) || undefined;
+  const events = governanceEngine.getDriftEvents(tenantId, since);
+  res.json({
+    tenantId,
+    count: events.length,
+    driftEvents: events,
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.post('/api/drift/analyze', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   try {
     const { agentGroup, sampleLogs, ethicalStandard } = req.body;
-    const event = governanceEngine.analyzeDrift({ agentGroup, sampleLogs, ethicalStandard });
+    const tenantId = req.body.tenantId || (req.query.tenant_id as string) || req.tenantId || req.authUser?.tenantId || 'tenant_default';
+    const event = governanceEngine.analyzeDrift({ agentGroup, sampleLogs, ethicalStandard, tenantId });
     res.json(event);
   } catch (e) {
     res.status(500).json({ error: 'Drift Analysis Error' });
@@ -1286,6 +1299,84 @@ app.put('/api/users/:id', requireAdminAuth, requireRole(['SuperAdmin']), (req: A
     res.status(404).json({ error: 'User not found' });
   }
 });
+
+// Admin-Initiated User Password Reset
+const handleAdminPasswordReset = (req: AuthenticatedRequest, res: express.Response) => {
+  const { userId } = req.params;
+  const actingAdmin = req.authUser;
+  if (!actingAdmin) {
+    return res.status(401).json({ error: 'Unauthorized: Authentication required' });
+  }
+
+  const allUsers = governanceEngine.getUsers();
+  const targetUser = allUsers.find(u => u.id === userId || (u.email && u.email.toLowerCase() === userId.toLowerCase()));
+
+  if (!targetUser) {
+    return res.status(404).json({ error: `Target user '${userId}' not found` });
+  }
+
+  // Privilege separation check: Only SuperAdmin can reset another SuperAdmin's credentials
+  if (targetUser.role === 'SuperAdmin' && actingAdmin.role !== 'SuperAdmin') {
+    return res.status(403).json({ error: 'Only a SuperAdmin can initiate a password reset for a SuperAdmin account.' });
+  }
+
+  // Generate secure JWT reset token with 15m expiration
+  const resetToken = signJwt({
+    userId: targetUser.id,
+    email: targetUser.email,
+    purpose: 'admin_initiated_password_reset',
+    initiatedBy: actingAdmin.email
+  }, 900);
+
+  // Force target account into mandatory password reset requirement
+  targetUser.resetToken = resetToken;
+  targetUser.resetTokenExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  targetUser.mustResetPassword = true;
+
+  // Log Out-of-Band delivery placeholder server-side only (never return in HTTP payload)
+  console.log(`[OUT_OF_BAND_ADMIN_RESET] Admin ${actingAdmin.email} (${actingAdmin.id}) triggered password reset for ${targetUser.email} (${targetUser.id}). Token generated; user flagged mustResetPassword=true.`);
+
+  // Append tamper-evident audit ledger entry
+  governanceEngine.appendAuditLedgerEntry(
+    targetUser.tenantId || actingAdmin.tenantId || 'tenant_default',
+    `ACTOR-${actingAdmin.id}`,
+    'ADMIN_INITIATED_PASSWORD_RESET',
+    {
+      action: 'ADMIN_INITIATED_PASSWORD_RESET',
+      actingAdminId: actingAdmin.id,
+      actingAdminEmail: actingAdmin.email,
+      actingAdminRole: actingAdmin.role,
+      targetUserId: targetUser.id,
+      targetUserEmail: targetUser.email,
+      targetUserRole: targetUser.role,
+      mustResetPasswordForced: true,
+      timestamp: new Date().toISOString()
+    }
+  );
+
+  // System notification
+  governanceEngine.getState().notifications.unshift({
+    id: `notif-pwd-reset-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    type: 'info',
+    category: 'Security',
+    title: 'Admin Credential Reset Dispatched',
+    message: `Administrator ${actingAdmin.email} initiated a password reset for ${targetUser.email}. Mandatory reset enforced.`,
+    read: false,
+    targetTab: 'admin'
+  });
+
+  return res.json({
+    success: true,
+    message: `A password reset has been dispatched to ${targetUser.email}. Target account is required to reset credentials on next login.`,
+    targetUserId: targetUser.id,
+    targetUserEmail: targetUser.email,
+    mustResetPassword: true
+  });
+};
+
+app.post('/api/admin/users/:userId/reset-password', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), handleAdminPasswordReset);
+app.post('/api/v1/admin/users/:userId/reset-password', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), handleAdminPasswordReset);
 
 // 14. Onboarding Complete & State Sync
 app.post('/api/onboarding/complete', requireAdminAuth, (req: AuthenticatedRequest, res) => {

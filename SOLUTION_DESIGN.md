@@ -52,6 +52,8 @@ Synchronous pre-action authorization loop. Evaluates parsed JSON goals from agen
 
 ### Pillar 2: Cognitive Drift & Bias Auditing (Observe)
 Asynchronous reasoning layer evaluating model response patterns to detect policy or demographic drift.
+* **Real Telemetry Stream & REST Endpoints**: Authentic drift/bias telemetry polled from backend endpoint (`/api/drift-events`, `/api/v1/drift-events`) sourced from the Tier 2 semantic scan engine without synthetic client-side fabrication.
+* **Explicit Empty State & Tenant Scoping**: Clean and honest empty dashboard state ("No drift/bias events recorded yet") when zero drift events have been logged for a given tenant, preventing misleading synthetic mock representations.
 * **Lighthouse Cognitive Evaluator**: Monitors language shifts representing sentiment or demographic bias (e.g., response variance across client categories).
 * **Compliance Timeline**: Chronological record of evaluation checkpoints, drift benchmarks, and automated alignment procedures.
 
@@ -109,7 +111,8 @@ AgentsGuardian enforces zero-trust identity verification across both system admi
 * `POST /api/auth/login`: Authenticates corporate credentials against bcrypt-hashed admin passwords. Generates a signed bearer session token (`session_<user_id>`). Enforces 15-minute account lockout after 5 consecutive failed attempts.
 * `POST /api/auth/register`: Onboards new administrative identities under tenant scope.
 * `GET /api/auth/session`: Validates active session token from `Authorization: Bearer <token>` or `x-admin-session` headers.
-* `POST /api/auth/change-password`: Cryptographically verifies the existing password (or master SuperAdmin seed) and updates to a new 12+ character credential, invalidating prior sessions.
+* `POST /api/auth/change-password`: Cryptographically verifies the existing password (or master SuperAdmin seed) and updates to a new 12+ character credential for the currently authenticated session, invalidating prior sessions.
+* `POST /api/admin/users/:userId/reset-password`: Administrative credential reset endpoint gated by `requireAdminAuth` and `requireRole(['SuperAdmin', 'Admin'])`. Dispatches an out-of-band reset token to the target user's registered email without exposing tokens in the HTTP payload, sets `mustResetPassword: true` on the target account, and leaves the acting administrator's own credentials and session untouched while recording a high-severity `ADMIN_INITIATED_PASSWORD_RESET` entry in the immutable audit ledger.
 * `POST /api/auth/forgot-password`: Generates a rate-limited secure password reset keycard, logging the security dispatch event on the backend.
 * `POST /api/auth/reset-password`: Validates the one-time reset keycard and stores the new administrative password.
 * `POST /api/auth/logout`: Revokes active bearer session tokens on the server.

@@ -282,7 +282,7 @@ const AGENT_BASELINES: Record<string, { expectedDomain: string; allowedKeywords:
   }
 };
 
-class GovernanceEngineStore {
+export class GovernanceEngineStore {
   private db: GovernanceDB;
   private bypassTimers: Map<string, NodeJS.Timeout> = new Map();
   private bypassExpirations: Map<string, number> = new Map();
@@ -1168,7 +1168,21 @@ ${regoRules}
   }
 
   // --- Cognitive Drift Analyzer & Remediation ---
-  public analyzeDrift(params: { agentGroup: string; sampleLogs: string; ethicalStandard?: string }) {
+  public getDriftEvents(tenantId?: string, since?: string): DriftLogEvent[] {
+    let events = this.db.driftEvents || [];
+    if (tenantId) {
+      events = events.filter(e => e.tenantId === tenantId || (!e.tenantId && tenantId === 'tenant_default'));
+    }
+    if (since) {
+      const sinceTime = new Date(since).getTime();
+      if (!isNaN(sinceTime)) {
+        events = events.filter(e => new Date(e.timestamp).getTime() >= sinceTime);
+      }
+    }
+    return events;
+  }
+
+  public analyzeDrift(params: { agentGroup: string; sampleLogs: string; ethicalStandard?: string; tenantId?: string }) {
     const text = params.sampleLogs.toLowerCase();
     let sentimentShiftPct = 5.0;
     let cognitiveHealthScore = 95;
@@ -1186,6 +1200,7 @@ ${regoRules}
 
     const newEvent: DriftLogEvent = {
       id: `DFT-${Date.now().toString().slice(-4)}`,
+      tenantId: params.tenantId || 'tenant_default',
       timestamp: new Date().toISOString(),
       agentGroup: params.agentGroup || 'General Agent Cluster',
       ethicalStandard: params.ethicalStandard || 'Ethics Guidelines v1.4',

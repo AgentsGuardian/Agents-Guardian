@@ -1642,7 +1642,7 @@ export default function AdminPillar({
                       }}
                       className="px-3 py-1.5 rounded text-xs font-bold border cursor-pointer transition-colors bg-teal-950/40 hover:bg-teal-900/60 text-teal-300 border-teal-500/40 flex items-center gap-1.5"
                     >
-                      <KeyRound size={12} /> Update Password
+                      <KeyRound size={12} /> Reset Password
                     </button>
 
                     <button
@@ -1735,12 +1735,13 @@ export default function AdminPillar({
         ]}
       />
 
-      {/* Admin Password Re-Keying Modal */}
+      {/* Admin Password Re-Keying / Reset Modal */}
       {passwordTargetUser && (
         <UpdatePasswordModal
           isOpen={Boolean(passwordTargetUser)}
           onClose={() => setPasswordTargetUser(null)}
-          currentUser={passwordTargetUser}
+          currentUser={currentUser}
+          targetUser={passwordTargetUser}
           addToast={addToast}
         />
       )}

@@ -23,6 +23,7 @@ interface ObservePillarProps {
   policies: Policy[];
   onRemediateDrift: (id: string) => void;
   onAddDriftEvent: (newEvent: DriftLogEvent) => void;
+  onSetDriftEvents?: (events: DriftLogEvent[]) => void;
   addToast?: (t: { type: 'danger' | 'warning' | 'info' | 'success'; title: string; message: string; duration?: number }) => void;
   currentUser?: AdminUser;
 }
@@ -62,7 +63,7 @@ const MetricTooltip = ({ active, payload }: any) => {
   return null;
 };
 
-export default function ObservePillar({ driftEvents, policies, onRemediateDrift, onAddDriftEvent, addToast, currentUser }: ObservePillarProps) {
+export default function ObservePillar({ driftEvents, policies, onRemediateDrift, onAddDriftEvent, onSetDriftEvents, addToast, currentUser }: ObservePillarProps) {
   const [selectedStandard, setSelectedStandard] = useState<string>('Ethics Guidelines v1.4 (Fairness Standard)');
   const [customPromptText, setCustomPromptText] = useState<string>('The agent must treat customer inquiries from all income tiers and metropolitan zones with consistent warm, passive-helpful tones, following direct brand sentiment alignment regulations.');
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -72,50 +73,49 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
   // Auto-Refresh select interval state
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | 'off'>(30000);
 
-  // Auto-Refresh cognitive sentinel health log simulator
+  // Polling connection to real backend drift/bias telemetry (no synthetic client-side fabrication)
   useEffect(() => {
     if (autoRefreshInterval === 'off') return;
 
-    const intervalId = setInterval(() => {
-      // Pick random parameters
-      const agentGroups = ['Finance-Planner-CrewAI', 'Customer-Relations-Bot', 'Llama-Support-Cluster', 'Risk-Assessor-DeepSeek'];
-      const matchingStandards = [
-        'Ethics Guidelines v1.4 (Fairness Standard)',
-        'Brand Tone Alignment standard v3',
-        'Legal Regulatory Compliance directive v4.2'
-      ];
-      
-      const randomGroup = agentGroups[Math.floor(Math.random() * agentGroups.length)];
-      const randomStandard = matchingStandards[Math.floor(Math.random() * matchingStandards.length)];
-      
-      // Usually healthy score (e.g. 94-99) or occasionally a tiny drift warning
-      const isHealthy = Math.random() > 0.15; 
-      const score = isHealthy ? Math.floor(Math.random() * 6) + 94 : Math.floor(Math.random() * 8) + 80;
-      const deviation = isHealthy ? (Math.random() * 3 + 1).toFixed(1) : (Math.random() * 7 + 10).toFixed(1);
-      const status = score < 85 ? 'WARNING' : 'NORMAL';
+    const fetchRealTelemetry = async () => {
+      try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('ag_session_token') : null;
+        const userEmail = currentUser?.email || 'admin@enterprise.com';
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'X-User-Email': userEmail,
+          ...(token ? { 'Authorization': `Bearer ${token}` } : { 'Authorization': `Bearer session_${currentUser?.id || 'USR-001'}` })
+        };
+        const res = await fetch('/api/drift-events', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.driftEvents) && onSetDriftEvents) {
+            onSetDriftEvents(data.driftEvents);
+          }
+        }
+      } catch (err) {
+        console.warn('[ObservePillar] Real telemetry polling error:', err);
+      }
+    };
 
-      const draftId = `DFT-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-      const newEvent: DriftLogEvent = {
-        id: draftId,
-        timestamp: new Date().toISOString(),
-        agentGroup: randomGroup,
-        ethicalStandard: randomStandard,
-        sentimentShiftPct: Number(deviation),
-        cognitiveHealthScore: score,
-        status: status as 'NORMAL' | 'WARNING' | 'CRITICAL',
-        logsDetails: isHealthy 
-          ? `Linguistic scan completes nominally. Bot reasoning remains closely aligned to ${randomStandard} with a healthy score of ${score}/100.`
-          : `Mild drift detected: Sentinel discovers a minor ${deviation}% shift away from neutral, patient agent tone guidelines. Registered under ${randomStandard}.`
-      };
-
-      onAddDriftEvent(newEvent);
-    }, autoRefreshInterval);
-
+    const intervalId = setInterval(fetchRealTelemetry, autoRefreshInterval);
     return () => clearInterval(intervalId);
-  }, [autoRefreshInterval, onAddDriftEvent]);
+  }, [autoRefreshInterval, onSetDriftEvents, currentUser]);
 
-  // Generate historical chart data dynamically based on the current drift events state!
+  // Generate historical chart data dynamically based on the current real drift events state
   const chartData = useMemo(() => {
+    // If no drift events recorded yet, provide a pristine nominal baseline
+    if (!driftEvents || driftEvents.length === 0) {
+      return [
+        { name: 'Day 1', score: 100, deviation: 0, status: 'Nominal Baseline' },
+        { name: 'Day 15', score: 100, deviation: 0, status: 'Nominal Baseline' },
+        { name: 'Day 30', score: 100, deviation: 0, status: 'Nominal Baseline' },
+        { name: 'Day 45', score: 100, deviation: 0, status: 'Nominal Baseline' },
+        { name: 'Day 60', score: 100, deviation: 0, status: 'Nominal Baseline' },
+        { name: 'Current', score: 100, deviation: 0, status: 'Nominal Baseline' }
+      ];
+    }
+
     // Start with a stable baseline representation
     const baseline = [
       { name: 'Day 1', score: 98, deviation: 2, status: 'Healthy stable state' },
@@ -623,80 +623,93 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
         subtitle="Captures linguistic anomalies across custom bots"
         className="p-6 bg-[#162030] border border-[#1F2E40] rounded-xl"
       >
-
-        <div className="space-y-4">
-          {driftEvents.map((event) => (
-            <div 
-              key={event.id}
-              className={`p-4 rounded-lg bg-[#0D1B2A] border transition-all ${event.status === 'CRITICAL' ? 'border-[#E24B4A]/50 bg-[#E24B4A]/5' : 'border-[#1F2E40]'}`}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-4 mb-3 text-xs">
-                <div className="flex items-center gap-3">
-                  <span className="px-2 py-0.5 text-[10px] font-mono bg-[#162030] text-[#8B9BAA] border border-[#1F2E40] font-bold rounded">
-                    {event.id}
-                  </span>
-                  <div>
-                    <span className="font-display font-semibold text-slate-200 text-sm block">
-                      {event.agentGroup}
-                    </span>
-                    <span className="text-[10px] text-[#556070] font-mono block">
-                      Audited under: {event.ethicalStandard}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 font-mono">
-                  <div className="text-right">
-                    <span className="text-[#556070] block text-[9.5px]">SENTIMENT DRIFT</span>
-                    <span className={`font-bold block ${event.status === 'CRITICAL' ? 'text-[#E24B4A]' : event.status === 'WARNING' ? 'text-[#EF9F27]' : 'text-[#1D9E75]'}`}>
-                      {event.sentimentShiftPct}% Shift
-                    </span>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="text-[#556070] block text-[9.5px]">COGNITIVE HEALTH</span>
-                    <span className="font-bold text-slate-200 block">
-                      {event.cognitiveHealthScore}/100
-                    </span>
-                  </div>
-
-                  <span className={`text-[10px] font-bold uppercase border px-2 py-0.5 rounded ${
-                    event.status === 'CRITICAL' 
-                      ? 'bg-[#E24B4A]/10 text-[#E24B4A] border-[#E24B4A]/30 animate-pulse' 
-                      : event.status === 'WARNING' 
-                        ? 'bg-[#EF9F27]/10 text-[#EF9F27] border-[#EF9F27]/30' 
-                        : 'bg-[#1D9E75]/10 text-[#1D9E75] border-[#1D9E75]/30'
-                  }`}>
-                    {event.status}
-                  </span>
-                </div>
-              </div>
-
-              <div className="p-3 bg-[#162030]/80 border border-[#1F2E40] rounded font-mono text-[11px] text-[#8B9BAA] leading-relaxed mb-3">
-                {event.logsDetails}
-              </div>
-
-              <div className="flex items-center justify-between font-mono text-[11px]">
-                <span className="text-[#556070]">
-                  Logged: {new Date(event.timestamp).toLocaleDateString()} at {new Date(event.timestamp).toLocaleTimeString()}
-                </span>
-
-                {event.remedatedAt ? (
-                  <span className="text-[#1D9E75] font-semibold flex items-center gap-1">
-                    <CheckCircle size={12} /> Model Retrained ({new Date(event.remedatedAt).toLocaleTimeString([], { hour12: false })})
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => handleRemediateDrift(event.id)}
-                    className="px-3 py-1 bg-[#1D9E75]/10 hover:bg-[#1D9E75] hover:text-[#0D1B2A] text-[#1D9E75] border border-[#1D9E75]/30 text-xs rounded font-bold transition flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <RefreshCw size={12} /> Dispatch Remediation (Trigger Model Retraining)
-                  </button>
-                )}
-              </div>
+        {driftEvents.length === 0 ? (
+          <div className="p-8 rounded-lg bg-[#0D1B2A] border border-dashed border-[#1F2E40] text-center space-y-3" id="observe-empty-state">
+            <div className="w-12 h-12 mx-auto rounded-full bg-[#162030] border border-[#1F2E40] flex items-center justify-center text-[#556070]">
+              <Activity size={22} />
             </div>
-          ))}
-        </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-display font-semibold text-slate-300">No drift/bias events recorded yet</h4>
+              <p className="text-xs font-mono text-[#8B9BAA] max-w-md mx-auto leading-relaxed">
+                Cognitive health and demographic sentiment monitoring is active. Telemetry will automatically appear here once agents process live traffic or when an audit scan is triggered.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {driftEvents.map((event) => (
+              <div 
+                key={event.id}
+                className={`p-4 rounded-lg bg-[#0D1B2A] border transition-all ${event.status === 'CRITICAL' ? 'border-[#E24B4A]/50 bg-[#E24B4A]/5' : 'border-[#1F2E40]'}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-3 text-xs">
+                  <div className="flex items-center gap-3">
+                    <span className="px-2 py-0.5 text-[10px] font-mono bg-[#162030] text-[#8B9BAA] border border-[#1F2E40] font-bold rounded">
+                      {event.id}
+                    </span>
+                    <div>
+                      <span className="font-display font-semibold text-slate-200 text-sm block">
+                        {event.agentGroup}
+                      </span>
+                      <span className="text-[10px] text-[#556070] font-mono block">
+                        Audited under: {event.ethicalStandard}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 font-mono">
+                    <div className="text-right">
+                      <span className="text-[#556070] block text-[9.5px]">SENTIMENT DRIFT</span>
+                      <span className={`font-bold block ${event.status === 'CRITICAL' ? 'text-[#E24B4A]' : event.status === 'WARNING' ? 'text-[#EF9F27]' : 'text-[#1D9E75]'}`}>
+                        {event.sentimentShiftPct}% Shift
+                      </span>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-[#556070] block text-[9.5px]">COGNITIVE HEALTH</span>
+                      <span className="font-bold text-slate-200 block">
+                        {event.cognitiveHealthScore}/100
+                      </span>
+                    </div>
+
+                    <span className={`text-[10px] font-bold uppercase border px-2 py-0.5 rounded ${
+                      event.status === 'CRITICAL' 
+                        ? 'bg-[#E24B4A]/10 text-[#E24B4A] border-[#E24B4A]/30 animate-pulse' 
+                        : event.status === 'WARNING' 
+                          ? 'bg-[#EF9F27]/10 text-[#EF9F27] border-[#EF9F27]/30' 
+                          : 'bg-[#1D9E75]/10 text-[#1D9E75] border-[#1D9E75]/30'
+                    }`}>
+                      {event.status}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-[#162030]/80 border border-[#1F2E40] rounded font-mono text-[11px] text-[#8B9BAA] leading-relaxed mb-3">
+                  {event.logsDetails}
+                </div>
+
+                <div className="flex items-center justify-between font-mono text-[11px]">
+                  <span className="text-[#556070]">
+                    Logged: {new Date(event.timestamp).toLocaleDateString()} at {new Date(event.timestamp).toLocaleTimeString()}
+                  </span>
+
+                  {event.remedatedAt ? (
+                    <span className="text-[#1D9E75] font-semibold flex items-center gap-1">
+                      <CheckCircle size={12} /> Model Retrained ({new Date(event.remedatedAt).toLocaleTimeString([], { hour12: false })})
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => handleRemediateDrift(event.id)}
+                      className="px-3 py-1 bg-[#1D9E75]/10 hover:bg-[#1D9E75] hover:text-[#0D1B2A] text-[#1D9E75] border border-[#1D9E75]/30 text-xs rounded font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <RefreshCw size={12} /> Dispatch Remediation (Trigger Model Retraining)
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </CollapsibleSection>
     </div>
   );
