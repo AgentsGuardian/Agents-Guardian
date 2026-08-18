@@ -232,11 +232,12 @@ Telemetry: Heartbeat recorded in Observability Stream
 Budget Cap Status: OK ($${budgetCap}.00 remaining)`);
         setIsVerified(true);
         if (setGovernanceMode) setGovernanceMode('active');
+        const token = typeof window !== 'undefined' ? (localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token')) : null;
         fetch('/api/onboarding/complete', {
           method: 'POST',
           headers: {
-            'X-User-Email': currentUser?.email || 'admin@enterprise.com',
-            'Authorization': `Bearer session_${currentUser?.id || 'USR-001'}`
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
           }
         }).catch(e => console.warn(e));
         addToast({

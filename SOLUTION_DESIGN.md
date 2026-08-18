@@ -108,7 +108,7 @@ src/
 AgentsGuardian enforces zero-trust identity verification across both system administrators and agent workloads:
 
 ### 4.1 Authentication Endpoints (`/api/auth/*`)
-* `POST /api/auth/login`: Authenticates corporate credentials against bcrypt-hashed admin passwords. Generates a signed bearer session token (`session_<user_id>`). Enforces 15-minute account lockout after 5 consecutive failed attempts.
+* `POST /api/auth/login`: Authenticates corporate credentials against bcrypt-hashed admin passwords. Generates a signed JWT bearer session token. Enforces 15-minute account lockout after 5 consecutive failed attempts.
 * `POST /api/auth/register`: Onboards new administrative identities under tenant scope.
 * `GET /api/auth/session`: Validates active session token from `Authorization: Bearer <token>` or `x-admin-session` headers.
 * `POST /api/auth/change-password`: Cryptographically verifies the existing password (or master SuperAdmin seed) and updates to a new 12+ character credential for the currently authenticated session, invalidating prior sessions.

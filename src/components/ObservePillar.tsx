@@ -79,12 +79,11 @@ export default function ObservePillar({ driftEvents, policies, onRemediateDrift,
 
     const fetchRealTelemetry = async () => {
       try {
-        const token = typeof window !== 'undefined' ? localStorage.getItem('ag_session_token') : null;
-        const userEmail = currentUser?.email || 'admin@enterprise.com';
+        const token = typeof window !== 'undefined' ? (localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token')) : null;
+        if (!token) return; // Do not construct fake credentials or fire unauthenticated requests
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
-          'X-User-Email': userEmail,
-          ...(token ? { 'Authorization': `Bearer ${token}` } : { 'Authorization': `Bearer session_${currentUser?.id || 'USR-001'}` })
+          'Authorization': `Bearer ${token}`
         };
         const res = await fetch('/api/drift-events', { headers });
         if (res.ok) {

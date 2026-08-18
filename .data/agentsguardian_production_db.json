@@ -151,6 +151,19 @@
   ],
   "audit_ledger": [
     {
+      "id": "LEDGER-1787073492069-4099",
+      "message_id": "MSG-1787073492069",
+      "tenant_id": "tenant_default",
+      "agent_id": "ACTOR-USR-ADMIN-TEST",
+      "event_type": "ADMIN_INITIATED_PASSWORD_RESET",
+      "payload_hash": "98e5ee2dfcde3558f2ee07313756c3c8c9edc6d43f39c2473cb4c3b806ca9cd5",
+      "prev_hash": "GENESIS_00000000000000000000000000000000",
+      "entry_hash": "caa107276199f7df574be7545b0fc02db576d1967e31e24a47f0951b91432c96",
+      "signature": "gcp-kms-rsa4096-sig:01edad5cc300d51b8fba22823a9f0162051b1eea661507e927a0c759f34d26a5",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-08-18T17:18:12.069Z"
+    },
+    {
       "id": "LEDGER-1787049044918-3846",
       "message_id": "MSG-1787049044918",
       "tenant_id": "tenant_default",

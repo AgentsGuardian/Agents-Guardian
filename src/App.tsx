@@ -237,11 +237,13 @@ export default function App() {
   const [budgetCap, setBudgetCap] = useState<number>(50);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
-  const getAuthHeaders = () => ({
-    'X-User-Email': currentUser?.email || 'admin@enterprise.com',
-    'Authorization': `Bearer session_${currentUser?.id || 'USR-001'}`,
-    'Content-Type': 'application/json'
-  });
+  const getAuthHeaders = () => {
+    const token = typeof window !== 'undefined' ? (localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token')) : null;
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
 
   const handleUpdateLaborConfig = (newConfig: LaborConfig) => {
     updateLaborConfig(newConfig);

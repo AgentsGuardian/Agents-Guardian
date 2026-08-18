@@ -58,7 +58,7 @@ export default function UpdatePasswordModal({
     setError('');
     setSuccessMessage('');
 
-    const sessionToken = localStorage.getItem('gaas_admin_token') || sessionStorage.getItem('gaas_admin_token') || '';
+    const sessionToken = localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token') || '';
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     };
