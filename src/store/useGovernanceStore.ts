@@ -6,7 +6,8 @@ import {
   ValueMeterMetric, 
   GoverningAgent, 
   AdminUser, 
-  LaborConfig 
+  LaborConfig,
+  AdminRole 
 } from '../types';
 
 import { generateTransactionId } from '../utils';
@@ -29,7 +30,12 @@ export function useGovernanceStore() {
   const [valueMetrics, setValueMetrics] = useState<ValueMeterMetric[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [actingUserId, setActingUserId] = useState<string>('USR-001');
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return Boolean(localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token'));
+    }
+    return false;
+  });
   const [governedAgents, setGovernedAgents] = useState<GoverningAgent[]>([]);
   const [laborConfig, setLaborConfig] = useState<LaborConfig>({
     l1Rate: 35,
@@ -42,24 +48,37 @@ export function useGovernanceStore() {
   const [governanceMode, setGovernanceModeState] = useState<'setup' | 'active'>('active');
   const [disableAlertsGlobally, setDisableAlertsGlobally] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [impersonatedRole, setImpersonatedRole] = useState<AdminRole | null>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = sessionStorage.getItem('ag_impersonated_role');
+      if (stored && ['SuperAdmin', 'Admin', 'PolicyManager', 'Operator', 'Auditor'].includes(stored)) {
+        return stored as AdminRole;
+      }
+    }
+    return null;
+  });
 
-  // Derived current user
-  const currentUser = useMemo(() => {
+  // Derived real current user: returns the matched authenticated user or first active user, or null
+  const currentUser = useMemo<AdminUser | null>(() => {
     const found = users.find(u => u.id === actingUserId || u.email.toLowerCase().trim() === actingUserId.toLowerCase().trim());
     if (found) return found;
-    return users.find(u => u.status === 'ACTIVE') || {
-      id: 'USR-001',
-      name: 'Mritunjoy Singh',
-      email: 'mritunjoysingh@gmail.com',
-      role: 'SuperAdmin',
-      status: 'ACTIVE',
-      mfaEnabled: true,
-      lastLogin: 'Active Session'
-    };
+    return users.find(u => u.status === 'ACTIVE') || null;
   }, [users, actingUserId]);
 
+  // Derived effective user: UI preview persona when impersonation is active, real user otherwise
+  const effectiveUser = useMemo<AdminUser | null>(() => {
+    if (!currentUser) return null;
+    if (impersonatedRole) {
+      return {
+        ...currentUser,
+        role: impersonatedRole
+      };
+    }
+    return currentUser;
+  }, [currentUser, impersonatedRole]);
+
   const getAuthHeaders = useCallback(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('ag_session_token') : null;
+    const token = typeof window !== 'undefined' ? (localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token')) : null;
     return {
       'Content-Type': 'application/json',
       'Authorization': token ? `Bearer ${token}` : ''
@@ -70,64 +89,32 @@ export function useGovernanceStore() {
   const refreshState = useCallback(async () => {
     try {
       setIsLoading(true);
-      let token = typeof window !== 'undefined' ? localStorage.getItem('ag_session_token') : null;
+      const token = typeof window !== 'undefined' ? (localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token')) : null;
       if (!token) {
-        // Auto-bootstrap active session token if absent
-        const authRes = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: 'mritunjoysingh@gmail.com', password: 'admin123' })
-        });
-        if (authRes.ok) {
-          const authData = await authRes.json();
-          if (authData.token) {
-            token = authData.token;
-            localStorage.setItem('ag_session_token', token);
-          }
-        }
+        setIsLoggedIn(false);
+        setIsLoading(false);
+        return;
       }
 
       const res = await fetch('/api/state', {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
+          'Authorization': `Bearer ${token}`
         }
       });
-      if (!res.ok && res.status === 401) {
-        // Token expired or invalid, retry login
-        const reAuthRes = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: 'mritunjoysingh@gmail.com', password: 'admin123' })
-        });
-        if (reAuthRes.ok) {
-          const reAuthData = await reAuthRes.json();
-          if (reAuthData.token) {
-            localStorage.setItem('ag_session_token', reAuthData.token);
-            const retryRes = await fetch('/api/state', {
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${reAuthData.token}`
-              }
-            });
-            if (retryRes.ok) {
-              const retryData = await retryRes.json();
-              if (retryData.policies) setPolicies(retryData.policies);
-              if (retryData.killEvents) setKillEvents(retryData.killEvents);
-              if (retryData.driftEvents) setDriftEvents(retryData.driftEvents);
-              if (retryData.valueMetrics) setValueMetrics(retryData.valueMetrics);
-              if (retryData.users) setUsers(retryData.users);
-              if (retryData.governedAgents) setGovernedAgents(retryData.governedAgents);
-              if (retryData.laborConfig) setLaborConfig(retryData.laborConfig);
-              if (retryData.notifications) setNotifications(retryData.notifications);
-              if (retryData.governanceMode) setGovernanceModeState(retryData.governanceMode);
-            }
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          // Token expired or invalid: clear session token and transition to unauthenticated state
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('ag_session_token');
+            sessionStorage.removeItem('ag_session_token');
           }
+          setIsLoggedIn(false);
         }
         return;
       }
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (data.policies) setPolicies(data.policies);
       if (data.killEvents) setKillEvents(data.killEvents);
@@ -138,6 +125,7 @@ export function useGovernanceStore() {
       if (data.laborConfig) setLaborConfig(data.laborConfig);
       if (data.notifications) setNotifications(data.notifications);
       if (data.governanceMode) setGovernanceModeState(data.governanceMode);
+      setIsLoggedIn(true);
     } catch (err) {
       console.warn('[GovernanceStore] Admin API state sync error:', err);
     } finally {
@@ -304,6 +292,49 @@ export function useGovernanceStore() {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
   }, []);
 
+  const startImpersonation = useCallback(async (targetRole: AdminRole) => {
+    try {
+      const res = await fetch('/api/impersonation/start', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ targetRole })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `Failed to start role impersonation (HTTP ${res.status})`);
+      }
+      setImpersonatedRole(targetRole);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('ag_impersonated_role', targetRole);
+      }
+      return { success: true, impersonatedRole: targetRole, message: data.message };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to start role impersonation' };
+    }
+  }, [getAuthHeaders]);
+
+  const stopImpersonation = useCallback(async () => {
+    try {
+      const prev = impersonatedRole;
+      await fetch('/api/impersonation/stop', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ previousRole: prev })
+      });
+      setImpersonatedRole(null);
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('ag_impersonated_role');
+      }
+      return { success: true };
+    } catch (err: any) {
+      setImpersonatedRole(null);
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('ag_impersonated_role');
+      }
+      return { success: false, error: err.message || 'Failed to stop impersonation cleanly' };
+    }
+  }, [getAuthHeaders, impersonatedRole]);
+
   return {
     policies,
     setPolicies,
@@ -330,6 +361,10 @@ export function useGovernanceStore() {
     governanceMode,
     setGovernanceMode,
     currentUser,
+    effectiveUser,
+    impersonatedRole,
+    startImpersonation,
+    stopImpersonation,
     isLoading,
     refreshState,
     addPolicy,

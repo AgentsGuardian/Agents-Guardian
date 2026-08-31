@@ -1378,6 +1378,237 @@ const handleAdminPasswordReset = (req: AuthenticatedRequest, res: express.Respon
 app.post('/api/admin/users/:userId/reset-password', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), handleAdminPasswordReset);
 app.post('/api/v1/admin/users/:userId/reset-password', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), handleAdminPasswordReset);
 
+// =========================================================================
+// 13B. SCOPED ROLE IMPERSONATION / "VIEW AS" PREVIEW ENGINE (SUPERADMIN/ADMIN ONLY)
+// =========================================================================
+// Strict Security Principle: Impersonation alters UI display, NEVER backend authorization.
+// Real mutating calls continue to validate against verified req.authUser in JWT.
+
+const handleGetAvailableImpersonationRoles = (req: AuthenticatedRequest, res: express.Response) => {
+  const realUser = req.authUser;
+  if (!realUser) {
+    return res.status(401).json({ error: 'Unauthorized: Authentication required' });
+  }
+
+  if (realUser.role !== 'SuperAdmin' && realUser.role !== 'Admin') {
+    return res.status(403).json({
+      error: `Forbidden: Role '${realUser.role}' cannot access role impersonation controls.`
+    });
+  }
+
+  const availableRoles = realUser.role === 'SuperAdmin'
+    ? ['Admin', 'PolicyManager', 'Operator', 'Auditor']
+    : ['PolicyManager', 'Operator', 'Auditor'];
+
+  return res.json({
+    success: true,
+    realRole: realUser.role,
+    availableRoles
+  });
+};
+
+const handleStartImpersonation = (req: AuthenticatedRequest, res: express.Response) => {
+  const realUser = req.authUser;
+  if (!realUser) {
+    return res.status(401).json({ error: 'Unauthorized: Authentication required' });
+  }
+
+  // 1. Gated strictly to SuperAdmin and Admin
+  if (realUser.role !== 'SuperAdmin' && realUser.role !== 'Admin') {
+    return res.status(403).json({
+      error: `Forbidden: Insufficient privileges. Role '${realUser.role}' cannot initiate role impersonation.`
+    });
+  }
+
+  const { targetRole } = req.body || {};
+  if (!targetRole || typeof targetRole !== 'string') {
+    return res.status(400).json({ error: 'Missing or invalid targetRole parameter' });
+  }
+
+  const allowedForAdmin = ['PolicyManager', 'Operator', 'Auditor'];
+  const allowedForSuperAdmin = ['Admin', 'PolicyManager', 'Operator', 'Auditor'];
+
+  // 2. Enforce privilege bounds server-side
+  if (realUser.role === 'Admin') {
+    if (targetRole === 'SuperAdmin' || targetRole === 'Admin') {
+      return res.status(403).json({
+        error: `Forbidden: Administrators may only impersonate lower-privileged roles (${allowedForAdmin.join(', ')}). Escalation or lateral Admin impersonation is prohibited.`
+      });
+    }
+    if (!allowedForAdmin.includes(targetRole)) {
+      return res.status(400).json({
+        error: `Invalid target role '${targetRole}'. Allowed roles for Admin: ${allowedForAdmin.join(', ')}`
+      });
+    }
+  } else if (realUser.role === 'SuperAdmin') {
+    if (targetRole === 'SuperAdmin') {
+      return res.status(400).json({
+        error: 'Target role cannot be SuperAdmin (already active authenticated identity).'
+      });
+    }
+    if (!allowedForSuperAdmin.includes(targetRole)) {
+      return res.status(400).json({
+        error: `Invalid target role '${targetRole}'. Allowed roles for SuperAdmin: ${allowedForSuperAdmin.join(', ')}`
+      });
+    }
+  }
+
+  // 3. Append to cryptographic tamper-evident audit ledger
+  governanceEngine.appendAuditLedgerEntry(
+    realUser.tenantId || 'tenant_default',
+    `ACTOR-${realUser.id}`,
+    'ROLE_IMPERSONATION_STARTED',
+    {
+      action: 'ROLE_IMPERSONATION_STARTED',
+      realActorId: realUser.id,
+      realActorEmail: realUser.email,
+      realActorRole: realUser.role,
+      impersonatedRole: targetRole,
+      timestamp: new Date().toISOString()
+    }
+  );
+
+  // 4. Record system notification
+  governanceEngine.getState().notifications.unshift({
+    id: `notif-imp-start-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    type: 'info',
+    category: 'Security',
+    title: 'Role Preview / Impersonation Started',
+    message: `Administrator ${realUser.email} (${realUser.role}) initiated view-only impersonation as ${targetRole}. Authorization strictly preserved under ${realUser.role}.`,
+    read: false,
+    targetTab: 'admin'
+  });
+
+  return res.json({
+    success: true,
+    impersonatedRole: targetRole,
+    realUser: {
+      id: realUser.id,
+      name: realUser.name,
+      email: realUser.email,
+      role: realUser.role
+    },
+    message: `View-only preview activated as ${targetRole}. Real authorization preserved under ${realUser.role}.`
+  });
+};
+
+const handleStopImpersonation = (req: AuthenticatedRequest, res: express.Response) => {
+  const realUser = req.authUser;
+  if (!realUser) {
+    return res.status(401).json({ error: 'Unauthorized: Authentication required' });
+  }
+
+  if (realUser.role !== 'SuperAdmin' && realUser.role !== 'Admin') {
+    return res.status(403).json({
+      error: `Forbidden: Insufficient privileges. Role '${realUser.role}' cannot manage role impersonation.`
+    });
+  }
+
+  const previousRole = req.body?.previousRole || 'UNKNOWN';
+
+  governanceEngine.appendAuditLedgerEntry(
+    realUser.tenantId || 'tenant_default',
+    `ACTOR-${realUser.id}`,
+    'ROLE_IMPERSONATION_ENDED',
+    {
+      action: 'ROLE_IMPERSONATION_ENDED',
+      realActorId: realUser.id,
+      realActorEmail: realUser.email,
+      realActorRole: realUser.role,
+      previousImpersonatedRole: previousRole,
+      timestamp: new Date().toISOString()
+    }
+  );
+
+  governanceEngine.getState().notifications.unshift({
+    id: `notif-imp-stop-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    type: 'info',
+    category: 'Security',
+    title: 'Role Preview / Impersonation Exited',
+    message: `Administrator ${realUser.email} (${realUser.role}) exited preview mode and restored standard administrative view.`,
+    read: false,
+    targetTab: 'admin'
+  });
+
+  return res.json({
+    success: true,
+    message: 'Role impersonation ended. Full administrative view restored.'
+  });
+};
+
+const handleImpersonationTestAction = (req: AuthenticatedRequest, res: express.Response) => {
+  const realUser = req.authUser;
+  if (!realUser) {
+    return res.status(401).json({ error: 'Unauthorized: Authentication required' });
+  }
+
+  if (realUser.role !== 'SuperAdmin' && realUser.role !== 'Admin') {
+    return res.status(403).json({ error: 'Forbidden: Insufficient privileges.' });
+  }
+
+  const { targetRole, simulatedAction } = req.body || {};
+  
+  // Impersonation test actions CANNOT perform irreversible or sensitive mutations
+  const destructiveActions不易 = ['DELETE_POLICY', 'DELETE_USER', 'RESET_CREDENTIALS', 'MODIFY_SETTINGS', 'CHARGE_BILLING'];
+  if (destructiveActions不易.includes(simulatedAction)) {
+    return res.status(400).json({
+      allowed: false,
+      error: `Simulation block: Destructive action '${simulatedAction}' cannot be executed in preview test mode. Read-only preview only.`
+    });
+  }
+
+  const permissionsMap: Record<string, string[]> = {
+    SuperAdmin: ['VIEW_DASHBOARD', 'VIEW_KILL_EVENTS', 'VIEW_DRIFT', 'VIEW_VALUE_METER', 'VIEW_POLICIES', 'VIEW_ADMIN_IAM'],
+    Admin: ['VIEW_DASHBOARD', 'VIEW_KILL_EVENTS', 'VIEW_DRIFT', 'VIEW_VALUE_METER', 'VIEW_POLICIES', 'VIEW_ADMIN_IAM'],
+    PolicyManager: ['VIEW_DASHBOARD', 'VIEW_KILL_EVENTS', 'VIEW_DRIFT', 'VIEW_POLICIES'],
+    Operator: ['VIEW_DASHBOARD', 'VIEW_KILL_EVENTS', 'VIEW_DRIFT'],
+    Auditor: ['VIEW_DASHBOARD', 'VIEW_DRIFT', 'VIEW_AUDIT_LOGS']
+  };
+
+  const allowedForTarget = (permissionsMap[targetRole] || []).includes(simulatedAction);
+
+  governanceEngine.appendAuditLedgerEntry(
+    realUser.tenantId || 'tenant_default',
+    `ACTOR-${realUser.id}`,
+    'IMPERSONATION_TEST_ACTION_EVALUATED',
+    {
+      action: 'IMPERSONATION_TEST_ACTION_EVALUATED',
+      realActorId: realUser.id,
+      realActorEmail: realUser.email,
+      realActorRole: realUser.role,
+      targetRole,
+      simulatedAction,
+      result: allowedForTarget ? 'PERMITTED_IN_PREVIEW' : 'DENIED_IN_PREVIEW',
+      timestamp: new Date().toISOString()
+    }
+  );
+
+  return res.json({
+    success: true,
+    realActor: { id: realUser.id, email: realUser.email, role: realUser.role },
+    targetRole,
+    simulatedAction,
+    allowed: allowedForTarget,
+    reason: allowedForTarget 
+      ? `Action '${simulatedAction}' is permitted for preview role ${targetRole}.`
+      : `Action '${simulatedAction}' is restricted for preview role ${targetRole}.`
+  });
+};
+
+app.get('/api/impersonation/available-roles', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), handleGetAvailableImpersonationRoles);
+app.get('/api/v1/impersonation/available-roles', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), handleGetAvailableImpersonationRoles);
+
+app.post('/api/impersonation/start', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), handleStartImpersonation);
+app.post('/api/v1/impersonation/start', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), handleStartImpersonation);
+
+app.post('/api/impersonation/stop', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), handleStopImpersonation);
+app.post('/api/v1/impersonation/stop', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), handleStopImpersonation);
+
+app.post('/api/impersonation/test-action', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), handleImpersonationTestAction);
+app.post('/api/v1/impersonation/test-action', requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), handleImpersonationTestAction);
+
 // 14. Onboarding Complete & State Sync
 app.post('/api/onboarding/complete', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   const state = governanceEngine.getState();

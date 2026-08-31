@@ -16,6 +16,10 @@ import UpdatePasswordModal from './UpdatePasswordModal';
 
 interface AdminPillarProps {
   currentUser: AdminUser;
+  realUser?: AdminUser | null;
+  impersonatedRole?: AdminRole | null;
+  onStartImpersonation?: (targetRole: AdminRole) => Promise<{ success: boolean; error?: string }>;
+  onStopImpersonation?: () => Promise<{ success: boolean; error?: string }>;
   users: AdminUser[];
   setUsers: React.Dispatch<React.SetStateAction<AdminUser[]>>;
   addToast: (t: { type: 'danger' | 'warning' | 'info' | 'success'; title: string; message: string; duration?: number }) => void;
@@ -33,6 +37,10 @@ const INITIAL_PERMISSIONS: RolePermission[] = [
 
 export default function AdminPillar({ 
   currentUser,
+  realUser,
+  impersonatedRole,
+  onStartImpersonation,
+  onStopImpersonation,
   users,
   setUsers,
   addToast, 
@@ -52,10 +60,6 @@ export default function AdminPillar({
 
   // Inline Form Error State
   const [createUserError, setCreateUserError] = useState<{ name?: string; email?: string } | null>(null);
-
-  const isDevelopmentTeam = (email: string) => {
-    return email.toLowerCase().trim() === 'mritunjoysingh@gmail.com';
-  };
 
   const currentRolePerms = permissions.find(p => p.role === currentUser.role) || {
     configureKillSwitch: false,
@@ -123,33 +127,13 @@ export default function AdminPillar({
       return;
     }
 
-    // The admin and Super Admin role can only be given by the Super Admin
+    // The admin and Super Admin role can only be given by a Super Admin
     if (newRole === 'Admin' || newRole === 'SuperAdmin') {
       if (currentUser.role !== 'SuperAdmin') {
         addToast({
           type: 'danger',
           title: '🔒 Access Denied: Admin/SuperAdmin Grant Blocked',
           message: 'Only a Super Admin is authorized to assign the Admin or Super Admin role.'
-        });
-        return;
-      }
-    }
-
-    // SuperAdmin should only be available to the Master Workspace Owner (mritunjoysingh@gmail.com).
-    if (newRole === 'SuperAdmin') {
-      if (!isDevelopmentTeam(newEmail)) {
-        addToast({
-          type: 'danger',
-          title: '🔒 Access Denied: SuperAdmin Restrained',
-          message: 'The SuperAdmin role is strictly tied to the Master Workspace Owner email address (mritunjoysingh@gmail.com).'
-        });
-        return;
-      }
-      if (currentUser.email !== 'mritunjoysingh@gmail.com' && !isDevelopmentTeam(currentUser.email)) {
-        addToast({
-          type: 'danger',
-          title: '🔒 Access Denied: SuperAdmin Grant Blocked',
-          message: 'Only the Master Workspace Owner (mritunjoysingh@gmail.com) can assign the SuperAdmin role.'
         });
         return;
       }
@@ -178,13 +162,16 @@ export default function AdminPillar({
 
   const handleDeleteUser = (id: string, name: string) => {
     const targetUser = users.find(u => u.id === id);
-    if (targetUser && targetUser.email === 'mritunjoysingh@gmail.com') {
-      addToast({
-        type: 'danger',
-        title: '❌ Operation Refused',
-        message: 'Master Workspace Owner (mritunjoysingh@gmail.com) cannot be deleted or unlinked from the system.'
-      });
-      return;
+    if (targetUser && targetUser.role === 'SuperAdmin') {
+      const superAdminCount = users.filter(u => u.role === 'SuperAdmin').length;
+      if (superAdminCount <= 1) {
+        addToast({
+          type: 'danger',
+          title: '❌ Operation Refused: Last SuperAdmin Protected',
+          message: 'Cannot delete the last remaining SuperAdmin account. The platform must maintain at least one active SuperAdmin.'
+        });
+        return;
+      }
     }
 
     setUsers(prev => prev.filter(u => u.id !== id));
@@ -197,13 +184,16 @@ export default function AdminPillar({
 
   const handleToggleUserStatus = (id: string) => {
     const targetUser = users.find(u => u.id === id);
-    if (targetUser && targetUser.email === 'mritunjoysingh@gmail.com') {
-      addToast({
-        type: 'danger',
-        title: '❌ Operation Refused',
-        message: 'Master Workspace Owner (mritunjoysingh@gmail.com) cannot be suspended or locked out.'
-      });
-      return;
+    if (targetUser && targetUser.role === 'SuperAdmin' && targetUser.status === 'ACTIVE') {
+      const activeSuperAdminCount = users.filter(u => u.role === 'SuperAdmin' && u.status === 'ACTIVE').length;
+      if (activeSuperAdminCount <= 1) {
+        addToast({
+          type: 'danger',
+          title: '❌ Operation Refused: Last Active SuperAdmin Protected',
+          message: 'Cannot suspend the last active SuperAdmin account to prevent permanent system lockout.'
+        });
+        return;
+      }
     }
 
     setUsers(prev => prev.map(u => {
@@ -223,43 +213,26 @@ export default function AdminPillar({
   const handleUserRoleChange = (id: string, role: AdminRole) => {
     const targetUser = users.find(u => u.id === id);
 
-    // If target is the owner, prevent demoting them
-    if (targetUser && targetUser.email === 'mritunjoysingh@gmail.com' && role !== 'SuperAdmin') {
-      addToast({
-        type: 'danger',
-        title: '❌ Lockout Protection Triggered',
-        message: 'The Master Workspace Owner (mritunjoysingh@gmail.com) must retain the SuperAdmin role to prevent permanent workspace lockout.'
-      });
-      return;
+    // If target is the last SuperAdmin, prevent demoting them
+    if (targetUser && targetUser.role === 'SuperAdmin' && role !== 'SuperAdmin') {
+      const superAdminCount = users.filter(u => u.role === 'SuperAdmin').length;
+      if (superAdminCount <= 1) {
+        addToast({
+          type: 'danger',
+          title: '❌ Lockout Protection Triggered',
+          message: 'Cannot demote the last remaining SuperAdmin account. Demoting this account would leave the platform without a SuperAdmin.'
+        });
+        return;
+      }
     }
 
-    // The admin and Super Admin role can only be given/taken by the Super Admin
+    // The admin and Super Admin role can only be given/taken by a Super Admin
     if (role === 'Admin' || role === 'SuperAdmin' || (targetUser && (targetUser.role === 'Admin' || targetUser.role === 'SuperAdmin'))) {
       if (currentUser.role !== 'SuperAdmin') {
         addToast({
           type: 'danger',
           title: '🔒 Access Denied: Admin/SuperAdmin Modification Blocked',
           message: 'Only a Super Admin is authorized to grant, revoke, or modify Admin or Super Admin roles.'
-        });
-        return;
-      }
-    }
-
-    // SuperAdmin should only be available to the Master Workspace Owner (mritunjoysingh@gmail.com).
-    if (role === 'SuperAdmin') {
-      if (targetUser && !isDevelopmentTeam(targetUser.email)) {
-        addToast({
-          type: 'danger',
-          title: '🔒 Access Denied: SuperAdmin Restrained',
-          message: 'The SuperAdmin role is strictly tied to the Master Workspace Owner email address (mritunjoysingh@gmail.com).'
-        });
-        return;
-      }
-      if (currentUser.email !== 'mritunjoysingh@gmail.com' && !isDevelopmentTeam(currentUser.email)) {
-        addToast({
-          type: 'danger',
-          title: '🔒 Access Denied: SuperAdmin Grant Blocked',
-          message: 'Only the Master Workspace Owner (mritunjoysingh@gmail.com) can assign or promote accounts to the SuperAdmin role.',
         });
         return;
       }
@@ -655,13 +628,7 @@ export default function AdminPillar({
 
                               {/* Suspend toggler */}
                               <button
-                                onClick={() => {
-                                  if (user.email === 'mritunjoysingh@gmail.com') {
-                                    handleToggleUserStatus(user.id);
-                                  } else {
-                                    setStatusConfirmUser(user);
-                                  }
-                                }}
+                                onClick={() => setStatusConfirmUser(user)}
                                 disabled={!currentRolePerms.manageUsers}
                                 className={`text-[10px] font-bold uppercase transition-all px-2 py-1 rounded cursor-pointer border ${
                                   !currentRolePerms.manageUsers
@@ -677,13 +644,7 @@ export default function AdminPillar({
 
                               {/* Delete credential button */}
                               <button
-                                onClick={() => {
-                                  if (user.email === 'mritunjoysingh@gmail.com') {
-                                    handleDeleteUser(user.id, user.name);
-                                  } else {
-                                    setDeleteConfirmUser(user);
-                                  }
-                                }}
+                                onClick={() => setDeleteConfirmUser(user)}
                                 disabled={!currentRolePerms.manageUsers}
                                 className={`p-1 px-1.5 bg-zinc-950 border border-zinc-850 rounded transition-colors ${
                                   !currentRolePerms.manageUsers
@@ -807,6 +768,116 @@ export default function AdminPillar({
                 </button>
               </form>
             </div>
+
+            {/* Scoped Role Impersonation / "View As" Preview Sandbox (SuperAdmin / Admin Only) */}
+            {(() => {
+              const authenticatedUser = realUser || currentUser;
+              const isSuperOrAdmin = authenticatedUser.role === 'SuperAdmin' || authenticatedUser.role === 'Admin';
+              if (!isSuperOrAdmin) return null;
+
+              const availableRoles: AdminRole[] = authenticatedUser.role === 'SuperAdmin'
+                ? ['Admin', 'PolicyManager', 'Operator', 'Auditor']
+                : ['PolicyManager', 'Operator', 'Auditor'];
+
+              return (
+                <div id="impersonation-control-panel" className="bg-[#09090B] border border-amber-500/30 rounded-xl p-5 shadow-xl space-y-4">
+                  <div className="flex items-center justify-between border-b border-zinc-900 pb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        <Eye size={16} />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-mono font-bold text-white uppercase tracking-wider">
+                          Role Experience Preview
+                        </h4>
+                        <span className="text-[10px] text-zinc-500 font-mono">
+                          Scoped "View As" sandbox for administrative validation
+                        </span>
+                      </div>
+                    </div>
+                    {impersonatedRole ? (
+                      <span className="text-[9px] font-mono font-bold uppercase px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded animate-pulse">
+                        Preview Active
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-zinc-500 uppercase px-1.5 py-0.5 bg-zinc-900 rounded border border-zinc-800">
+                        Standard View
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
+                    Preview how navigation, policy views, and controls appear to lower-privileged roles. <strong className="text-zinc-200">Security guarantee:</strong> Impersonation only changes UI display; all backend API calls strictly validate against your verified <code className="text-amber-300 font-mono text-[10px]">{authenticatedUser.role}</code> credentials.
+                  </p>
+
+                  {impersonatedRole ? (
+                    <div className="p-3 bg-amber-950/20 border border-amber-500/30 rounded-lg space-y-2.5">
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-zinc-400">Current Preview Role:</span>
+                        <strong className="text-amber-300 uppercase font-black">{impersonatedRole}</strong>
+                      </div>
+                      <div className="text-[10px] text-zinc-500 font-mono">
+                        Real Session: <span className="text-zinc-300">{authenticatedUser.name}</span> ({authenticatedUser.role})
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (onStopImpersonation) {
+                            const res = await onStopImpersonation();
+                            if (res.success) {
+                              addToast({
+                                type: 'info',
+                                title: '👁️ Preview Exited',
+                                message: `Restored standard ${authenticatedUser.role} administrative dashboard view.`
+                              });
+                            }
+                          }
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 hover:text-white text-xs font-mono font-bold rounded-lg transition-all cursor-pointer"
+                      >
+                        <LogOut size={13} />
+                        Exit Preview Mode
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-mono text-zinc-400 uppercase font-bold block">
+                        Select Target Role to Preview
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {availableRoles.map(role => (
+                          <button
+                            key={role}
+                            id={`impersonate-role-btn-${role.toLowerCase()}`}
+                            onClick={async () => {
+                              if (onStartImpersonation) {
+                                const res = await onStartImpersonation(role);
+                                if (res.success) {
+                                  addToast({
+                                    type: 'info',
+                                    title: '👁️ Role Preview Activated',
+                                    message: `Viewing workspace as ${role}. Backend authorization remains anchored to your ${authenticatedUser.role} token.`
+                                  });
+                                } else {
+                                  addToast({
+                                    type: 'danger',
+                                    title: 'Preview Initialization Failed',
+                                    message: res.error || 'Unable to start role impersonation'
+                                  });
+                                }
+                              }
+                            }}
+                            className="flex items-center justify-center gap-1.5 p-2 bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 hover:border-amber-500/40 text-zinc-300 hover:text-amber-200 text-xs font-mono rounded-lg transition-all cursor-pointer text-center"
+                          >
+                            <Eye size={12} className="text-amber-400/70" />
+                            <span>{role}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -1297,7 +1368,7 @@ export default function AdminPillar({
                 </thead>
                 <tbody className="divide-y divide-zinc-900">
                   {users.map((usr) => {
-                    const isRoot = usr.email === 'mritunjoysingh@gmail.com';
+                    const isRoot = usr.role === 'SuperAdmin';
                     const isCustomReg = usr.id.startsWith('USR-REQ-') || usr.lastLogin.includes('Registered') || usr.lastLogin.includes('Captured') || (usr.id.startsWith('USR-0') && parseInt(usr.id.replace('USR-0', '').replace('USR-', ''), 10) > 4);
                     
                     return (
@@ -1318,7 +1389,7 @@ export default function AdminPillar({
                                 {usr.name}
                                 {isRoot && (
                                   <span className="text-[8px] bg-amber-500/10 text-amber-400 px-1 rounded-sm border border-amber-500/20 font-mono tracking-widest uppercase">
-                                    Root Anchor
+                                    SuperAdmin
                                   </span>
                                 )}
                                 {isCustomReg && (

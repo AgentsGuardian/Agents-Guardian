@@ -680,9 +680,8 @@ export default function HelpCenter({
     };
   }, [currentFocusTarget, isVideoPlaying, activeTab, speakNarratorVoice, stopNarratorVoice]);
 
-  const isSuperUser = currentUser.email === 'mritunjoysingh@gmail.com';
-  const isSuperAdmin = currentUser.role === 'SuperAdmin';
-  const hasAccess = isSuperUser || isSuperAdmin;
+  const isSuperAdmin = currentUser?.role === 'SuperAdmin';
+  const hasAccess = isSuperAdmin;
 
   const handleDownloadDesignDoc = () => {
     const blob = new Blob([SOLUTION_DESIGN_MARKDOWN_CONTENT], { type: 'text/markdown;charset=utf-8;' });
@@ -978,7 +977,7 @@ Each gauge card includes micro-progress bars comparing authorized calls against 
 AgentsGuardian provides comprehensive, role-gated documentation across multiple layers:
 
 1. **System Core Manual & User Guide (Tab 1)**: Interactive breakdowns of all 4 Core Pillars (**Secure**, **Observe**, **Measure**, **Admin IAM**), Policy Engine, and GaaS APIs.
-2. **Downloadable Solution Design Blueprint (.md)**: Located at the bottom of the Help Center. Workspace Owners (\`mritunjoysingh@gmail.com\`) and SuperAdmins can download the complete **AgentsGuardian Solution Design Document (.md)** mapping architectural pillars, threat templates, telemetry pipelines, and test cases. Read-only Auditor profiles display a classified restriction gate with instructions to switch sessions.
+2. **Downloadable Solution Design Blueprint (.md)**: Located at the bottom of the Help Center. Authenticated SuperAdmins can download the complete **AgentsGuardian Solution Design Document (.md)** mapping architectural pillars, threat templates, telemetry pipelines, and test cases. Read-only Auditor profiles display a classified restriction gate with instructions to switch sessions.
 3. **Interactive Threat Interceptor Sandbox**: Test sandbox initializers and live verification protocol.`;
       } else if (query.includes('nominal') || query.includes('status')) {
         replyText = `### SYSTEM STATE: **GAAS NOMINAL**
@@ -2892,7 +2891,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
                   Export the complete, production-ready system blueprint mapping architectural pillars, threat templates, telemetry pipelines, and interactive compliance test flows.
                 </p>
                 <div className="mt-2 text-[10px] font-mono text-zinc-500">
-                  Authorized Session: <span className="text-[#1D9E75] font-semibold">{currentUser.email}</span> ({currentUser.role}) {isSuperUser && <span className="text-[#1D9E75] font-bold">✨ Master Owner</span>}
+                  Authorized Session: <span className="text-[#1D9E75] font-semibold">{currentUser.email}</span> ({currentUser.role}) {isSuperAdmin && <span className="text-[#1D9E75] font-bold">✨ SuperAdmin Clearance</span>}
                 </div>
               </div>
             </div>
@@ -2918,7 +2917,7 @@ Here is the specific analysis for your query: *"**${text}**"*.
                   Solutions Architecture Specification Locked
                 </h3>
                 <p className="text-xs text-[#8B9BAA] mt-1.5 max-w-xl leading-relaxed">
-                  This blueprint contains cryptographic keys, security schemas, and system execution protocols. Access is strictly limited to the **Workspace Owner** (<span className="text-amber-500 font-bold">mritunjoysingh@gmail.com</span>) or a verified **SuperAdmin** role.
+                  This blueprint contains cryptographic keys, security schemas, and system execution protocols. Access is strictly limited to verified **SuperAdmin** roles.
                 </p>
                 <div className="mt-2 text-[10.5px] font-mono text-zinc-400 flex items-center gap-1.5">
                   <span className="text-[#E24B4A]">●</span> Logged-in Session Profile: <span className="text-rose-450 font-bold">{currentUser.name}</span> <span className="bg-rose-955/40 text-rose-450 border border-rose-900/30 px-1.5 rounded py-0.2 select-none font-bold text-[9px]">{currentUser.role}</span>

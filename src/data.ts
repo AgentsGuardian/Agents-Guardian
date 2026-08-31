@@ -237,7 +237,7 @@ export const SIMULATION_TRIGGER_TEMPLATES: TaskTrigger[] = [
 ];
 
 export const INITIAL_ADMINS: AdminUser[] = [
-  { id: 'USR-000', name: 'Mritunjoy Singh', email: 'mritunjoysingh@gmail.com', role: 'SuperAdmin', status: 'ACTIVE', mfaEnabled: true, lastLogin: '10 seconds ago' },
+  { id: 'USR-000', name: 'Security Administrator', email: 'admin@guardian.gov', role: 'SuperAdmin', status: 'ACTIVE', mfaEnabled: true, lastLogin: '10 seconds ago' },
   { id: 'USR-001', name: 'Sophia Sterling', email: 's.sterling@guardian.gov', role: 'Admin', status: 'ACTIVE', mfaEnabled: true, lastLogin: '10 mins ago' },
   { id: 'USR-002', name: 'Marcus Sterling', email: 'm.sterling@guardian.gov', role: 'PolicyManager', status: 'ACTIVE', mfaEnabled: true, lastLogin: '1 hour ago' },
   { id: 'USR-003', name: 'Alina Vance', email: 'a.vance@guardian.gov', role: 'Auditor', status: 'ACTIVE', mfaEnabled: false, lastLogin: '2 days ago' },

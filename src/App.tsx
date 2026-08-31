@@ -19,9 +19,9 @@ import GaaSAccessGate from './components/GaaSAccessGate';
 import NotificationCenter from './components/NotificationCenter';
 import UpdatePasswordModal from './components/UpdatePasswordModal';
 import { useGovernanceStore } from './store/useGovernanceStore';
-import { Sliders, Palette, ChevronDown, Check, LogOut, Users, KeyRound } from 'lucide-react';
+import { Sliders, Palette, ChevronDown, Check, LogOut, Users, KeyRound, Eye } from 'lucide-react';
 
-import { Policy, KillSignalEvent, DriftLogEvent, ValueMeterMetric, GoverningAgent, ApiRequestLog, Toast, AdminUser, LaborConfig } from './types';
+import { Policy, KillSignalEvent, DriftLogEvent, ValueMeterMetric, GoverningAgent, ApiRequestLog, Toast, AdminUser, LaborConfig, AdminRole } from './types';
 import { GUARANTEED_SLA_MS, generateTransactionId } from './utils';
 import { 
   INITIAL_POLICIES, 
@@ -230,9 +230,26 @@ export default function App() {
     setDisableAlertsGlobally,
     governanceMode,
     setGovernanceMode,
-    currentUser,
-    updateLaborConfig
+    currentUser: realUser,
+    effectiveUser,
+    impersonatedRole,
+    startImpersonation,
+    stopImpersonation,
+    updateLaborConfig,
+    refreshState
   } = useGovernanceStore();
+
+  const defaultUser: AdminUser = useMemo(() => INITIAL_ADMINS[0] || {
+    id: 'USR-000',
+    name: 'Security Administrator',
+    email: 'admin@guardian.gov',
+    role: 'SuperAdmin',
+    status: 'ACTIVE',
+    mfaEnabled: true,
+    lastLogin: 'Just now'
+  }, []);
+
+  const currentUser = effectiveUser || realUser || defaultUser;
 
   const [budgetCap, setBudgetCap] = useState<number>(50);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
@@ -267,15 +284,24 @@ export default function App() {
   };
 
   const handleRegisterUser = (newUser: AdminUser) => {
-    setUsers(prev => [...prev, newUser]);
+    setUsers(prev => prev.some(u => u.id === newUser.id) ? prev : [...prev, newUser]);
   };
 
   const handleLoginSuccess = (user: AdminUser) => {
+    setUsers(prev => {
+      const exists = prev.some(u => u.id === user.id);
+      return exists ? prev : [...prev, user];
+    });
     setActingUserId(user.id);
     setIsLoggedIn(true);
+    refreshState();
   };
 
   const handleLogout = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('ag_session_token');
+      sessionStorage.removeItem('ag_session_token');
+    }
     setIsLoggedIn(false);
     setShowAppearanceMenu(false);
   };
@@ -597,6 +623,54 @@ export default function App() {
       {/* Main content display window */}
       <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 overflow-y-auto space-y-6 h-screen select-none">
         
+        {/* Persistent Scoped Role Impersonation Banner (Visible on every screen during preview mode) */}
+        {impersonatedRole && realUser && (
+          <div 
+            id="impersonation-persistent-banner"
+            className="w-full bg-gradient-to-r from-amber-950/95 via-amber-900/90 to-amber-950/95 border border-amber-500/50 rounded-xl text-amber-100 px-4 py-3 shadow-2xl backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center justify-center shrink-0">
+                <Eye size={18} className="animate-pulse" />
+              </div>
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs font-sans">
+                <span className="font-mono uppercase font-black tracking-widest text-[9.5px] bg-amber-500/30 text-amber-200 px-2 py-0.5 rounded border border-amber-500/50">
+                  Role Preview Active
+                </span>
+                <span className="text-amber-100 text-sm">
+                  Viewing as: <strong className="text-amber-300 font-bold underline decoration-amber-400/60 uppercase font-mono">{impersonatedRole}</strong>
+                </span>
+                <span className="text-amber-300/50 hidden sm:inline">•</span>
+                <span className="text-amber-200/90 text-xs font-mono">
+                  Real Identity: <strong className="text-white font-bold">{realUser.name}</strong> ({realUser.role})
+                </span>
+                <span className="text-amber-300/50 hidden md:inline">•</span>
+                <span className="text-[10px] text-amber-300/80 font-mono hidden md:inline">
+                  (UI preview only — backend authorization strictly preserved)
+                </span>
+              </div>
+            </div>
+
+            <button
+              id="exit-impersonation-btn"
+              onClick={async () => {
+                const res = await stopImpersonation();
+                if (res.success) {
+                  addToast({
+                    type: 'info',
+                    title: '👁️ Role Preview Exited',
+                    message: `Restored standard ${realUser.role} administrative dashboard view.`
+                  });
+                }
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500/25 hover:bg-amber-500/40 border border-amber-400/50 text-amber-100 hover:text-white text-xs font-mono font-bold rounded-lg transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+            >
+              <LogOut size={13} />
+              <span>Exit Preview Mode</span>
+            </button>
+          </div>
+        )}
+
         {/* Top Global Administrative Banner - Fixed style with top-right session profile */}
         <div className="bg-[#111E2E] border border-[#1F2E40] rounded-xl px-5 py-3 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md bg-opacity-95 backdrop-blur-md transition-all duration-300 relative z-50">
           {/* Left Gateway Route status */}
@@ -694,6 +768,85 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* Role Experience Preview (View-As) Controller for SuperAdmin and Admin */}
+                    {(() => {
+                      const authenticatedUser = realUser || currentUser;
+                      if (authenticatedUser.role !== 'SuperAdmin' && authenticatedUser.role !== 'Admin') return null;
+
+                      const availableRoles: AdminRole[] = authenticatedUser.role === 'SuperAdmin'
+                        ? ['Admin', 'PolicyManager', 'Operator', 'Auditor']
+                        : ['PolicyManager', 'Operator', 'Auditor'];
+
+                      return (
+                        <div className="p-3 bg-amber-950/20 border border-amber-500/30 rounded-xl space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-mono font-bold uppercase tracking-widest text-amber-300 flex items-center gap-1.5">
+                              <Eye size={12} className="text-amber-400" />
+                              Role Experience Preview
+                            </span>
+                            {impersonatedRole ? (
+                              <span className="text-[8px] bg-amber-500/30 text-amber-200 border border-amber-500/50 px-1.5 py-0.2 rounded font-mono font-bold">
+                                PREVIEW: {impersonatedRole}
+                              </span>
+                            ) : (
+                              <span className="text-[8px] bg-zinc-800 text-zinc-400 px-1.5 py-0.2 rounded font-mono">
+                                Standard
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-[9.5px] font-mono text-zinc-400 leading-snug">
+                            View UI as lower-privileged role without altering backend JWT authorization.
+                          </p>
+
+                          {impersonatedRole ? (
+                            <button
+                              onClick={async () => {
+                                const res = await stopImpersonation();
+                                if (res.success) {
+                                  addToast({
+                                    type: 'info',
+                                    title: '👁️ Role Preview Exited',
+                                    message: `Restored standard ${authenticatedUser.role} dashboard view.`
+                                  });
+                                }
+                              }}
+                              className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 hover:text-white text-[10px] font-mono font-bold rounded-lg transition-all cursor-pointer"
+                            >
+                              <LogOut size={11} /> Exit Preview Mode
+                            </button>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-1.5 pt-1">
+                              {availableRoles.map(role => (
+                                <button
+                                  key={role}
+                                  onClick={async () => {
+                                    const res = await startImpersonation(role);
+                                    if (res.success) {
+                                      addToast({
+                                        type: 'info',
+                                        title: '👁️ Role Preview Activated',
+                                        message: `Viewing workspace as ${role}. Backend authorization preserved as ${authenticatedUser.role}.`
+                                      });
+                                    } else {
+                                      addToast({
+                                        type: 'danger',
+                                        title: 'Preview Failed',
+                                        message: res.error || 'Failed to start impersonation'
+                                      });
+                                    }
+                                  }}
+                                  className="flex items-center justify-center gap-1 py-1 px-2 bg-black/40 hover:bg-amber-950/40 border border-zinc-800 hover:border-amber-500/40 text-zinc-300 hover:text-amber-200 text-[9.5px] font-mono rounded transition-all cursor-pointer text-center"
+                                >
+                                  <span>View {role}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     {/* Tenant Identity Isolation & Switch Session Controller */}
                     {currentUser.role === 'SuperAdmin' ? (
                       <div className="space-y-2">
@@ -731,7 +884,7 @@ export default function App() {
                         >
                           {users.map(u => (
                             <option key={u.id} value={u.id} className="bg-[#111E2E] text-xs text-slate-300">
-                              {u.email === 'mritunjoysingh@gmail.com' ? '👑 ' : u.role === 'SuperAdmin' ? '💎 ' : '👤 '} 
+                              {u.role === 'SuperAdmin' ? '👑 ' : u.role === 'Admin' ? '💎 ' : '👤 '} 
                               {u.name} ({u.role})
                             </option>
                           ))}
@@ -970,6 +1123,10 @@ export default function App() {
         {activeTab === 'admin' && (
           <AdminPillar 
             currentUser={currentUser}
+            realUser={realUser}
+            impersonatedRole={impersonatedRole}
+            onStartImpersonation={startImpersonation}
+            onStopImpersonation={stopImpersonation}
             users={users}
             setUsers={setUsers}
             addToast={addToast}

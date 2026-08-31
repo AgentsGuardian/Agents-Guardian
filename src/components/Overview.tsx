@@ -160,9 +160,7 @@ export default function Overview({
   const totalRequests = apiLogs.length;
   const governanceHealthScore = totalRequests > 0 ? (totalAuthorized / totalRequests) * 100 : 100;
 
-  const isSuperUser = currentUser.email === 'mritunjoysingh@gmail.com';
-  const isSuperAdmin = currentUser.role === 'SuperAdmin';
-  const hasAccess = isSuperUser || isSuperAdmin;
+  const isSuperAdmin = currentUser?.role === 'SuperAdmin';
 
   // 30-Day Activity & Anomaly Heatmap calculations & state
   const heatmapData = React.useMemo(
