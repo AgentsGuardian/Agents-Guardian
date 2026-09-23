@@ -345,18 +345,12 @@ export class GovernanceEngineStore {
       let mustReset = u.mustResetPassword ?? false;
 
       if (!hash || !salt) {
-        if (isProd) {
-          const randomPass = crypto.randomBytes(16).toString('hex');
-          const hashed = hashPassword(randomPass);
-          hash = hashed.hash;
-          salt = hashed.salt;
-          mustReset = true;
-        } else {
-          const hashed = hashPassword('admin123', 'c94d6e09811e26c3f02a5a8ae47945ff');
-          hash = hashed.hash;
-          salt = hashed.salt;
-          mustReset = false;
-        }
+        // Standardized deterministic credentials (Admin123!) for predictable preview & admin login
+        const seedPass = process.env.ADMIN_INITIAL_PASSWORD || 'Admin123!';
+        const hashed = hashPassword(seedPass, 'c94d6e09811e26c3f02a5a8ae47945ff');
+        hash = hashed.hash;
+        salt = hashed.salt;
+        mustReset = false;
       }
 
       return {

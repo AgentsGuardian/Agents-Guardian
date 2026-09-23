@@ -130,7 +130,7 @@ export interface AdminUser {
   name: string;
   email: string;
   role: AdminRole;
-  status: 'ACTIVE' | 'SUSPENDED';
+  status: 'ACTIVE' | 'SUSPENDED' | 'PENDING_APPROVAL' | 'REJECTED';
   mfaEnabled: boolean;
   lastLogin: string;
   passwordHash?: string;
@@ -138,6 +138,11 @@ export interface AdminUser {
   resetToken?: string;
   resetTokenExpires?: string;
   mustResetPassword?: boolean;
+  organization?: string;
+  registrationNotes?: string;
+  registeredAt?: string;
+  oneTimePassword?: string;
+  oneTimePasswordIssuedAt?: string;
 }
 
 export interface RolePermission {

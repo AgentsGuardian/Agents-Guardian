@@ -13,6 +13,7 @@ import { AdminUser, AdminRole, RolePermission, GlobalAdminSettings } from '../ty
 import { RefreshCw, Link2, LogOut, BellOff } from 'lucide-react';
 import ConfirmationModal from './ConfirmationModal';
 import UpdatePasswordModal from './UpdatePasswordModal';
+import ProvisionUserModal from './ProvisionUserModal';
 
 interface AdminPillarProps {
   currentUser: AdminUser;
@@ -92,6 +93,39 @@ export default function AdminPillar({
   const [searchQuery, setSearchQuery] = useState('');
   const [inspectedUser, setInspectedUser] = useState<AdminUser | null>(null);
   const [passwordTargetUser, setPasswordTargetUser] = useState<AdminUser | null>(null);
+  const [provisionModalUser, setProvisionModalUser] = useState<AdminUser | null>(null);
+  const [rejectConfirmUser, setRejectConfirmUser] = useState<AdminUser | null>(null);
+  
+  // Pending approvals list
+  const pendingUsers = users.filter(u => u.status === 'PENDING_APPROVAL');
+
+  // Handlers for approval and rejection
+  const handleProvisionSuccess = (updatedUser: AdminUser, otp: string) => {
+    setUsers(prev => prev.map(u => u.id === updatedUser.id ? { ...u, ...updatedUser, status: 'ACTIVE', mustResetPassword: true } : u));
+  };
+
+  const handleRejectUser = async (userId: string) => {
+    const sessionToken = localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token') || '';
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {})
+        }
+      });
+      if (res.ok) {
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'REJECTED' } : u));
+        addToast({
+          type: 'warning',
+          title: 'Registration Declined',
+          message: 'The registration request has been declined.'
+        });
+      }
+    } catch (e) {
+      console.error('Error rejecting user:', e);
+    }
+  };
   
   // Create user form
   const [newName, setNewName] = useState('');
@@ -515,27 +549,132 @@ export default function AdminPillar({
 
       {/* Main Tab Render Switcher */}
       {activeSubTab === 'iam' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="iam-views-container">
-          {/* User management & registration column (Left 2 columns on desktop) */}
-          <div className="lg:col-span-2 space-y-4">
-            <div className="bg-[#09090B] border border-zinc-900 rounded-xl overflow-hidden shadow-xl">
+        <div className="space-y-6" id="iam-views-container">
+          
+          {/* Pending Approvals & Credential Provisioning Gate (Full-Width Sovereign Governance Queue) */}
+          {pendingUsers.length > 0 && (
+            <div className="p-4 rounded-xl bg-gradient-to-r from-amber-950/40 via-[#0E1524] to-[#0E1524] border border-amber-500/40 shadow-xl space-y-3" id="pending-approvals-panel">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    <KeyRound size={16} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-mono font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                      Pending Access Approvals ({pendingUsers.length})
+                      <span className="text-[9px] px-1.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded font-mono font-bold">
+                        GOVERNANCE GATE
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-zinc-400 font-mono">
+                      New operator registrations requiring Super Admin validation and One-Time Password (OTP) provisioning.
+                    </p>
+                  </div>
+                </div>
+                {currentUser.role === 'SuperAdmin' ? (
+                  <span className="text-[10px] font-mono text-teal-400 bg-teal-950/50 border border-teal-500/30 px-2.5 py-1 rounded font-bold shrink-0 self-start sm:self-auto">
+                    ⚡ SuperAdmin Action Required
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-mono text-zinc-500 bg-black/40 border border-zinc-800 px-2 py-0.5 rounded shrink-0">
+                    Awaiting SuperAdmin Review
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 pt-1">
+                  {pendingUsers.map(pUser => (
+                    <div key={pUser.id} className="p-3 bg-black/60 border border-amber-500/25 rounded-lg flex flex-col justify-between gap-3 shadow-inner">
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-start">
+                          <span className="font-bold text-white text-xs">{pUser.name}</span>
+                          <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                            {pUser.role}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-teal-400 font-mono truncate">{pUser.email}</div>
+                        {pUser.organization && (
+                          <div className="text-[10.5px] text-zinc-400 truncate">
+                            <span className="text-zinc-500 font-mono">Org:</span> {pUser.organization}
+                          </div>
+                        )}
+                        {pUser.registrationNotes && (
+                          <div className="text-[10.5px] text-zinc-400 italic line-clamp-2 bg-zinc-950/60 p-1.5 rounded border border-zinc-900">
+                            "{pUser.registrationNotes}"
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-900">
+                        {currentUser.role === 'SuperAdmin' ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setRejectConfirmUser(pUser)}
+                              className="px-2.5 py-1 rounded bg-zinc-900 hover:bg-rose-950/40 text-zinc-400 hover:text-rose-400 border border-zinc-800 hover:border-rose-500/30 text-[10.5px] font-mono transition-colors cursor-pointer"
+                              id={`reject-btn-${pUser.id}`}
+                            >
+                              Reject
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setProvisionModalUser(pUser)}
+                              className="px-3 py-1 rounded bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-[10.5px] font-mono transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                              id={`provision-btn-${pUser.id}`}
+                            >
+                              <KeyRound size={12} /> Approve & Provision OTP
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-[10px] font-mono text-zinc-500">Only SuperAdmin can provision</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="bg-[#09090B] border border-zinc-900 rounded-xl overflow-hidden shadow-xl" id="authoritative-user-directory-card">
               <div className="p-4 bg-zinc-950 border-b border-zinc-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   <Fingerprint size={16} className="text-teal-450" />
                   <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
                     Authoritative User Directory
                   </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800">
+                    {filteredUsers.length} Enrolled
+                  </span>
                 </div>
-                {/* Simple search filter */}
-                <div className="relative">
-                  <Search size={12} className="absolute left-2.5 top-2.5 text-zinc-605" />
-                  <input
-                    type="text"
-                    placeholder="Filter credentials..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 bg-[#121214] border border-zinc-850 rounded text-xs font-mono text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-805"
-                  />
+                {/* Simple search filter & Enroll quick button */}
+                <div className="flex items-center gap-2.5">
+                  <div className="relative">
+                    <Search size={12} className="absolute left-2.5 top-2.5 text-zinc-605" />
+                    <input
+                      type="text"
+                      placeholder="Filter credentials..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-8 pr-3 py-1.5 bg-[#121214] border border-zinc-850 rounded text-xs font-mono text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-805"
+                    />
+                  </div>
+                  {currentRolePerms.manageUsers && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const el = document.getElementById('enroll-admin-card');
+                        if (el) {
+                          el.scrollIntoView({ behavior: 'smooth' });
+                          const input = el.querySelector('input');
+                          if (input) input.focus();
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/30 text-teal-300 hover:text-teal-200 text-xs font-mono font-bold rounded flex items-center gap-1.5 transition-all cursor-pointer shadow-sm shrink-0"
+                      title="Jump to Enroll Authorized Admin form"
+                    >
+                      <Plus size={13} className="text-teal-400" /> Enroll Admin
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -569,6 +708,7 @@ export default function AdminPillar({
                           <td className="p-3">
                             {(() => {
                               const isRoleChangeDisabled = !currentRolePerms.manageUsers || 
+                                user.status === 'PENDING_APPROVAL' ||
                                 (currentUser.role !== 'SuperAdmin' && (user.role === 'SuperAdmin' || user.role === 'Admin'));
                               return (
                                 <select
@@ -598,6 +738,15 @@ export default function AdminPillar({
                                 <span className="w-1 h-1 rounded-full bg-emerald-450" />
                                 ACTIVE
                               </span>
+                            ) : user.status === 'PENDING_APPROVAL' ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400 bg-amber-950/40 border border-amber-500/40 px-2 py-0.5 rounded animate-pulse">
+                                <span className="w-1 h-1 rounded-full bg-amber-400" />
+                                PENDING APPROVAL
+                              </span>
+                            ) : user.status === 'REJECTED' ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-zinc-500 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded">
+                                REJECTED
+                              </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-450 bg-rose-950/30 border border-rose-950/30 px-2 py-0.5 rounded">
                                 <span className="w-1 h-1 rounded-full bg-rose-450" />
@@ -617,44 +766,74 @@ export default function AdminPillar({
                           </td>
                           <td className="p-3 text-right pr-4">
                             <div className="flex items-center justify-end gap-1.5">
-                              {/* View Full Profile Inspector button */}
-                              <button
-                                onClick={() => setInspectedUser(user)}
-                                className="text-[10px] font-bold font-mono text-cyan-400 bg-cyan-950/30 border border-cyan-500/30 hover:bg-cyan-900/50 px-2 py-1 rounded transition-colors flex items-center gap-1 cursor-pointer"
-                                title="View Registered User Profile & Security Details"
-                              >
-                                <Eye size={11} /> Details
-                              </button>
+                              {/* If user is pending approval, show SuperAdmin approve/reject actions */}
+                              {user.status === 'PENDING_APPROVAL' ? (
+                                <>
+                                  {currentUser.role === 'SuperAdmin' ? (
+                                    <>
+                                      <button
+                                        onClick={() => setProvisionModalUser(user)}
+                                        className="text-[10px] font-bold font-mono text-teal-300 bg-teal-950/60 border border-teal-500/40 hover:bg-teal-900/80 px-2 py-1 rounded transition-colors flex items-center gap-1 cursor-pointer shadow-sm"
+                                        title="Approve registration and provision one-time password"
+                                        id={`table-provision-btn-${user.id}`}
+                                      >
+                                        <KeyRound size={11} className="text-teal-400" /> Provision OTP
+                                      </button>
+                                      <button
+                                        onClick={() => setRejectConfirmUser(user)}
+                                        className="text-[10px] font-bold font-mono text-rose-400 bg-rose-950/40 border border-rose-500/30 hover:bg-rose-900/60 px-2 py-1 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                                        title="Decline registration request"
+                                        id={`table-reject-btn-${user.id}`}
+                                      >
+                                        <Trash2 size={11} /> Reject
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <span className="text-[10px] font-mono text-amber-400/80 italic">Awaiting SuperAdmin</span>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  {/* View Full Profile Inspector button */}
+                                  <button
+                                    onClick={() => setInspectedUser(user)}
+                                    className="text-[10px] font-bold font-mono text-cyan-400 bg-cyan-950/30 border border-cyan-500/30 hover:bg-cyan-900/50 px-2 py-1 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                                    title="View Registered User Profile & Security Details"
+                                  >
+                                    <Eye size={11} /> Details
+                                  </button>
 
-                              {/* Suspend toggler */}
-                              <button
-                                onClick={() => setStatusConfirmUser(user)}
-                                disabled={!currentRolePerms.manageUsers}
-                                className={`text-[10px] font-bold uppercase transition-all px-2 py-1 rounded cursor-pointer border ${
-                                  !currentRolePerms.manageUsers
-                                    ? 'bg-zinc-950/40 text-zinc-600 border-zinc-900 cursor-not-allowed opacity-50'
-                                    : user.status === 'ACTIVE'
-                                      ? 'bg-zinc-950 hover:bg-zinc-900 text-zinc-400 border-zinc-850 hover:text-white'
-                                      : 'bg-emerald-950 text-emerald-450 border-emerald-950/40 hover:bg-emerald-900'
-                                }`}
-                                title={!currentRolePerms.manageUsers ? "Requires User Management Permissions" : user.status === 'ACTIVE' ? "Suspend Authority" : "Re-activate Status"}
-                              >
-                                {user.status === 'ACTIVE' ? 'Suspend' : 'Activate'}
-                              </button>
+                                  {/* Suspend toggler */}
+                                  <button
+                                    onClick={() => setStatusConfirmUser(user)}
+                                    disabled={!currentRolePerms.manageUsers}
+                                    className={`text-[10px] font-bold uppercase transition-all px-2 py-1 rounded cursor-pointer border ${
+                                      !currentRolePerms.manageUsers
+                                        ? 'bg-zinc-950/40 text-zinc-600 border-zinc-900 cursor-not-allowed opacity-50'
+                                        : user.status === 'ACTIVE'
+                                          ? 'bg-zinc-950 hover:bg-zinc-900 text-zinc-400 border-zinc-850 hover:text-white'
+                                          : 'bg-emerald-950 text-emerald-450 border-emerald-950/40 hover:bg-emerald-900'
+                                    }`}
+                                    title={!currentRolePerms.manageUsers ? "Requires User Management Permissions" : user.status === 'ACTIVE' ? "Suspend Authority" : "Re-activate Status"}
+                                  >
+                                    {user.status === 'ACTIVE' ? 'Suspend' : 'Activate'}
+                                  </button>
 
-                              {/* Delete credential button */}
-                              <button
-                                onClick={() => setDeleteConfirmUser(user)}
-                                disabled={!currentRolePerms.manageUsers}
-                                className={`p-1 px-1.5 bg-zinc-950 border border-zinc-850 rounded transition-colors ${
-                                  !currentRolePerms.manageUsers
-                                    ? 'text-zinc-700 border-zinc-950 cursor-not-allowed opacity-40'
-                                    : 'text-zinc-550 hover:text-red-400 hover:border-red-500/35 cursor-pointer'
-                                }`}
-                                title={!currentRolePerms.manageUsers ? "Requires User Management Permissions" : "Revoke Administrative Access"}
-                              >
-                                <Trash2 size={12} />
-                              </button>
+                                  {/* Delete credential button */}
+                                  <button
+                                    onClick={() => setDeleteConfirmUser(user)}
+                                    disabled={!currentRolePerms.manageUsers}
+                                    className={`p-1 px-1.5 bg-zinc-950 border border-zinc-850 rounded transition-colors ${
+                                      !currentRolePerms.manageUsers
+                                        ? 'text-zinc-700 border-zinc-950 cursor-not-allowed opacity-40'
+                                        : 'text-zinc-550 hover:text-red-400 hover:border-red-500/35 cursor-pointer'
+                                    }`}
+                                    title={!currentRolePerms.manageUsers ? "Requires User Management Permissions" : "Revoke Administrative Access"}
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -664,221 +843,232 @@ export default function AdminPillar({
                 </table>
               </div>
             </div>
-          </div>
 
-          {/* Enroll user side-form (Right 1 column on desktop) */}
-          <div className="space-y-4">
-            <div className="bg-[#09090B] border border-zinc-900 rounded-xl p-5 shadow-xl">
-              <div className="flex items-center gap-2 mb-4">
-                <Plus size={16} className={!currentRolePerms.manageUsers ? "text-zinc-600" : "text-[#1D9E75]"} />
-                <h3 className="text-xs font-mono font-bold text-white uppercase tracking-wider">
-                  Enroll Authorized Admin
-                </h3>
-              </div>
-              <p className="text-[11px] text-zinc-500 font-mono mb-4 leading-relaxed">
-                Add an additional authenticated security member to manage and audit specific security gates within AgentsGuardian.
-              </p>
-
-              {!currentRolePerms.manageUsers && (
-                <div className="mb-4 p-3 bg-rose-950/20 border border-rose-950/40 rounded text-[10.5px] font-mono text-rose-400 select-none">
-                  🔒 Onboarding Access Restricted: Your active role does not possess permissions to register new administrator accounts.
-                </div>
-              )}
-
-              <form onSubmit={handleCreateUser} className="space-y-4 font-mono text-xs">
-                <div>
-                  <label className="text-zinc-550 font-bold block mb-1">Full Legal Name</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Rachel Sterling"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    disabled={!currentRolePerms.manageUsers}
-                    className={`w-full bg-[#121214] border border-zinc-850 rounded p-2 text-zinc-200 placeholder-zinc-700 focus:outline-none focus:border-zinc-800 ${
-                      !currentRolePerms.manageUsers ? 'opacity-50 cursor-not-allowed' : ''
-                    }`}
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="text-zinc-550 font-bold block mb-1">Corporate email address</label>
-                  <input
-                    type="email"
-                    placeholder="e.g. r.sterling@guardian.gov"
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                    disabled={!currentRolePerms.manageUsers}
-                    className={`w-full bg-[#121214] border border-zinc-850 rounded p-2 text-zinc-200 placeholder-zinc-700 focus:outline-none focus:border-zinc-800 ${
-                      !currentRolePerms.manageUsers ? 'opacity-50 cursor-not-allowed' : ''
-                    }`}
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="text-zinc-550 font-bold block mb-1">Default Platform Role</label>
-                  <select
-                    value={newRole}
-                    onChange={(e) => setNewRole(e.target.value as AdminRole)}
-                    disabled={!currentRolePerms.manageUsers}
-                    className={`w-full bg-[#121214] border border-[#1F2E40] rounded p-2 text-zinc-350 focus:outline-none focus:border-zinc-805 cursor-pointer ${
-                      !currentRolePerms.manageUsers ? 'opacity-50 cursor-not-allowed bg-zinc-950' : 'bg-[#121214]'
-                    }`}
-                  >
-                    {currentUser.role === 'SuperAdmin' && (
-                      <>
-                        <option value="SuperAdmin">SuperAdmin (Master & Recovery)</option>
-                        <option value="Admin">Admin (Workspace & Setup Mgr)</option>
-                      </>
-                    )}
-                    <option value="PolicyManager">PolicyManager (Manage Rules)</option>
-                    <option value="Auditor">Auditor (Read-Only Metrics)</option>
-                    <option value="Operator">Operator (Kill-Switch Control)</option>
-                  </select>
-                </div>
-
-                <div className="flex items-center justify-between py-2 border-t border-b border-zinc-950 my-2">
-                  <div className="flex flex-col">
-                    <span className="text-zinc-300 font-bold text-[11px]">Enforce hardware MFA</span>
-                    <span className="text-[9px] text-zinc-550">Compels hardware security tokens</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={newMfa}
-                    onChange={(e) => setNewMfa(e.target.checked)}
-                    disabled={!currentRolePerms.manageUsers}
-                    className={`w-4 h-4 rounded border-zinc-800 accent-teal-500 bg-zinc-950 cursor-pointer ${
-                      !currentRolePerms.manageUsers ? 'opacity-50 cursor-not-allowed' : ''
-                    }`}
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={!currentRolePerms.manageUsers}
-                  className={`w-full py-2 border rounded font-bold transition-colors uppercase font-mono tracking-wider flex items-center justify-center gap-1.5 ${
-                    !currentRolePerms.manageUsers
-                      ? 'bg-zinc-950 border-zinc-900 text-zinc-650 cursor-not-allowed'
-                      : 'bg-[#121214] border-zinc-850 text-[#1D9E75] hover:bg-zinc-900 cursor-pointer'
-                  }`}
-                >
-                  <Plus size={14} />
-                  Authorize Credentials
-                </button>
-              </form>
-            </div>
-
-            {/* Scoped Role Impersonation / "View As" Preview Sandbox (SuperAdmin / Admin Only) */}
+            {/* Administrative Operations Deck: Enroll Authorized Admin & Role Experience Preview (Side-by-Side below Directory) */}
             {(() => {
               const authenticatedUser = realUser || currentUser;
               const isSuperOrAdmin = authenticatedUser.role === 'SuperAdmin' || authenticatedUser.role === 'Admin';
-              if (!isSuperOrAdmin) return null;
-
               const availableRoles: AdminRole[] = authenticatedUser.role === 'SuperAdmin'
                 ? ['Admin', 'PolicyManager', 'Operator', 'Auditor']
                 : ['PolicyManager', 'Operator', 'Auditor'];
 
               return (
-                <div id="impersonation-control-panel" className="bg-[#09090B] border border-amber-500/30 rounded-xl p-5 shadow-xl space-y-4">
-                  <div className="flex items-center justify-between border-b border-zinc-900 pb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                        <Eye size={16} />
+                <div 
+                  className={`grid grid-cols-1 ${isSuperOrAdmin ? 'lg:grid-cols-2' : ''} gap-6 pt-2`} 
+                  id="admin-operations-deck"
+                >
+                  {/* Enroll Authorized Admin */}
+                  <div id="enroll-admin-card" className="bg-[#09090B] border border-zinc-900 rounded-xl p-5 shadow-xl flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Plus size={16} className={!currentRolePerms.manageUsers ? "text-zinc-600" : "text-[#1D9E75]"} />
+                        <h3 className="text-xs font-mono font-bold text-white uppercase tracking-wider">
+                          Enroll Authorized Admin
+                        </h3>
                       </div>
-                      <div>
-                        <h4 className="text-xs font-mono font-bold text-white uppercase tracking-wider">
-                          Role Experience Preview
-                        </h4>
-                        <span className="text-[10px] text-zinc-500 font-mono">
-                          Scoped "View As" sandbox for administrative validation
-                        </span>
-                      </div>
+                      <p className="text-[11px] text-zinc-500 font-mono mb-4 leading-relaxed">
+                        Add an additional authenticated security member to manage and audit specific security gates within AgentsGuardian.
+                      </p>
+
+                      {!currentRolePerms.manageUsers && (
+                        <div className="mb-4 p-3 bg-rose-950/20 border border-rose-950/40 rounded text-[10.5px] font-mono text-rose-400 select-none">
+                          🔒 Onboarding Access Restricted: Your active role does not possess permissions to register new administrator accounts.
+                        </div>
+                      )}
+
+                      <form onSubmit={handleCreateUser} className="space-y-4 font-mono text-xs">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                          <div>
+                            <label className="text-zinc-550 font-bold block mb-1">Full Legal Name</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Rachel Sterling"
+                              value={newName}
+                              onChange={(e) => setNewName(e.target.value)}
+                              disabled={!currentRolePerms.manageUsers}
+                              className={`w-full bg-[#121214] border border-zinc-850 rounded p-2 text-zinc-200 placeholder-zinc-700 focus:outline-none focus:border-zinc-800 ${
+                                !currentRolePerms.manageUsers ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
+                              required
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-zinc-550 font-bold block mb-1">Corporate email address</label>
+                            <input
+                              type="email"
+                              placeholder="e.g. r.sterling@guardian.gov"
+                              value={newEmail}
+                              onChange={(e) => setNewEmail(e.target.value)}
+                              disabled={!currentRolePerms.manageUsers}
+                              className={`w-full bg-[#121214] border border-zinc-850 rounded p-2 text-zinc-200 placeholder-zinc-700 focus:outline-none focus:border-zinc-800 ${
+                                !currentRolePerms.manageUsers ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-center">
+                          <div>
+                            <label className="text-zinc-550 font-bold block mb-1">Default Platform Role</label>
+                            <select
+                              value={newRole}
+                              onChange={(e) => setNewRole(e.target.value as AdminRole)}
+                              disabled={!currentRolePerms.manageUsers}
+                              className={`w-full bg-[#121214] border border-[#1F2E40] rounded p-2 text-zinc-350 focus:outline-none focus:border-zinc-805 cursor-pointer ${
+                                !currentRolePerms.manageUsers ? 'opacity-50 cursor-not-allowed bg-zinc-950' : 'bg-[#121214]'
+                              }`}
+                            >
+                              {currentUser.role === 'SuperAdmin' && (
+                                <>
+                                  <option value="SuperAdmin">SuperAdmin (Master & Recovery)</option>
+                                  <option value="Admin">Admin (Workspace & Setup Mgr)</option>
+                                </>
+                              )}
+                              <option value="PolicyManager">PolicyManager (Manage Rules)</option>
+                              <option value="Auditor">Auditor (Read-Only Metrics)</option>
+                              <option value="Operator">Operator (Kill-Switch Control)</option>
+                            </select>
+                          </div>
+
+                          <div className="flex items-center justify-between p-2.5 bg-[#121214] border border-zinc-850 rounded sm:mt-5">
+                            <div className="flex flex-col">
+                              <span className="text-zinc-300 font-bold text-[10.5px]">Enforce hardware MFA</span>
+                              <span className="text-[9px] text-zinc-550">Compels hardware token</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={newMfa}
+                              onChange={(e) => setNewMfa(e.target.checked)}
+                              disabled={!currentRolePerms.manageUsers}
+                              className={`w-4 h-4 rounded border-zinc-800 accent-teal-500 bg-zinc-950 cursor-pointer ${
+                                !currentRolePerms.manageUsers ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={!currentRolePerms.manageUsers}
+                          className={`w-full py-2.5 border rounded font-bold transition-colors uppercase font-mono tracking-wider flex items-center justify-center gap-1.5 mt-2 ${
+                            !currentRolePerms.manageUsers
+                              ? 'bg-zinc-950 border-zinc-900 text-zinc-650 cursor-not-allowed'
+                              : 'bg-teal-500/15 border-teal-500/30 text-teal-300 hover:bg-teal-500/25 cursor-pointer'
+                          }`}
+                        >
+                          <Plus size={14} />
+                          Authorize Credentials
+                        </button>
+                      </form>
                     </div>
-                    {impersonatedRole ? (
-                      <span className="text-[9px] font-mono font-bold uppercase px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded animate-pulse">
-                        Preview Active
-                      </span>
-                    ) : (
-                      <span className="text-[9px] font-mono text-zinc-500 uppercase px-1.5 py-0.5 bg-zinc-900 rounded border border-zinc-800">
-                        Standard View
-                      </span>
-                    )}
                   </div>
 
-                  <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
-                    Preview how navigation, policy views, and controls appear to lower-privileged roles. <strong className="text-zinc-200">Security guarantee:</strong> Impersonation only changes UI display; all backend API calls strictly validate against your verified <code className="text-amber-300 font-mono text-[10px]">{authenticatedUser.role}</code> credentials.
-                  </p>
+                  {/* Scoped Role Impersonation / "View As" Preview Sandbox (SuperAdmin / Admin Only) */}
+                  {isSuperOrAdmin && (
+                    <div id="impersonation-control-panel" className="bg-[#09090B] border border-amber-500/30 rounded-xl p-5 shadow-xl space-y-4 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between border-b border-zinc-900 pb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="p-1.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                              <Eye size={16} />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-mono font-bold text-white uppercase tracking-wider">
+                                Role Experience Preview
+                              </h4>
+                              <span className="text-[10px] text-zinc-500 font-mono">
+                                Scoped "View As" sandbox for administrative validation
+                              </span>
+                            </div>
+                          </div>
+                          {impersonatedRole ? (
+                            <span className="text-[9px] font-mono font-bold uppercase px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded animate-pulse">
+                              Preview Active
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-mono text-zinc-500 uppercase px-1.5 py-0.5 bg-zinc-900 rounded border border-zinc-800">
+                              Standard View
+                            </span>
+                          )}
+                        </div>
 
-                  {impersonatedRole ? (
-                    <div className="p-3 bg-amber-950/20 border border-amber-500/30 rounded-lg space-y-2.5">
-                      <div className="flex items-center justify-between text-xs font-mono">
-                        <span className="text-zinc-400">Current Preview Role:</span>
-                        <strong className="text-amber-300 uppercase font-black">{impersonatedRole}</strong>
+                        <p className="text-[11px] text-zinc-400 leading-relaxed font-sans mt-3">
+                          Preview how navigation, policy views, and controls appear to lower-privileged roles. <strong className="text-zinc-200">Security guarantee:</strong> Impersonation only changes UI display; all backend API calls strictly validate against your verified <code className="text-amber-300 font-mono text-[10px]">{authenticatedUser.role}</code> credentials.
+                        </p>
                       </div>
-                      <div className="text-[10px] text-zinc-500 font-mono">
-                        Real Session: <span className="text-zinc-300">{authenticatedUser.name}</span> ({authenticatedUser.role})
-                      </div>
-                      <button
-                        onClick={async () => {
-                          if (onStopImpersonation) {
-                            const res = await onStopImpersonation();
-                            if (res.success) {
-                              addToast({
-                                type: 'info',
-                                title: '👁️ Preview Exited',
-                                message: `Restored standard ${authenticatedUser.role} administrative dashboard view.`
-                              });
-                            }
-                          }
-                        }}
-                        className="w-full flex items-center justify-center gap-2 py-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 hover:text-white text-xs font-mono font-bold rounded-lg transition-all cursor-pointer"
-                      >
-                        <LogOut size={13} />
-                        Exit Preview Mode
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-mono text-zinc-400 uppercase font-bold block">
-                        Select Target Role to Preview
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {availableRoles.map(role => (
+
+                      {impersonatedRole ? (
+                        <div className="p-3 bg-amber-950/20 border border-amber-500/30 rounded-lg space-y-2.5 mt-2">
+                          <div className="flex items-center justify-between text-xs font-mono">
+                            <span className="text-zinc-400">Current Preview Role:</span>
+                            <strong className="text-amber-300 uppercase font-black">{impersonatedRole}</strong>
+                          </div>
+                          <div className="text-[10px] text-zinc-500 font-mono">
+                            Real Session: <span className="text-zinc-300">{authenticatedUser.name}</span> ({authenticatedUser.role})
+                          </div>
                           <button
-                            key={role}
-                            id={`impersonate-role-btn-${role.toLowerCase()}`}
                             onClick={async () => {
-                              if (onStartImpersonation) {
-                                const res = await onStartImpersonation(role);
+                              if (onStopImpersonation) {
+                                const res = await onStopImpersonation();
                                 if (res.success) {
                                   addToast({
                                     type: 'info',
-                                    title: '👁️ Role Preview Activated',
-                                    message: `Viewing workspace as ${role}. Backend authorization remains anchored to your ${authenticatedUser.role} token.`
-                                  });
-                                } else {
-                                  addToast({
-                                    type: 'danger',
-                                    title: 'Preview Initialization Failed',
-                                    message: res.error || 'Unable to start role impersonation'
+                                    title: '👁️ Preview Exited',
+                                    message: `Restored standard ${authenticatedUser.role} administrative dashboard view.`
                                   });
                                 }
                               }
                             }}
-                            className="flex items-center justify-center gap-1.5 p-2 bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 hover:border-amber-500/40 text-zinc-300 hover:text-amber-200 text-xs font-mono rounded-lg transition-all cursor-pointer text-center"
+                            className="w-full flex items-center justify-center gap-2 py-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 hover:text-white text-xs font-mono font-bold rounded-lg transition-all cursor-pointer"
                           >
-                            <Eye size={12} className="text-amber-400/70" />
-                            <span>{role}</span>
+                            <LogOut size={13} />
+                            Exit Preview Mode
                           </button>
-                        ))}
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 mt-2">
+                          <label className="text-[10px] font-mono text-zinc-400 uppercase font-bold block">
+                            Select Target Role to Preview
+                          </label>
+                          <div className="grid grid-cols-2 gap-2">
+                            {availableRoles.map(role => (
+                              <button
+                                key={role}
+                                id={`impersonate-role-btn-${role.toLowerCase()}`}
+                                onClick={async () => {
+                                  if (onStartImpersonation) {
+                                    const res = await onStartImpersonation(role);
+                                    if (res.success) {
+                                      addToast({
+                                        type: 'info',
+                                        title: '👁️ Role Preview Activated',
+                                        message: `Viewing workspace as ${role}. Backend authorization remains anchored to your ${authenticatedUser.role} token.`
+                                      });
+                                    } else {
+                                      addToast({
+                                        type: 'danger',
+                                        title: 'Preview Initialization Failed',
+                                        message: res.error || 'Unable to start role impersonation'
+                                      });
+                                    }
+                                  }
+                                }}
+                                className="flex items-center justify-center gap-1.5 p-2 bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 hover:border-amber-500/40 text-zinc-300 hover:text-amber-200 text-xs font-mono rounded-lg transition-all cursor-pointer text-center"
+                              >
+                                <Eye size={12} className="text-amber-400/70" />
+                                <span>{role}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               );
             })()}
-          </div>
         </div>
       )}
 
@@ -1816,6 +2006,43 @@ export default function AdminPillar({
           addToast={addToast}
         />
       )}
+
+      {/* Super Admin Approval & OTP Provisioning Modal */}
+      {provisionModalUser && (
+        <ProvisionUserModal
+          isOpen={Boolean(provisionModalUser)}
+          onClose={() => setProvisionModalUser(null)}
+          targetUser={provisionModalUser}
+          currentUser={currentUser}
+          onProvisionSuccess={(updatedUser, otp) => {
+            handleProvisionSuccess(updatedUser, otp);
+          }}
+          addToast={addToast}
+        />
+      )}
+
+      {/* Confirmation Modal: Reject User Registration */}
+      <ConfirmationModal
+        isOpen={Boolean(rejectConfirmUser)}
+        onClose={() => setRejectConfirmUser(null)}
+        onConfirm={() => {
+          if (rejectConfirmUser) {
+            handleRejectUser(rejectConfirmUser.id);
+            setRejectConfirmUser(null);
+          }
+        }}
+        title={`Decline Registration for ${rejectConfirmUser?.name}?`}
+        description={`This will decline and reject the access request for ${rejectConfirmUser?.email}. They will not be provisioned credentials or granted access to AgentsGuardian.`}
+        confirmLabel="Reject Request"
+        cancelLabel="Keep Pending"
+        severity="danger"
+        badgeText="DECLINE ACCESS REQUEST"
+        detailsList={[
+          `Applicant: ${rejectConfirmUser?.name} (${rejectConfirmUser?.email})`,
+          `Requested Role: ${rejectConfirmUser?.role}`,
+          `Organization: ${rejectConfirmUser?.organization || 'Not Specified'}`
+        ]}
+      />
     </div>
   );
 }

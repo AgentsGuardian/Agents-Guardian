@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Shield, Lock, Eye, EyeOff, User, Mail, Briefcase, Landmark, Server, Activity } from 'lucide-react';
+import { Shield, Lock, Eye, EyeOff, User, Mail, Briefcase, Landmark, Server, Activity, Key, ShieldCheck, CheckCircle2, Clock, FileText, ArrowLeft, KeyRound, AlertCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { AdminUser, AdminRole } from '../types';
 import AgentsGuardianLogo from './Logo';
@@ -25,6 +25,13 @@ export default function GaaSAccessGate({
   const [isLoginView, setIsLoginView] = useState<boolean>(true);
   const [showPassword, setShowPassword] = useState<boolean>(false);
 
+  // Registration Confirmation State
+  const [registrationSubmitted, setRegistrationSubmitted] = useState<boolean>(false);
+  const [submittedEmail, setSubmittedEmail] = useState<string>('');
+  const [submittedRole, setSubmittedRole] = useState<string>('Operator');
+  const [registrationNotes, setRegistrationNotes] = useState<string>('');
+  const [authErrorBanner, setAuthErrorBanner] = useState<string>('');
+
   // Password Reset Simulation States
   const [showResetModal, setShowResetModal] = useState<boolean>(false);
   const [resetEmail, setResetEmail] = useState<string>('');
@@ -41,7 +48,7 @@ export default function GaaSAccessGate({
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [name, setName] = useState<string>('');
-  const [selectedRole, setSelectedRole] = useState<AdminRole>('Admin');
+  const [selectedRole, setSelectedRole] = useState<AdminRole>('Operator');
   const [orgName, setOrgName] = useState<string>('');
   const [acceptTerms, setAcceptTerms] = useState<boolean>(true);
 
@@ -56,11 +63,9 @@ export default function GaaSAccessGate({
       else if (!email.includes('@')) errors.email = 'Please provide a valid email structure.';
       if (!password) errors.password = 'Security password hash is required.';
     } else {
-      if (!name.trim()) errors.name = 'Full name is required to authenticate administrative credentials.';
+      if (!name.trim()) errors.name = 'Full name is required for registration.';
       if (!email.trim()) errors.email = 'Email address is required.';
-      else if (!email.includes('@')) errors.email = 'Please provide a valid email format (e.g. name@domain.com).';
-      if (!password) errors.password = 'A secure entry password is required.';
-      else if (password.length < 12) errors.password = 'Security password must contain at least 12 characters.';
+      else if (!email.includes('@')) errors.email = 'Please provide a valid corporate email format (e.g. name@domain.com).';
       if (!acceptTerms) errors.accept = 'You must accept compliance terms of the safety system.';
     }
     setFormErrors(errors);
@@ -69,6 +74,7 @@ export default function GaaSAccessGate({
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAuthErrorBanner('');
     if (!validateForm()) return;
 
     if (isLoginView) {
@@ -81,11 +87,21 @@ export default function GaaSAccessGate({
 
         const data = await res.json();
         if (!res.ok) {
-          addToast({
-            type: 'danger',
-            title: '❌ Authentication Failed',
-            message: data.error || 'Invalid credentials or account suspended.'
-          });
+          if (res.status === 403 && data.status === 'PENDING_APPROVAL') {
+            setAuthErrorBanner(data.error || 'Your registration is pending review and credential provisioning by the Super Admin.');
+            addToast({
+              type: 'warning',
+              title: '⏳ Approval Pending',
+              message: 'Your registration is awaiting Super Admin approval and One-Time Password provisioning.'
+            });
+          } else {
+            setAuthErrorBanner(data.error || 'Invalid credentials or account suspended.');
+            addToast({
+              type: 'danger',
+              title: '❌ Authentication Failed',
+              message: data.error || 'Invalid credentials or account suspended.'
+            });
+          }
           return;
         }
 
@@ -97,7 +113,7 @@ export default function GaaSAccessGate({
         addToast({
           type: 'success',
           title: '🛡️ Identity Verified: Gateway Open',
-          message: `Welcome back, Admin Operator ${data.user.name}. Session token issued under role: ${data.user.role}.`
+          message: `Welcome back, ${data.user.name}. Session token issued under role: ${data.user.role}.`
         });
       } catch (err: any) {
         addToast({
@@ -114,9 +130,11 @@ export default function GaaSAccessGate({
           body: JSON.stringify({
             name: name.trim(),
             email: email.trim(),
-            password,
+            password: password || undefined,
             role: selectedRole,
-            organization: orgName.trim()
+            organization: orgName.trim(),
+            registrationNotes: registrationNotes.trim(),
+            requiresApproval: true
           })
         });
 
@@ -130,20 +148,19 @@ export default function GaaSAccessGate({
           return;
         }
 
-        if (data.token) {
-          localStorage.setItem('ag_session_token', data.token);
+        // Successfully submitted for approval
+        setSubmittedEmail(email.trim());
+        setSubmittedRole(selectedRole);
+        setRegistrationSubmitted(true);
+        if (data.user) {
+          onRegisterUser(data.user);
         }
 
-        onRegisterUser(data.user);
         addToast({
-          type: 'success',
-          title: '🛡️ License Authorization Active',
-          message: `Registered successfully! Authenticating session...`
+          type: 'info',
+          title: '📋 Registration Submitted to Super Admin',
+          message: 'Your registration is queued for Super Admin approval and OTP provisioning.'
         });
-
-        setTimeout(() => {
-          onLoginSuccess(data.user);
-        }, 300);
       } catch (err) {
         addToast({
           type: 'danger',
@@ -252,196 +269,317 @@ export default function GaaSAccessGate({
             </div>
           </div>
 
-          <div className="space-y-2 mb-6">
+          <div className="space-y-2 mb-4">
             <h2 className="text-lg sm:text-xl font-display font-bold text-white">
-              {isLoginView ? 'Welcome operator, authorize session' : 'Enroll administrator license key'}
+              {registrationSubmitted
+                ? 'Registration Queued for Approval'
+                : isLoginView
+                ? 'Welcome Operator, Authorize Session'
+                : 'Request Access & License Provisioning'}
             </h2>
             <p className="text-xs text-zinc-400">
-              {isLoginView 
-                ? 'Authorized GaaS gateway requires continuous ledger logging. Enter credentials to mount active shields.' 
-                : 'Provide registration credentials. Your profile is audited dynamically inside the system logs.'}
+              {registrationSubmitted
+                ? 'Your registration has been securely forwarded to the Super Admin owner.'
+                : isLoginView 
+                ? 'Authorized GaaS gateway requires continuous ledger logging. Enter your authorized credentials or provisioned One-Time Password (OTP).' 
+                : 'Submit your credentials for Super Admin review. Upon approval, a One-Time Password (OTP) will be provisioned for your initial sign-in.'}
             </p>
           </div>
 
-          <form onSubmit={handleFormSubmit} className="space-y-4" id="access-portal-form">
-            
-            {!isLoginView && (
-              <div className="space-y-1 animate-in fade-in duration-150">
-                <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block font-mono">
-                  Full Account Name
-                </label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-500">
-                    <User size={13} />
-                  </span>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Marcus Sterling"
-                    className={`w-full text-xs font-sans bg-black/40 border rounded-lg pl-9.5 pr-4 py-2.5 text-slate-102 placeholder:text-zinc-650 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 transition-all ${
-                      formErrors.name ? 'border-red-500/60' : 'border-[#1F2E40]'
-                    }`}
-                    id="reg-input-name"
-                  />
-                </div>
-                {formErrors.name && (
-                  <p className="text-[10.5px] text-red-400 font-mono font-bold mt-1">{formErrors.name}</p>
-                )}
+          {/* Login Error / Pending Approval Banner */}
+          {isLoginView && authErrorBanner && (
+            <div className="mb-4 p-3 rounded-xl bg-amber-950/30 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2.5 animate-in fade-in duration-150">
+              <AlertCircle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-bold text-amber-300">Access Restricted</div>
+                <div className="text-[11px] leading-relaxed text-zinc-300">{authErrorBanner}</div>
               </div>
-            )}
-
-            <div className="space-y-1">
-              <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block font-mono">
-                Corporate / License Email
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-500">
-                  <Mail size={13} />
-                </span>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@guardian.gov"
-                  className={`w-full text-xs font-sans bg-black/40 border rounded-lg pl-9.5 pr-4 py-2.5 text-slate-102 placeholder:text-zinc-650 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 transition-all ${
-                    formErrors.email ? 'border-red-500/60' : 'border-[#1F2E40]'
-                  }`}
-                  id="auth-input-email"
-                />
-              </div>
-              {formErrors.email && (
-                <p className="text-[10.5px] text-red-400 font-mono font-bold mt-1">{formErrors.email}</p>
-              )}
             </div>
+          )}
 
-            <div className="space-y-1">
-              <div className="flex justify-between items-center select-none">
-                <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block font-mono">
-                  Administrative Codecard Password
-                </label>
-                {isLoginView && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setResetEmail(email);
-                      setResetStep('request');
-                      setResetError('');
-                      setShowResetModal(true);
-                      setShowSimulatedEmailNotification(false);
-                    }}
-                    className="text-[10px] text-teal-400 hover:text-teal-300 hover:underline transition-all cursor-pointer font-mono font-bold"
-                    id="trigger-forgot-password-btn"
-                  >
-                    Forgot password?
-                  </button>
-                )}
+          {/* Registration Super Admin Approval Notice */}
+          {!isLoginView && !registrationSubmitted && (
+            <div className="mb-4 p-3 rounded-xl bg-blue-950/20 border border-blue-500/30 text-xs space-y-1.5 text-blue-200">
+              <div className="flex items-center gap-1.5 font-bold text-blue-300 font-mono text-[10.5px] uppercase">
+                <ShieldCheck size={13} className="text-blue-400" />
+                Super Admin Approval Required
               </div>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-500">
-                  <Lock size={13} />
-                </span>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className={`w-full text-xs font-sans bg-black/40 border rounded-lg pl-9.5 pr-10 py-2.5 text-slate-102 placeholder:text-zinc-650 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 transition-all ${
-                    formErrors.password ? 'border-red-500/60' : 'border-[#1F2E40]'
-                  }`}
-                  id="auth-input-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-white cursor-pointer"
-                  id="toggle-pass-visibility-btn"
-                >
-                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-              {formErrors.password && (
-                <p className="text-[10.5px] text-red-400 font-mono font-bold mt-1">{formErrors.password}</p>
-              )}
+              <p className="text-[11px] leading-relaxed text-zinc-300">
+                To maintain zero-trust governance, new registrations require authorization from the designated Super Admin. Upon approval, a secure One-Time Password (OTP) will be provisioned for your initial sign-in.
+              </p>
             </div>
+          )}
 
-            {!isLoginView && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in duration-150">
-                <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block font-mono">
-                    Desired IAM Role Privilege
-                  </label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-500">
-                      <Briefcase size={13} />
-                    </span>
-                    <select
-                      value={selectedRole}
-                      onChange={(e) => setSelectedRole(e.target.value as AdminRole)}
-                      className="w-full text-xs font-sans bg-black/40 border border-[#1F2E40] rounded-lg pl-9.5 pr-3 py-2.5 text-slate-200 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 transition-all cursor-pointer"
-                      id="reg-input-role"
-                    >
-                      <option value="Admin" className="bg-[#0C121D] text-slate-300">Admin (Tenant Instance Administrator)</option>
-                      <option value="PolicyManager" className="bg-[#0C121D] text-slate-300">PolicyManager</option>
-                      <option value="Auditor" className="bg-[#0C121D] text-slate-300">Auditor (View-Only Logs)</option>
-                      <option value="Operator" className="bg-[#0C121D] text-slate-300">Operator (Standard)</option>
-                    </select>
+          {/* Registration Submitted Confirmation Screen */}
+          {registrationSubmitted ? (
+            <div className="space-y-5 py-2 animate-in fade-in duration-200">
+              <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-left space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400">
+                    <ShieldCheck size={20} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-emerald-300 uppercase tracking-wide">
+                      Registration Submitted to Super Admin
+                    </div>
+                    <div className="text-xs text-zinc-300 mt-0.5">
+                      Your access application has been added to the governance queue.
+                    </div>
                   </div>
                 </div>
 
-                <div className="space-y-1">
+                <div className="bg-black/50 p-3 rounded-lg border border-[#1F2E40] text-xs font-mono space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Applicant:</span>
+                    <span className="text-zinc-200 font-bold">{submittedEmail}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Requested Role:</span>
+                    <span className="text-teal-300 font-bold">{submittedRole}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Reviewing Authority:</span>
+                    <span className="text-amber-300 font-bold">Designated Super Admin</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Credential Status:</span>
+                    <span className="text-amber-400 font-bold">PENDING APPROVAL</span>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-zinc-400 leading-relaxed space-y-1 pt-1">
+                  <div className="font-bold text-zinc-300 flex items-center gap-1.5">
+                    <Clock size={12} className="text-amber-400" />
+                    What happens next:
+                  </div>
+                  <ol className="list-decimal list-inside pl-1 space-y-0.5 text-zinc-400">
+                    <li>The Super Admin will review your access request and role.</li>
+                    <li>Upon approval, a secure <strong>One-Time Password (OTP)</strong> will be generated for your account.</li>
+                    <li>Sign in with your email and the OTP, and you will be immediately prompted to set your personal permanent password.</li>
+                  </ol>
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRegistrationSubmitted(false);
+                    setIsLoginView(true);
+                    setEmail(submittedEmail);
+                    setPassword('');
+                    setAuthErrorBanner('');
+                  }}
+                  className="w-full py-2.5 px-4 rounded-lg bg-teal-500 hover:bg-teal-400 text-white font-display font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                >
+                  <ArrowLeft size={14} />
+                  Return to Sign In
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleFormSubmit} className="space-y-4" id="access-portal-form">
+              
+              {!isLoginView && (
+                <div className="space-y-1 animate-in fade-in duration-150">
                   <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block font-mono">
-                    Organization / Node Name
+                    Full Account Name
                   </label>
                   <div className="relative">
                     <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-500">
-                      <Landmark size={13} />
+                      <User size={13} />
                     </span>
                     <input
                       type="text"
-                      value={orgName}
-                      onChange={(e) => setOrgName(e.target.value)}
-                      placeholder="Agency or Corp Name"
-                      className="w-full text-xs font-sans bg-black/40 border border-[#1F2E40] rounded-lg pl-9.5 pr-4 py-2.5 text-slate-102 placeholder:text-zinc-650 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 transition-all"
-                      id="reg-input-organization"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. Elena Rostova"
+                      className={`w-full text-xs font-sans bg-black/40 border rounded-lg pl-9.5 pr-4 py-2.5 text-slate-102 placeholder:text-zinc-650 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 transition-all ${
+                        formErrors.name ? 'border-red-500/60' : 'border-[#1F2E40]'
+                      }`}
+                      id="reg-input-name"
                     />
                   </div>
+                  {formErrors.name && (
+                    <p className="text-[10.5px] text-red-400 font-mono font-bold mt-1">{formErrors.name}</p>
+                  )}
                 </div>
-              </div>
-            )}
+              )}
 
-            {!isLoginView && (
-              <div className="pt-2 animate-in fade-in duration-150">
-                <label className="flex items-start gap-2.5 text-zinc-400 select-none cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={acceptTerms}
-                    onChange={(e) => setAcceptTerms(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 rounded border-zinc-900 bg-zinc-950 text-teal-400 accent-teal-500 focus:ring-0 cursor-pointer"
-                    id="reg-input-accept-terms"
-                  />
-                  <span className="text-[11px] leading-tight text-zinc-400">
-                    I permit public logging of registration metadata. Signups are captured in the system's identity ledger inside settings under published corporate auditing frameworks.
-                  </span>
+              <div className="space-y-1">
+                <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block font-mono">
+                  {isLoginView ? 'Corporate / License Email' : 'Professional Email Address'}
                 </label>
-                {formErrors.accept && (
-                  <p className="text-[10.5px] text-red-400 font-mono font-bold mt-1">{formErrors.accept}</p>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-500">
+                    <Mail size={13} />
+                  </span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder={isLoginView ? 'operator@organization.com' : 'name@company.com'}
+                    className={`w-full text-xs font-sans bg-black/40 border rounded-lg pl-9.5 pr-4 py-2.5 text-slate-102 placeholder:text-zinc-650 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 transition-all ${
+                      formErrors.email ? 'border-red-500/60' : 'border-[#1F2E40]'
+                    }`}
+                    id="auth-input-email"
+                  />
+                </div>
+                {formErrors.email && (
+                  <p className="text-[10.5px] text-red-400 font-mono font-bold mt-1">{formErrors.email}</p>
                 )}
               </div>
-            )}
 
-            <div className="pt-4">
-              <button
-                type="submit"
-                className="w-full py-2.5 px-4 rounded-lg bg-teal-500 hover:bg-teal-400 text-white font-display font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer transform active:scale-98 hover:shadow-teal-500/10"
-                id="sumbit-auth-credentials-btn"
-              >
-                <Shield size={14} className="text-white" />
-                {isLoginView ? 'Sign In' : 'Create Account'}
-              </button>
-            </div>
+              {isLoginView && (
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center select-none">
+                    <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block font-mono">
+                      Password or Provisioned One-Time Password (OTP)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetEmail(email);
+                        setResetStep('request');
+                        setResetError('');
+                        setShowResetModal(true);
+                        setShowSimulatedEmailNotification(false);
+                      }}
+                      className="text-[10px] text-teal-400 hover:text-teal-300 hover:underline transition-all cursor-pointer font-mono font-bold"
+                      id="trigger-forgot-password-btn"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-500">
+                      <Lock size={13} />
+                    </span>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="•••••••• or OTP"
+                      className={`w-full text-xs font-sans bg-black/40 border rounded-lg pl-9.5 pr-10 py-2.5 text-slate-102 placeholder:text-zinc-650 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 transition-all ${
+                        formErrors.password ? 'border-red-500/60' : 'border-[#1F2E40]'
+                      }`}
+                      id="auth-input-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-white cursor-pointer"
+                      id="toggle-pass-visibility-btn"
+                    >
+                      {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono pt-0.5">
+                    <span>Provisioned users: Enter your issued OTP code here.</span>
+                  </div>
+                  {formErrors.password && (
+                    <p className="text-[10.5px] text-red-400 font-mono font-bold mt-1">{formErrors.password}</p>
+                  )}
+                </div>
+              )}
 
-          </form>
+              {!isLoginView && (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in duration-150">
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block font-mono">
+                        Desired IAM Role Privilege
+                      </label>
+                      <div className="relative">
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-500">
+                          <Briefcase size={13} />
+                        </span>
+                        <select
+                          value={selectedRole}
+                          onChange={(e) => setSelectedRole(e.target.value as AdminRole)}
+                          className="w-full text-xs font-sans bg-black/40 border border-[#1F2E40] rounded-lg pl-9.5 pr-3 py-2.5 text-slate-200 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 transition-all cursor-pointer"
+                          id="reg-input-role"
+                        >
+                          <option value="Operator" className="bg-[#0C121D] text-slate-300">Operator (Standard)</option>
+                          <option value="Auditor" className="bg-[#0C121D] text-slate-300">Auditor (View-Only Logs)</option>
+                          <option value="PolicyManager" className="bg-[#0C121D] text-slate-300">PolicyManager</option>
+                          <option value="Admin" className="bg-[#0C121D] text-slate-300">Admin (Instance Administrator)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block font-mono">
+                        Organization / Node Name
+                      </label>
+                      <div className="relative">
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-500">
+                          <Landmark size={13} />
+                        </span>
+                        <input
+                          type="text"
+                          value={orgName}
+                          onChange={(e) => setOrgName(e.target.value)}
+                          placeholder="Agency or Corp Name"
+                          className="w-full text-xs font-sans bg-black/40 border border-[#1F2E40] rounded-lg pl-9.5 pr-4 py-2.5 text-slate-102 placeholder:text-zinc-650 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 transition-all"
+                          id="reg-input-organization"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 animate-in fade-in duration-150">
+                    <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block font-mono">
+                      Access Justification / Notes for Super Admin (Optional)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute top-2.5 left-0 flex items-center pl-3 text-zinc-500">
+                        <FileText size={13} />
+                      </span>
+                      <input
+                        type="text"
+                        value={registrationNotes}
+                        onChange={(e) => setRegistrationNotes(e.target.value)}
+                        placeholder="e.g. AI safety auditor on Project Apex"
+                        className="w-full text-xs font-sans bg-black/40 border border-[#1F2E40] rounded-lg pl-9.5 pr-4 py-2 text-slate-102 placeholder:text-zinc-650 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 transition-all"
+                        id="reg-input-notes"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-1 animate-in fade-in duration-150">
+                    <label className="flex items-start gap-2.5 text-zinc-400 select-none cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={acceptTerms}
+                        onChange={(e) => setAcceptTerms(e.target.checked)}
+                        className="mt-0.5 w-4 h-4 rounded border-zinc-900 bg-zinc-950 text-teal-400 accent-teal-500 focus:ring-0 cursor-pointer"
+                        id="reg-input-accept-terms"
+                      />
+                      <span className="text-[11px] leading-tight text-zinc-400">
+                        I agree that my account credentials will be provisioned by the Super Admin as a One-Time Password and that audit telemetry applies.
+                      </span>
+                    </label>
+                    {formErrors.accept && (
+                      <p className="text-[10.5px] text-red-400 font-mono font-bold mt-1">{formErrors.accept}</p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              <div className="pt-4">
+                <button
+                  type="submit"
+                  className="w-full py-2.5 px-4 rounded-lg bg-teal-500 hover:bg-teal-400 text-white font-display font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer transform active:scale-98 hover:shadow-teal-500/10"
+                  id="sumbit-auth-credentials-btn"
+                >
+                  <Shield size={14} className="text-white" />
+                  {isLoginView ? 'Sign In to Gateway' : 'Submit Request for Super Admin Approval'}
+                </button>
+              </div>
+
+            </form>
+          )}
 
           {/* Secure Warning Label Footer */}
           <div className="mt-6 pt-5 border-t border-[#1F2E40]/40 flex items-center justify-between text-[11px] text-zinc-500 font-mono">

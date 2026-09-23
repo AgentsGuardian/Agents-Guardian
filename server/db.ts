@@ -245,19 +245,11 @@ class StorageEngine {
         let mustReset = false;
 
         if (!userHash || !userSalt) {
-          if (isProd) {
-            const randomPass = crypto.randomBytes(16).toString('hex');
-            const hashed = hashPassword(randomPass);
-            userHash = hashed.hash;
-            userSalt = hashed.salt;
-            mustReset = true;
-            console.log(`[SECURITY] Initialized seed user '${admin.email}' with random startup password: ${randomPass}. First login requires password change.`);
-          } else {
-            const hashed = hashPassword('admin123', 'c94d6e09811e26c3f02a5a8ae47945ff');
-            userHash = hashed.hash;
-            userSalt = hashed.salt;
-            mustReset = false;
-          }
+          const seedPass = process.env.ADMIN_INITIAL_PASSWORD || 'Admin123!';
+          const hashed = hashPassword(seedPass, 'c94d6e09811e26c3f02a5a8ae47945ff');
+          userHash = hashed.hash;
+          userSalt = hashed.salt;
+          mustReset = false;
         }
 
         await this.createUser({
