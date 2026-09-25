@@ -240,9 +240,9 @@ export default function App() {
   } = useGovernanceStore();
 
   const defaultUser: AdminUser = useMemo(() => INITIAL_ADMINS[0] || {
-    id: 'USR-000',
-    name: 'Security Administrator',
-    email: 'admin@guardian.gov',
+    id: 'USR-MJS',
+    name: 'Mritunjoy Singh',
+    email: 'mritunjoysingh@gmail.com',
     role: 'SuperAdmin',
     status: 'ACTIVE',
     mfaEnabled: true,
@@ -255,7 +255,7 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   const getAuthHeaders = () => {
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token')) : null;
+    const token = typeof window !== 'undefined' ? (sessionStorage.getItem('ag_session_token') || localStorage.getItem('ag_session_token')) : null;
     return {
       'Content-Type': 'application/json',
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
@@ -281,6 +281,10 @@ export default function App() {
 
   const setCurrentUser = (selectedVal: AdminUser) => {
     setActingUserId(selectedVal.id);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('ag_acting_user_id', selectedVal.id);
+      localStorage.setItem('ag_acting_user_id', selectedVal.id);
+    }
   };
 
   const handleRegisterUser = (newUser: AdminUser) => {
@@ -293,6 +297,10 @@ export default function App() {
       return exists ? prev : [...prev, user];
     });
     setActingUserId(user.id);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('ag_acting_user_id', user.id);
+      localStorage.setItem('ag_acting_user_id', user.id);
+    }
     setIsLoggedIn(true);
     refreshState();
   };
@@ -300,8 +308,12 @@ export default function App() {
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('ag_session_token');
+      localStorage.removeItem('ag_acting_user_id');
       sessionStorage.removeItem('ag_session_token');
+      sessionStorage.removeItem('ag_acting_user_id');
+      sessionStorage.removeItem('ag_impersonated_role');
     }
+    setActingUserId('');
     setIsLoggedIn(false);
     setShowAppearanceMenu(false);
   };
@@ -311,25 +323,11 @@ export default function App() {
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | 'off'>(30000);
   const [latencyThreshold, setLatencyThreshold] = useState<number>(GUARANTEED_SLA_MS);
 
-  // Fetch real-time server governance state on mount
+  // Fetch real-time server governance state when logged in
   useEffect(() => {
-    fetch('/api/state', {
-      headers: getAuthHeaders()
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.policies) setPolicies(data.policies);
-        if (data.killEvents) setKillEvents(data.killEvents);
-        if (data.driftEvents) setDriftEvents(data.driftEvents);
-        if (data.valueMetrics) setValueMetrics(data.valueMetrics);
-        if (typeof data.budgetCap === 'number') setBudgetCap(data.budgetCap);
-        if (data.laborConfig) setLaborConfig(data.laborConfig);
-        if (data.users) setUsers(data.users);
-        if (data.governedAgents) setGovernedAgents(data.governedAgents);
-        if (data.apiLogs) setApiLogs(data.apiLogs);
-      })
-      .catch(err => console.warn('Using local fallback state:', err));
-  }, []);
+    if (!isLoggedIn) return;
+    refreshState();
+  }, [isLoggedIn, refreshState]);
 
   // Toast notification states
   const [toasts, setToasts] = useState<Toast[]>([]);

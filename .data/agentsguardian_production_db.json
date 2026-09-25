@@ -85,6 +85,28 @@
       "enabled": true,
       "failureMode": "FAIL_OPEN_ALERT",
       "tenantId": "tenant_default"
+    },
+    {
+      "id": "POL-ISO-tenant_alpha-1790344037742",
+      "code": "POL-TENANTALPHA-01",
+      "name": "Isolation Rule tenant_alpha",
+      "description": "Strict isolation rule for tenant_alpha",
+      "category": "security",
+      "blastRadius": "Tenant Alpha Scope",
+      "threshold": "Strict",
+      "enabled": true,
+      "tenantId": "tenant_alpha"
+    },
+    {
+      "id": "POL-ISO-tenant_beta-1790344037743",
+      "code": "POL-TENANTBETA-01",
+      "name": "Isolation Rule tenant_beta",
+      "description": "Strict isolation rule for tenant_beta",
+      "category": "security",
+      "blastRadius": "Tenant Beta Scope",
+      "threshold": "Strict",
+      "enabled": true,
+      "tenantId": "tenant_beta"
     }
   ],
   "iam_users": [
@@ -150,6 +172,58 @@
     }
   ],
   "audit_ledger": [
+    {
+      "id": "LEDGER-1790344037755-1164",
+      "message_id": "MSG-1790344037755",
+      "tenant_id": "tenant_default",
+      "agent_id": "GA-MARKETPLACE",
+      "event_type": "METERING_RECONCILED",
+      "payload_hash": "2afa3ef87c348ed4777a82f245a7929dc8c31b20cd67f1ec9e2960238af58a8a",
+      "prev_hash": "9c145d82c0eb70919e0af5f99ec581a97a7e333352b82a51f3a2d6661a152552",
+      "entry_hash": "4ed0e099559ace68e2c88ed3260f7687aa1c20987c1a69fbaf7eee59b88cef13",
+      "signature": "gcp-kms-rsa4096-sig:2e0a61d581af04fcbf3e7f123d220085d8df3408d906a155d9ba4211d0b3049f",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-09-25T13:47:17.755Z"
+    },
+    {
+      "id": "LEDGER-1790344037754-4123",
+      "message_id": "MSG-1790344037754",
+      "tenant_id": "tenant_default",
+      "agent_id": "GA-MARKETPLACE",
+      "event_type": "MARKETPLACE_METERING_EMITTED",
+      "payload_hash": "2198b744f77f1fa14ecbdd8f7a62128a66af61d0e0d1a2d1310430f11cf5b155",
+      "prev_hash": "c316e337884b4b71f9c95d3449ad8503174b314c9e15810cb78bb90ab1f74c26",
+      "entry_hash": "9c145d82c0eb70919e0af5f99ec581a97a7e333352b82a51f3a2d6661a152552",
+      "signature": "gcp-kms-rsa4096-sig:60d254732f4f511474e1f9c2efc24f53669f2fec7d28e2a1b3418789c98835ff",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-09-25T13:47:17.754Z"
+    },
+    {
+      "id": "LEDGER-1790344037747-891",
+      "message_id": "MSG-1790344037747",
+      "tenant_id": "tenant_beta",
+      "agent_id": "AGENT-B1",
+      "event_type": "TEST_ISOLATION_B",
+      "payload_hash": "1e163f20be2cde02d56bba27f0bf0f7b0ead7b583b693e09daf234926071b12d",
+      "prev_hash": "88ee5f9ce40ed9d6ff00d045e6366d2178bc146b6b1d8f7d836c97d4b3bfb77c",
+      "entry_hash": "c316e337884b4b71f9c95d3449ad8503174b314c9e15810cb78bb90ab1f74c26",
+      "signature": "gcp-kms-rsa4096-sig:15f9f4b6694f17111ee7f22a898e9e638897f5b7a548555bace1a310187b518c",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-09-25T13:47:17.747Z"
+    },
+    {
+      "id": "LEDGER-1790344037746-174",
+      "message_id": "MSG-1790344037746",
+      "tenant_id": "tenant_alpha",
+      "agent_id": "AGENT-A1",
+      "event_type": "TEST_ISOLATION_A",
+      "payload_hash": "7b60883759df73631c78db03b303d29cad78614fbb8a535869fda317bc0c1a14",
+      "prev_hash": "GENESIS_00000000000000000000000000000000",
+      "entry_hash": "88ee5f9ce40ed9d6ff00d045e6366d2178bc146b6b1d8f7d836c97d4b3bfb77c",
+      "signature": "gcp-kms-rsa4096-sig:7e62e2d3d7ccfda2e408b2c095d29e7d001eb2bc426ccdacf219b9fc5b83dfd0",
+      "signature_status": "VALID_KMS",
+      "timestamp": "2026-09-25T13:47:17.746Z"
+    },
     {
       "id": "LEDGER-1789848343538-1290",
       "message_id": "MSG-1789848343538",
@@ -989,6 +1063,10 @@
     "tenant:tenant_beta_1786299939282:agent:GA-DEFAULT:spend": {
       "v": "0.5",
       "updated_at": "2026-08-09T18:25:39.333Z"
+    },
+    "tenant:tenant_alpha:agent:GA-DEFAULT:spend": {
+      "v": "10.5",
+      "updated_at": "2026-09-25T13:47:17.750Z"
     }
   }
 }

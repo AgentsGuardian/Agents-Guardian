@@ -27,7 +27,7 @@ function getGcpProjectId(): string {
 }
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json());
 
@@ -623,7 +623,7 @@ app.post('/api/auth/reset-password', (req: express.Request, res: express.Respons
   });
 });
 
-app.get('/api/auth/session', requireAdminAuth, (req: AuthenticatedRequest, res: express.Response) => {
+app.get(['/api/auth/session', '/api/auth/me'], requireAdminAuth, (req: AuthenticatedRequest, res: express.Response) => {
   const token = signJwt({
     userId: req.authUser.id,
     email: req.authUser.email,
@@ -631,9 +631,11 @@ app.get('/api/auth/session', requireAdminAuth, (req: AuthenticatedRequest, res: 
     tenantId: req.authUser.tenantId || 'tenant_default'
   }, 3600);
 
+  const { passwordHash, passwordSalt, ...safeUser } = req.authUser;
+
   res.json({
     authenticated: true,
-    user: req.authUser,
+    user: safeUser,
     token
   });
 });

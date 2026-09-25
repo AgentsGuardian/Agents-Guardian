@@ -29,13 +29,13 @@ export function useGovernanceStore() {
   const [driftEvents, setDriftEvents] = useState<DriftLogEvent[]>([]);
   const [valueMetrics, setValueMetrics] = useState<ValueMeterMetric[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [actingUserId, setActingUserId] = useState<string>('USR-001');
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+  const [actingUserId, setActingUserId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return Boolean(localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token'));
+      return sessionStorage.getItem('ag_acting_user_id') || localStorage.getItem('ag_acting_user_id') || '';
     }
-    return false;
+    return '';
   });
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [governedAgents, setGovernedAgents] = useState<GoverningAgent[]>([]);
   const [laborConfig, setLaborConfig] = useState<LaborConfig>({
     l1Rate: 35,
@@ -58,11 +58,11 @@ export function useGovernanceStore() {
     return null;
   });
 
-  // Derived real current user: returns the matched authenticated user or first active user, or null
+  // Derived real current user: returns the matched authenticated user or null
   const currentUser = useMemo<AdminUser | null>(() => {
+    if (!actingUserId) return null;
     const found = users.find(u => u.id === actingUserId || u.email.toLowerCase().trim() === actingUserId.toLowerCase().trim());
-    if (found) return found;
-    return users.find(u => u.status === 'ACTIVE') || null;
+    return found || null;
   }, [users, actingUserId]);
 
   // Derived effective user: UI preview persona when impersonation is active, real user otherwise
@@ -78,7 +78,7 @@ export function useGovernanceStore() {
   }, [currentUser, impersonatedRole]);
 
   const getAuthHeaders = useCallback(() => {
-    const token = typeof window !== 'undefined' ? (localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token')) : null;
+    const token = typeof window !== 'undefined' ? (sessionStorage.getItem('ag_session_token') || localStorage.getItem('ag_session_token')) : null;
     return {
       'Content-Type': 'application/json',
       'Authorization': token ? `Bearer ${token}` : ''
@@ -89,13 +89,46 @@ export function useGovernanceStore() {
   const refreshState = useCallback(async () => {
     try {
       setIsLoading(true);
-      const token = typeof window !== 'undefined' ? (localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token')) : null;
+      const token = typeof window !== 'undefined' ? (sessionStorage.getItem('ag_session_token') || localStorage.getItem('ag_session_token')) : null;
       if (!token) {
         setIsLoggedIn(false);
         setIsLoading(false);
         return;
       }
 
+      // Step 1: Verify token authenticity with authoritative session API
+      const sessionRes = await fetch('/api/auth/session', {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!sessionRes.ok) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('ag_session_token');
+          localStorage.removeItem('ag_acting_user_id');
+          sessionStorage.removeItem('ag_session_token');
+          sessionStorage.removeItem('ag_acting_user_id');
+          sessionStorage.removeItem('ag_impersonated_role');
+        }
+        setActingUserId('');
+        setIsLoggedIn(false);
+        setIsLoading(false);
+        return;
+      }
+
+      const sessionData = await sessionRes.json();
+      const authUser: AdminUser = sessionData.user;
+      if (authUser && authUser.id) {
+        setActingUserId(authUser.id);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('ag_acting_user_id', authUser.id);
+          localStorage.setItem('ag_acting_user_id', authUser.id);
+        }
+      }
+
+      // Step 2: Fetch global governance state
       const res = await fetch('/api/state', {
         headers: {
           'Content-Type': 'application/json',
@@ -105,11 +138,13 @@ export function useGovernanceStore() {
 
       if (!res.ok) {
         if (res.status === 401) {
-          // Token expired or invalid: clear session token and transition to unauthenticated state
           if (typeof window !== 'undefined') {
             localStorage.removeItem('ag_session_token');
+            localStorage.removeItem('ag_acting_user_id');
             sessionStorage.removeItem('ag_session_token');
+            sessionStorage.removeItem('ag_acting_user_id');
           }
+          setActingUserId('');
           setIsLoggedIn(false);
         }
         return;

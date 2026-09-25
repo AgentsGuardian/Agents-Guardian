@@ -106,7 +106,12 @@ export default function GaaSAccessGate({
         }
 
         if (data.token) {
+          sessionStorage.setItem('ag_session_token', data.token);
           localStorage.setItem('ag_session_token', data.token);
+        }
+        if (data.user && data.user.id) {
+          sessionStorage.setItem('ag_acting_user_id', data.user.id);
+          localStorage.setItem('ag_acting_user_id', data.user.id);
         }
 
         onLoginSuccess(data.user);

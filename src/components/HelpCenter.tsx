@@ -8,7 +8,8 @@ import {
   BookOpen, Search, HelpCircle, Compass, Cpu, Coins, Activity, Shield, 
   Sliders, MessageSquare, Play, RefreshCw, CheckCircle2, AlertTriangle, 
   ArrowRight, Info, HelpCircle as HelpIcon, Sparkles, Send, Terminal, BookMarked,
-  FileText, Download, Video, Pause, Volume2, VolumeX, Check, Lock, Maximize, Minimize, DollarSign, Copy, Rocket
+  FileText, Download, Video, Pause, Volume2, VolumeX, Check, Lock, Maximize, Minimize, DollarSign, Copy, Rocket,
+  Eye, X
 } from 'lucide-react';
 import { Policy, AdminUser, Toast, KillSignalEvent, DriftLogEvent, ValueMeterMetric, ApiRequestLog, GoverningAgent, LaborConfig } from '../types';
 import { GUARANTEED_SLA_MS } from '../utils';
@@ -692,6 +693,20 @@ export default function HelpCenter({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Solution Design Blueprint Interactive Viewer States
+  const [isDesignDocViewerOpen, setIsDesignDocViewerOpen] = useState<boolean>(false);
+  const [designDocFilter, setDesignDocFilter] = useState<string>('');
+  const [designDocActiveSection, setDesignDocActiveSection] = useState<string>('all');
+
+  const handleCopyDesignDoc = () => {
+    navigator.clipboard.writeText(SOLUTION_DESIGN_MARKDOWN_CONTENT);
+    addToast({
+      title: 'Blueprint Copied',
+      message: 'Solution Design Document (Markdown) copied to clipboard.',
+      type: 'success'
+    });
   };
 
   // Interactive Simulator States
@@ -2895,13 +2910,24 @@ Here is the specific analysis for your query: *"**${text}**"*.
                 </div>
               </div>
             </div>
-            <button
-              onClick={handleDownloadDesignDoc}
-              className="w-full md:w-auto px-6 py-3 bg-[#1D9E75] hover:bg-[#1D9E75]/85 text-xs font-mono font-bold text-slate-950 uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
-              id="download-design-doc-btn"
-            >
-              <Download size={14} /> Download Blueprint (.md)
-            </button>
+            <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full md:w-auto">
+              <button
+                onClick={() => setIsDesignDocViewerOpen(true)}
+                className="w-full sm:w-auto px-4 py-3 bg-[#111E2E] hover:bg-[#1A2C42] border border-[#1D9E75]/40 text-xs font-mono font-bold text-[#1D9E75] uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+                id="view-design-doc-btn"
+                type="button"
+              >
+                <Eye size={14} /> View Blueprint Online
+              </button>
+              <button
+                onClick={handleDownloadDesignDoc}
+                className="w-full sm:w-auto px-5 py-3 bg-[#1D9E75] hover:bg-[#1D9E75]/85 text-xs font-mono font-bold text-slate-950 uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+                id="download-design-doc-btn"
+                type="button"
+              >
+                <Download size={14} /> Download Blueprint (.md)
+              </button>
+            </div>
           </div>
         ) : (
           <div className="p-6 md:p-8 rounded-xl bg-[#1E1214] border border-[#E24B4A]/30 shadow-md flex flex-col md:flex-row items-center justify-between gap-6 animate-fade-in-up" id="blueprint-restricted-container">
@@ -2935,6 +2961,187 @@ Here is the specific analysis for your query: *"**${text}**"*.
           </div>
         )}
       </div>
+
+      {/* FULL-SCREEN SOLUTION DESIGN BLUEPRINT INTERACTIVE VIEWER MODAL */}
+      {isDesignDocViewerOpen && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200"
+          id="solution-design-viewer-modal"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-[#090E17] border border-[#1F2E40] rounded-2xl w-full max-w-6xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-[#1F2E40] bg-[#0E1522] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-[#1D9E75]/10 text-[#1D9E75] border border-[#1D9E75]/25">
+                  <FileText size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-white font-display">
+                      AgentsGuardian Solution Design Specification
+                    </h3>
+                    <span className="text-[10px] font-mono font-bold bg-[#1D9E75]/20 text-[#1D9E75] px-2 py-0.5 rounded border border-[#1D9E75]/30">
+                      v3.0 Sovereign
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
+                    Zero-Trust Access Gate · GCP Marketplace Integration · Sovereign Cloud Run OS
+                  </p>
+                </div>
+              </div>
+
+              {/* Actions Header Toolbar */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCopyDesignDoc}
+                  className="px-3 py-1.5 bg-[#111E2E] hover:bg-[#1A2C42] border border-[#1F2E40] text-xs font-mono text-zinc-300 hover:text-white rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Copy Full Markdown Blueprint"
+                  type="button"
+                >
+                  <Copy size={13} /> Copy MD
+                </button>
+                <button
+                  onClick={handleDownloadDesignDoc}
+                  className="px-3.5 py-1.5 bg-[#1D9E75] hover:bg-[#1D9E75]/85 text-xs font-mono font-bold text-slate-950 rounded-lg flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                  title="Download .md file"
+                  type="button"
+                >
+                  <Download size={13} /> Download (.md)
+                </button>
+                <button
+                  onClick={() => setIsDesignDocViewerOpen(false)}
+                  className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800/60 transition-colors cursor-pointer ml-1"
+                  aria-label="Close Blueprint Viewer"
+                  type="button"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Sub-header Navigation & Search Bar */}
+            <div className="px-6 py-3 border-b border-[#1F2E40]/60 bg-[#0A101A] flex flex-col md:flex-row md:items-center justify-between gap-3">
+              {/* Quick Section Pills */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none text-[11px] font-mono">
+                {[
+                  { id: 'all', label: 'All Sections' },
+                  { id: '1. Executive', label: '1. Exec Summary' },
+                  { id: '2. Product Architecture', label: '2. Pillars & Arch' },
+                  { id: '3. Component Architecture', label: '3. Component Map' },
+                  { id: '4. Zero-Trust', label: '4. Access Gate & IAM' },
+                  { id: '5. GCP Marketplace', label: '5. Marketplace' },
+                  { id: '6. Regulatory', label: '6. Regulatory' },
+                  { id: '7. Latency', label: '7. Latency Bounds' },
+                  { id: '8. Financial', label: '8. Labor & ROI' },
+                  { id: '9. Sovereign Cloud Run', label: '9. Cloud Run' },
+                  { id: '10. Automated Hardening', label: '10. Tests' }
+                ].map(sec => (
+                  <button
+                    key={sec.id}
+                    onClick={() => {
+                      setDesignDocActiveSection(sec.id);
+                      if (sec.id === 'all') {
+                        setDesignDocFilter('');
+                      } else {
+                        setDesignDocFilter(sec.id);
+                      }
+                    }}
+                    className={`px-2.5 py-1 rounded-md text-[10.5px] whitespace-nowrap transition-colors cursor-pointer ${
+                      designDocActiveSection === sec.id
+                        ? 'bg-[#1D9E75]/20 text-[#1D9E75] border border-[#1D9E75]/40 font-bold'
+                        : 'bg-zinc-900/60 text-zinc-400 hover:text-white hover:bg-zinc-850 border border-zinc-800'
+                    }`}
+                    type="button"
+                  >
+                    {sec.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search Filter input */}
+              <div className="relative min-w-[220px]">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type="text"
+                  value={designDocFilter}
+                  onChange={(e) => {
+                    setDesignDocFilter(e.target.value);
+                    setDesignDocActiveSection('custom');
+                  }}
+                  placeholder="Filter specification text..."
+                  className="w-full bg-[#111E2E] border border-[#1F2E40] rounded-lg pl-8 pr-7 py-1 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-[#1D9E75]"
+                />
+                {designDocFilter && (
+                  <button
+                    onClick={() => {
+                      setDesignDocFilter('');
+                      setDesignDocActiveSection('all');
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white text-xs"
+                    type="button"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Document Content Viewer */}
+            <div className="flex-1 overflow-y-auto p-6 bg-[#060A10] font-mono text-xs leading-relaxed text-zinc-300">
+              {designDocFilter ? (
+                <div className="space-y-4">
+                  <div className="p-3 bg-[#111E2E]/60 border border-[#1F2E40] rounded-lg text-xs text-zinc-400 flex items-center justify-between">
+                    <span>
+                      Filtered view for query: <strong className="text-[#1D9E75]">{designDocFilter}</strong>
+                    </span>
+                    <button
+                      onClick={() => {
+                        setDesignDocFilter('');
+                        setDesignDocActiveSection('all');
+                      }}
+                      className="text-[11px] text-[#1D9E75] hover:underline"
+                      type="button"
+                    >
+                      Reset filter
+                    </button>
+                  </div>
+                  <pre className="whitespace-pre-wrap font-mono text-[11.5px] leading-relaxed text-zinc-200 bg-[#090E17] p-5 rounded-xl border border-[#1F2E40]/70 overflow-x-auto selection:bg-[#1D9E75]/30">
+                    {SOLUTION_DESIGN_MARKDOWN_CONTENT.split('\n')
+                      .filter((line, idx, arr) => {
+                        if (!designDocFilter) return true;
+                        // Include context around matches
+                        const lower = designDocFilter.toLowerCase();
+                        return (
+                          line.toLowerCase().includes(lower) ||
+                          (arr[idx - 1] && arr[idx - 1].toLowerCase().includes(lower)) ||
+                          (arr[idx + 1] && arr[idx + 1].toLowerCase().includes(lower))
+                        );
+                      })
+                      .join('\n')}
+                  </pre>
+                </div>
+              ) : (
+                <pre className="whitespace-pre-wrap font-mono text-[11.5px] leading-relaxed text-zinc-200 bg-[#090E17] p-6 rounded-xl border border-[#1F2E40]/70 overflow-x-auto selection:bg-[#1D9E75]/30">
+                  {SOLUTION_DESIGN_MARKDOWN_CONTENT}
+                </pre>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3 border-t border-[#1F2E40] bg-[#0E1522] flex items-center justify-between text-[11px] text-zinc-400 font-mono">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#1D9E75] animate-pulse" />
+                <span>Canonical System Specification · 10 Production Pillars Verified</span>
+              </div>
+              <div>
+                Authorized Root Administrator: <span className="text-white font-bold">{currentUser.name}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
