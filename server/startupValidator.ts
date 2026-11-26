@@ -15,11 +15,19 @@ export function validateStartupEnv(): void {
     process.env.INTERNAL_SERVICE_SECRET = 'dev_internal_service_secret_2026_default';
   }
 
+  const hasFirebaseCreds = Boolean(
+    (process.env.FIREBASE_SERVICE_ACCOUNT_JSON && process.env.FIREBASE_SERVICE_ACCOUNT_JSON.trim()) ||
+    (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) ||
+    (process.env.GOOGLE_APPLICATION_CREDENTIALS && process.env.GOOGLE_APPLICATION_CREDENTIALS.trim())
+  );
+
   const hasDbPass = (process.env.DB_PASS && process.env.DB_PASS.trim()) ||
                     (process.env.POSTGRES_PASSWORD && process.env.POSTGRES_PASSWORD.trim()) ||
                     (process.env.DATABASE_URL && process.env.DATABASE_URL.trim());
 
-  if (!hasDbPass) {
+  if (!hasFirebaseCreds && process.env.ENABLE_POSTGRES !== 'true') {
+    missingSecrets.push('FIREBASE_SERVICE_ACCOUNT_JSON (or FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY / GOOGLE_APPLICATION_CREDENTIALS)');
+  } else if (process.env.ENABLE_POSTGRES === 'true' && !hasDbPass) {
     missingSecrets.push('DB_PASS (or POSTGRES_PASSWORD / DATABASE_URL)');
   }
 

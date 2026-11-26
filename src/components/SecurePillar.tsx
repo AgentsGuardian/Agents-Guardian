@@ -409,7 +409,14 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1F2E40] bg-[#0D1B2A]/10 font-mono">
-                {killEvents.map((event) => (
+                {killEvents.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-xs text-[#8B9BAA]">
+                      No policy violations or kill signals recorded. System is operating nominal.
+                    </td>
+                  </tr>
+                ) : (
+                  killEvents.map((event) => (
                   <React.Fragment key={event.id}>
                     <tr className="hover:bg-white/5 transition-colors">
                       <td className="p-4">
@@ -468,7 +475,7 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
                       </tr>
                     )}
                   </React.Fragment>
-                ))}
+                )))}
               </tbody>
             </table>
           </div>

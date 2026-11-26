@@ -42,6 +42,7 @@ export default function GaaSAccessGate({
   const [resetConfirmPassword, setResetConfirmPassword] = useState<string>('');
   const [resetError, setResetError] = useState<string>('');
   const [resetTokenState, setResetTokenState] = useState<string>('');
+  const [resetEmailDiagnostic, setResetEmailDiagnostic] = useState<{ success: boolean; message: string; isSandboxError?: boolean } | null>(null);
   const [showSimulatedEmailNotification, setShowSimulatedEmailNotification] = useState<boolean>(false);
 
   // Form Fields
@@ -66,6 +67,7 @@ export default function GaaSAccessGate({
       if (!name.trim()) errors.name = 'Full name is required for registration.';
       if (!email.trim()) errors.email = 'Email address is required.';
       else if (!email.includes('@')) errors.email = 'Please provide a valid corporate email format (e.g. name@domain.com).';
+      if (password && password.length < 6) errors.regPassword = 'Password must be at least 6 characters long.';
       if (!acceptTerms) errors.accept = 'You must accept compliance terms of the safety system.';
     }
     setFormErrors(errors);
@@ -82,12 +84,12 @@ export default function GaaSAccessGate({
         const res = await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email.trim(), password })
+          body: JSON.stringify({ email: email.trim(), password: password.trim() })
         });
 
         const data = await res.json();
         if (!res.ok) {
-          if (res.status === 403 && data.status === 'PENDING_APPROVAL') {
+          if (res.status === 403 && (data.status === 'PENDING_APPROVAL' || data.error?.toLowerCase().includes('pending') || data.error?.toLowerCase().includes('approval'))) {
             setAuthErrorBanner(data.error || 'Your registration is pending review and credential provisioning by the Super Admin.');
             addToast({
               type: 'warning',
@@ -435,6 +437,48 @@ export default function GaaSAccessGate({
                 )}
               </div>
 
+              {!isLoginView && (
+                <div className="space-y-1 animate-in fade-in duration-150">
+                  <div className="flex justify-between items-center select-none">
+                    <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block font-mono">
+                      Personal Account Password
+                    </label>
+                    <span className="text-[10px] text-teal-400/90 font-mono">
+                      (Optional: direct sign-in once approved)
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-500">
+                      <Lock size={13} />
+                    </span>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="•••••••• (min 6 characters)"
+                      className={`w-full text-xs font-sans bg-black/40 border rounded-lg pl-9.5 pr-10 py-2.5 text-slate-102 placeholder:text-zinc-650 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500/20 transition-all ${
+                        formErrors.regPassword ? 'border-red-500/60' : 'border-[#1F2E40]'
+                      }`}
+                      id="reg-input-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-white cursor-pointer"
+                      id="toggle-reg-pass-visibility-btn"
+                    >
+                      {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono pt-0.5">
+                    <span>You can log in with this password OR with the SuperAdmin OTP after approval.</span>
+                  </div>
+                  {formErrors.regPassword && (
+                    <p className="text-[10.5px] text-red-400 font-mono font-bold mt-1">{formErrors.regPassword}</p>
+                  )}
+                </div>
+              )}
+
               {isLoginView && (
                 <div className="space-y-1">
                   <div className="flex justify-between items-center select-none">
@@ -703,10 +747,21 @@ export default function GaaSAccessGate({
                           setResetTokenState(data.resetToken);
                         }
 
+                        if (data.emailStatus) {
+                          const isSandbox = Boolean(data.emailStatus.error && data.emailStatus.error.includes('Sandbox'));
+                          setResetEmailDiagnostic({
+                            success: Boolean(data.emailStatus.success),
+                            message: data.emailStatus.error || data.message || `Password reset token generated for ${emailVal}.`,
+                            isSandboxError: isSandbox
+                          });
+                        } else {
+                          setResetEmailDiagnostic(null);
+                        }
+
                         addToast({
-                          type: 'info',
-                          title: '📧 Reset Token Issued',
-                          message: data.message || `Password reset token generated for ${emailVal}.`
+                          type: data.emailStatus?.success ? 'success' : 'info',
+                          title: data.emailStatus?.success ? '📧 Reset Email Dispatched' : '🔑 Reset Authorization Active',
+                          message: data.message || `Password reset authorized for ${emailVal}.`
                         });
 
                         setResetStep('newpass');
@@ -783,6 +838,34 @@ export default function GaaSAccessGate({
 
             {resetStep === 'newpass' && (
               <div className="space-y-4">
+                {resetEmailDiagnostic && (
+                  <div className={`p-3 rounded-lg border text-xs leading-relaxed font-mono ${
+                    resetEmailDiagnostic.success
+                      ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
+                      : resetEmailDiagnostic.isSandboxError
+                      ? 'bg-amber-950/20 border-amber-500/30 text-amber-300'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-300'
+                  }`}>
+                    {resetEmailDiagnostic.success ? (
+                      <div className="flex items-start gap-2">
+                        <span className="text-emerald-400 font-bold shrink-0">✅ Delivered:</span>
+                        <span>Real-time security email dispatched to <strong className="text-white">{resetEmail}</strong>. Check inbox / mobile client.</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <div className="flex items-start gap-2 text-amber-400 font-bold">
+                          <span className="shrink-0">⚠️ Email Relay Diagnostic:</span>
+                          <span>{resetEmailDiagnostic.isSandboxError ? 'Resend Sandbox Restriction' : 'Relay Note'}</span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 font-sans">{resetEmailDiagnostic.message}</p>
+                        <p className="text-[10px] text-teal-400 font-sans font-semibold pt-1">
+                          🔒 You can establish your new password directly below to activate your session.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <p className="text-[11px] text-zinc-400 leading-normal font-sans">
                   Identity authenticated successfully. Please establish a new, strong codecard password to secure your operator session.
                 </p>

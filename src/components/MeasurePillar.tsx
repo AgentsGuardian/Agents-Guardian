@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Coins, AlertTriangle, DollarSign, RefreshCw, Layers, Sparkles, Check, Sliders, Briefcase, Zap, Calculator, ShieldCheck } from 'lucide-react';
 import { ValueMeterMetric, LaborConfig } from '../types';
 
@@ -31,6 +31,13 @@ export default function MeasurePillar({
   const [simRunning, setSimRunning] = useState<boolean>(false);
   const [selectedTaskScenario, setSelectedTaskScenario] = useState<string>('password-resets');
 
+  // Sync budgetCap when updated from server/Firestore
+  useEffect(() => {
+    if (typeof budgetCap === 'number') {
+      setSessionCap(budgetCap);
+    }
+  }, [budgetCap]);
+
   // Feature 2: Interactive Human Labor Cost Configuration states
   const defaultLabor: LaborConfig = laborConfig || {
     l1Rate: 35,
@@ -47,6 +54,17 @@ export default function MeasurePillar({
   const [localAvgHrs, setLocalAvgHrs] = useState<number>(defaultLabor.avgHoursPerTask);
   const [simTaskCount, setSimTaskCount] = useState<number>(1000);
   const [laborSavedMsg, setLaborSavedMsg] = useState<boolean>(false);
+
+  // Sync laborConfig when updated from server/Firestore
+  useEffect(() => {
+    if (laborConfig) {
+      setLocalL1(laborConfig.l1Rate);
+      setLocalL2(laborConfig.l2Rate);
+      setLocalL3(laborConfig.l3Rate);
+      setLocalAudit(laborConfig.auditRate);
+      setLocalAvgHrs(laborConfig.avgHoursPerTask);
+    }
+  }, [laborConfig]);
 
   // Dynamic Live Equivalency Calculations
   const calcHumanCost = Math.round(simTaskCount * localAvgHrs * localL1 * 100) / 100;
@@ -602,51 +620,58 @@ export default function MeasurePillar({
         </h3>
 
         <div className="space-y-4">
-          {valueMetrics.map((item) => {
-            const isAlert = item.status === 'ALERT';
-            const spendPct = Math.min((item.totalApiSpend / (item.humanLaborSaved || 1)) * 100, 100);
-            
-            return (
-              <div key={item.id} className="p-4 rounded-lg bg-[#0D1B2A] border border-[#1F2E40]">
-                <div className="flex flex-wrap items-center justify-between gap-4 mb-2">
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="px-1.5 py-0.2 font-mono text-[10px] bg-[#162030] border border-[#1F2E40] text-[#8B9BAA] font-bold rounded">
-                      {item.id}
-                    </span>
-                    <span className="font-display font-semibold text-xs text-slate-300">
-                      {item.agentName}
-                    </span>
+          {valueMetrics.length === 0 ? (
+            <div className="p-8 text-center bg-[#0D1B2A] rounded-lg border border-[#1F2E40]">
+              <span className="text-xs font-mono text-[#8B9BAA] block">No economic telemetry recorded yet</span>
+              <span className="text-[10px] font-mono text-[#556070] block mt-1">Financial metrics will appear here in real-time as governed agent tasks complete.</span>
+            </div>
+          ) : (
+            valueMetrics.map((item) => {
+              const isAlert = item.status === 'ALERT';
+              const spendPct = Math.min((item.totalApiSpend / (item.humanLaborSaved || 1)) * 100, 100);
+              
+              return (
+                <div key={item.id} className="p-4 rounded-lg bg-[#0D1B2A] border border-[#1F2E40]">
+                  <div className="flex flex-wrap items-center justify-between gap-4 mb-2">
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="px-1.5 py-0.2 font-mono text-[10px] bg-[#162030] border border-[#1F2E40] text-[#8B9BAA] font-bold rounded">
+                        {item.id}
+                      </span>
+                      <span className="font-display font-semibold text-xs text-slate-300">
+                        {item.agentName}
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-4 text-xs font-mono">
+                      <span className="text-slate-400">
+                        Spend: <strong className="text-[#E24B4A]">${item.totalApiSpend.toFixed(2)}</strong>
+                      </span>
+                      <span className="text-slate-400">
+                        Labor Equiv: <strong className="text-[#1D9E75]">${item.humanLaborSaved.toLocaleString()}</strong>
+                      </span>
+                      <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${isAlert ? 'bg-[#E24B4A]/10 text-[#E24B4A] border border-[#E24B4A]/30 animate-pulse' : 'bg-[#1D9E75]/10 text-[#1D9E75] border border-[#1D9E75]/30'}`}>
+                        {item.roiScore.toFixed(1)}x ROI
+                      </span>
+                    </div>
                   </div>
-                  
-                  <div className="flex items-center gap-4 text-xs font-mono">
-                    <span className="text-slate-400">
-                      Spend: <strong className="text-[#E24B4A]">${item.totalApiSpend.toFixed(2)}</strong>
-                    </span>
-                    <span className="text-slate-400">
-                      Labor Equiv: <strong className="text-[#1D9E75]">${item.humanLaborSaved.toLocaleString()}</strong>
-                    </span>
-                    <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${isAlert ? 'bg-[#E24B4A]/10 text-[#E24B4A] border border-[#E24B4A]/30 animate-pulse' : 'bg-[#1D9E75]/10 text-[#1D9E75] border border-[#1D9E75]/30'}`}>
-                      {item.roiScore.toFixed(1)}x ROI
-                    </span>
-                  </div>
-                </div>
 
-                {/* Stacked Percentage bar representing savings ratio */}
-                <div className="w-full h-3 bg-[#162030] rounded-full overflow-hidden flex">
-                  {/* Spend portion */}
-                  <div 
-                    className={`h-full ${isAlert ? 'bg-[#E24B4A]' : 'bg-[#EF9F27]'}`} 
-                    style={{ width: `${Math.max(spendPct, 2)}%` }} 
-                  />
-                  {/* Saved portion */}
-                  <div 
-                    className="h-full bg-[#1D9E75]" 
-                    style={{ width: `${100 - Math.max(spendPct, 2)}%` }} 
-                  />
+                  {/* Stacked Percentage bar representing savings ratio */}
+                  <div className="w-full h-3 bg-[#162030] rounded-full overflow-hidden flex">
+                    {/* Spend portion */}
+                    <div 
+                      className={`h-full ${isAlert ? 'bg-[#E24B4A]' : 'bg-[#EF9F27]'}`} 
+                      style={{ width: `${Math.max(spendPct, 2)}%` }} 
+                    />
+                    {/* Saved portion */}
+                    <div 
+                      className="h-full bg-[#1D9E75]" 
+                      style={{ width: `${100 - Math.max(spendPct, 2)}%` }} 
+                    />
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -663,48 +688,55 @@ export default function MeasurePillar({
         </div>
 
         <div className="space-y-3 font-mono text-xs">
-          {valueMetrics.map((item) => (
-            <div 
-              key={item.id} 
-              className={`p-4 rounded-lg bg-[#0D1B2A] border ${item.status === 'ALERT' ? 'border-[#E24B4A]/40' : 'border-[#1F2E40]'}`}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <div className={`p-2 rounded mt-0.5 ${item.status === 'ALERT' ? 'bg-[#E24B4A]/10 text-[#E24B4A]' : 'bg-[#162030] text-[#8B9BAA] border border-[#1F2E40]'}`}>
-                    <AlertTriangle size={15} />
-                  </div>
-                  <div>
-                    <h4 className="font-display font-semibold text-slate-200">{item.agentName} Session Review</h4>
-                    <span className="text-[10.5px] text-[#556070]">
-                      Completed tasks: {item.completedTasks} | Cumulative Spend: ${item.totalApiSpend.toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <span className="text-[#556070] text-[10px] block font-bold uppercase">ROI Score</span>
-                    <span className={`font-bold block ${item.status === 'ALERT' ? 'text-[#E24B4A]' : 'text-[#1D9E75]'}`}>
-                      {item.roiScore.toFixed(2)}x
-                    </span>
+          {valueMetrics.length === 0 ? (
+            <div className="p-6 text-center bg-[#0D1B2A] rounded-lg border border-[#1F2E40]">
+              <span className="text-xs text-[#8B9BAA] block">Zero spending anomalies or budget breaches detected</span>
+              <span className="text-[10px] text-[#556070] block mt-1">Autonomous loops are governed under the $50 task limit with no active budget infractions.</span>
+            </div>
+          ) : (
+            valueMetrics.map((item) => (
+              <div 
+                key={item.id} 
+                className={`p-4 rounded-lg bg-[#0D1B2A] border ${item.status === 'ALERT' ? 'border-[#E24B4A]/40' : 'border-[#1F2E40]'}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className={`p-2 rounded mt-0.5 ${item.status === 'ALERT' ? 'bg-[#E24B4A]/10 text-[#E24B4A]' : 'bg-[#162030] text-[#8B9BAA] border border-[#1F2E40]'}`}>
+                      <AlertTriangle size={15} />
+                    </div>
+                    <div>
+                      <h4 className="font-display font-semibold text-slate-200">{item.agentName} Session Review</h4>
+                      <span className="text-[10.5px] text-[#556070]">
+                        Completed tasks: {item.completedTasks} | Cumulative Spend: ${item.totalApiSpend.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
 
-                  {item.status === 'ALERT' ? (
-                    <button
-                      onClick={() => onRefineAgent(item.id)}
-                      className="px-3 py-1.5 bg-[#E24B4A]/10 hover:bg-[#E24B4A] hover:text-white text-[#E24B4A] rounded border border-[#E24B4A]/30 text-[11px] font-bold transition cursor-pointer"
-                    >
-                      Suspend & Refine Assistant Command
-                    </button>
-                  ) : (
-                    <span className="text-[#1D9E75] bg-[#1D9E75]/10 border border-[#1D9E75]/35 px-2 py-1 rounded text-[10px] uppercase font-bold">
-                      Budget Safe
-                    </span>
-                  )}
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <span className="text-[#556070] text-[10px] block font-bold uppercase">ROI Score</span>
+                      <span className={`font-bold block ${item.status === 'ALERT' ? 'text-[#E24B4A]' : 'text-[#1D9E75]'}`}>
+                        {item.roiScore.toFixed(2)}x
+                      </span>
+                    </div>
+
+                    {item.status === 'ALERT' ? (
+                      <button
+                        onClick={() => onRefineAgent(item.id)}
+                        className="px-3 py-1.5 bg-[#E24B4A]/10 hover:bg-[#E24B4A] hover:text-white text-[#E24B4A] rounded border border-[#E24B4A]/30 text-[11px] font-bold transition cursor-pointer"
+                      >
+                        Suspend & Refine Assistant Command
+                      </button>
+                    ) : (
+                      <span className="text-[#1D9E75] bg-[#1D9E75]/10 border border-[#1D9E75]/35 px-2 py-1 rounded text-[10px] uppercase font-bold">
+                        Budget Safe
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>

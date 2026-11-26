@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.5
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Terminal, Key, Webhook, Cpu, Code2, Play, Check, Copy, Sparkles, RefreshCw, Server, AlertCircle, ShieldCheck, Trash2, History, AlertTriangle, Search, Download, FileJson } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Terminal, Key, Webhook, Cpu, Code2, Play, Check, Copy, Sparkles, RefreshCw, Server, AlertCircle, ShieldCheck, Trash2, History, AlertTriangle, Search, Download, FileJson, Lock } from 'lucide-react';
 import { Policy, GoverningAgent, ApiRequestLog, AdminUser } from '../types';
-import { GUARANTEED_SLA_MS, formatSlaTooltip, generateTransactionId, formatTimestamp } from '../utils';
+import { GUARANTEED_SLA_MS, formatSlaTooltip, formatTimestamp } from '../utils';
 import CollapsibleSection from './CollapsibleSection';
 
 interface GaaSApiPillarProps {
@@ -14,7 +14,12 @@ interface GaaSApiPillarProps {
   onTriggerKillEvent: (event: any) => void;
   onAddMetricEvent: (metric: any) => void;
   governedAgents: GoverningAgent[];
-  setGovernedAgents: React.Dispatch<React.SetStateAction<GoverningAgent[]>>;
+  setGovernedAgents: React.Dispatch<React.SetStateAction<GaaSApiPillarAgent>>;
+  onAddAgent?: (agent: Partial<GoverningAgent>) => Promise<void>;
+  onUpdateAgent?: (id: string, updates: Partial<GoverningAgent>) => Promise<void>;
+  onDeleteAgent?: (id: string) => Promise<void>;
+  onBulkAgentStatus?: (ids: string[], status: 'NOMINAL' | 'ALERT' | 'HALTED') => Promise<void>;
+  onRefreshState?: () => Promise<void>;
   apiLogs: ApiRequestLog[];
   setApiLogs: React.Dispatch<React.SetStateAction<ApiRequestLog[]>>;
   autoRefreshInterval: number | 'off';
@@ -25,16 +30,21 @@ interface GaaSApiPillarProps {
   currentUser: AdminUser;
 }
 
-const FRAMEWORK_CODE_TEMPLATES = {
-  python: {
-    title: 'Python GaaS SDK',
-    lang: 'python',
-    code: `from guardian_sdk import AgentsGuardian, PolicyContext
+type GaaSApiPillarAgent = GoverningAgent[];
+
+const getFrameworkCodeTemplates = (activeKey: string) => {
+  const displayKey = activeKey || '<ACTIVE_GAAS_SECRET_KEY>';
+  const gatewayUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/v1/intercept` : '/api/v1/intercept';
+  return {
+    python: {
+      title: 'Python GaaS SDK',
+      lang: 'python',
+      code: `from guardian_sdk import AgentsGuardian, PolicyContext
 
 # Initialize Governance as a Service interceptor
 guardian = AgentsGuardian(
-    api_key="ag_live_7x8f9c2d1b0a9e8f7...",
-    gateway_url="https://api.agentsguardian.ai/v1/intercept"
+    api_key="${displayKey}",
+    gateway_url="${gatewayUrl}"
 )
 
 # Intercept agent action before execution
@@ -53,11 +63,11 @@ def pre_execute_agent_action(agent_id, action_payload):
             f"Latency: {verdict.latency_ms}ms"
         )
     return verdict.authorized_token`
-  },
-  langchain: {
-    title: 'LangChain Custom Guardrail Tool',
-    lang: 'python',
-    code: `from langchain.agents import Tool
+    },
+    langchain: {
+      title: 'LangChain Custom Guardrail Tool',
+      lang: 'python',
+      code: `from langchain.agents import Tool
 from langchain.pydantic_v1 import BaseModel, Field
 import requests
 
@@ -68,8 +78,8 @@ class InterceptorInput(BaseModel):
 def gaas_policy_check(action_name: str, parameters: str) -> str:
     # Ship credentials and action structure to AgentsGuardian Webhook GaaS Engine
     response = requests.post(
-        "https://api.agentsguardian.ai/v1/intercept",
-        headers={"X-Guardian-Key": "ag_live_7x8f9c2d1b0a9e8f7..."},
+        "${gatewayUrl}",
+        headers={"X-Guardian-Key": "${displayKey}"},
         json={
             "agent_id": "LangChain-Agent-Worker",
             "action": action_name,
@@ -88,20 +98,20 @@ guardian_tool = Tool(
     description="Mandatory validator. Must run before executing database purges or external system modifications.",
     args_schema=InterceptorInput
 )`
-  },
-  crewai: {
-    title: 'CrewAI Interceptor Middleware',
-    lang: 'python',
-    code: `from crewai import Agent, Task, Crew
+    },
+    crewai: {
+      title: 'CrewAI Interceptor Middleware',
+      lang: 'python',
+      code: `from crewai import Agent, Task, Crew
 import requests
 
-# Define a customized CrewAI agent wrapped by Government-as-a-Service gateway
+# Define a customized CrewAI agent wrapped by Governance-as-a-Service gateway
 class GovernedAgent(Agent):
     def execute_task(self, task, context=None, tools=None):
         # Fire intercept telemetry to GaaS Gateway prior to task execution
         gaas_res = requests.post(
-            "https://api.agentsguardian.ai/v1/intercept",
-            headers={"X-Guardian-Key": "ag_live_7x8f9c2d1b0a9e8f7..."},
+            "${gatewayUrl}",
+            headers={"X-Guardian-Key": "${displayKey}"},
             json={
                 "agent_id": self.role,
                 "action": "execute_task_nodes",
@@ -112,11 +122,11 @@ class GovernedAgent(Agent):
             return "Task Blocked by AgentsGuardian: Session violates active security blast parameters."
             
         return super().execute_task(task, context, tools)`
-  },
-  autogen: {
-    title: 'Microsoft AutoGen Conversational Guard',
-    lang: 'python',
-    code: `import autogen
+    },
+    autogen: {
+      title: 'Microsoft AutoGen Conversational Guard',
+      lang: 'python',
+      code: `import autogen
 import requests
 
 # Set up global AgentsGuardian Interceptor on Conversational Model Messages
@@ -129,8 +139,8 @@ def gaas_message_interceptor(sender, recipient, message, silent=False):
     
     # Intercept conversational reasoning log to audit sentiment and ethics drift
     res = requests.post(
-        "https://api.agentsguardian.ai/v1/intercept",
-        headers={"X-Guardian-Key": "ag_live_7x8f9c2d1b0a9e8f7..."},
+        "${gatewayUrl}",
+        headers={"X-Guardian-Key": "${displayKey}"},
         json=payload
     )
     
@@ -139,11 +149,11 @@ def gaas_message_interceptor(sender, recipient, message, silent=False):
         return False, "AgentsGuardian Message Filter Intervened: Cognitive drift limit breached."
         
     return True, message`
-  },
-  mcp: {
-    title: 'Model Context Protocol (MCP) Tool & Server Proxy',
-    lang: 'typescript',
-    code: `import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+    },
+    mcp: {
+      title: 'Model Context Protocol (MCP) Tool & Server Proxy',
+      lang: 'typescript',
+      code: `import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import fetch from 'node-fetch';
 
@@ -154,10 +164,10 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: toolArgs } = request.params;
 
   // Intercept MCP JSON-RPC tool call before executing server logic
-  const gaasRes = await fetch("https://api.agentsguardian.ai/v1/intercept", {
+  const gaasRes = await fetch("${gatewayUrl}", {
     method: "POST",
     headers: {
-      "X-Guardian-Key": "ag_live_7x8f9c2d1b0a9e8f7...",
+      "X-Guardian-Key": "${displayKey}",
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
@@ -175,35 +185,37 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
     );
   }
 
-  // Execute target MCP Tool if policy checks pass (<100ms)
+  // Execute target MCP Tool if policy checks pass
   return await executeTargetMcpTool(name, toolArgs);
 });`
-  },
-  curl: {
-    title: 'Direct REST API (cURL)',
-    lang: 'bash',
-    code: `curl -X POST "https://api.agentsguardian.ai/v1/intercept" \\
-  -H "X-Guardian-Key: ag_live_7x8f9c2d1b0a9e8f7..." \\
+    },
+    curl: {
+      title: 'Direct REST API (cURL)',
+      lang: 'bash',
+      code: `curl -X POST "${gatewayUrl}" \\
+  -H "X-Guardian-Key: ${displayKey}" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "agent_id": "generic-external-agent-12",
+    "agent_id": "MAIL-GOOGLE-SCRIPT",
     "action": "delete_customer_leads",
     "parameters": {
       "table": "purchases_2026",
       "records_count": 845
     }
   }'`
-  }
+    }
+  };
 };
 
 export default function GaaSApiPillar({ 
   policies, 
-  onTriggerKillEvent, 
-  onAddMetricEvent,
   governedAgents,
-  setGovernedAgents,
+  onAddAgent,
+  onUpdateAgent,
+  onDeleteAgent,
+  onBulkAgentStatus,
+  onRefreshState,
   apiLogs,
-  setApiLogs,
   autoRefreshInterval,
   setAutoRefreshInterval,
   latencyThreshold,
@@ -211,11 +223,94 @@ export default function GaaSApiPillar({
   addToast,
   currentUser
 }: GaaSApiPillarProps) {
-  const [activeCodeTab, setActiveCodeTab] = useState<keyof typeof FRAMEWORK_CODE_TEMPLATES>('python');
+  const [activeCodeTab, setActiveCodeTab] = useState<'python' | 'langchain' | 'crewai' | 'autogen' | 'mcp' | 'curl'>('python');
   const [agentSearchQuery, setAgentSearchQuery] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
-  const [apiKey, setApiKey] = useState<string>('ag_live_7x8f9c2d1b0a9e8f7c6b5a49876543210');
+  const [apiKey, setApiKey] = useState<string>('');
   const [isGeneratingKey, setIsGeneratingKey] = useState<boolean>(false);
+  const [logsClearedBeforeMs, setLogsClearedBeforeMs] = useState<number | null>(null);
+  const seenLogIdsRef = useRef<Set<string> | null>(null);
+
+  const frameworkCodeTemplates = useMemo(() => getFrameworkCodeTemplates(apiKey), [apiKey]);
+
+  const sortedApiLogs = useMemo(() => {
+    return [...apiLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [apiLogs]);
+
+  const visibleApiLogs = useMemo(() => {
+    if (logsClearedBeforeMs === null) return sortedApiLogs;
+    return sortedApiLogs.filter(log => new Date(log.timestamp).getTime() > logsClearedBeforeMs);
+  }, [sortedApiLogs, logsClearedBeforeMs]);
+
+  const realAgentLogCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const agent of governedAgents) {
+      const aId = agent.id.trim().toLowerCase();
+      const aName = (agent.name || '').trim().toLowerCase();
+      const count = sortedApiLogs.filter(l => {
+        const lId = (l.agentId || '').trim().toLowerCase();
+        const lName = (l.agentName || '').trim().toLowerCase();
+        return lId === aId || (aName && (lName === aName || lId === aName));
+      }).length;
+      counts.set(agent.id, count);
+    }
+    return counts;
+  }, [governedAgents, sortedApiLogs]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchActiveKey = async () => {
+      try {
+        const sessionToken = sessionStorage.getItem('ag_session_token') || localStorage.getItem('ag_session_token');
+        const res = await fetch('/api/gaas/credentials', {
+          cache: 'no-store',
+          headers: sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData?.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        if (data && data.activeKey && isMounted) {
+          setApiKey(data.activeKey);
+        }
+      } catch (err: any) {
+        console.warn('Could not retrieve active GaaS key from server:', err?.message || err);
+      }
+    };
+    fetchActiveKey();
+    return () => { isMounted = false; };
+  }, []);
+
+  // Poll live server state at configured autoRefreshInterval
+  useEffect(() => {
+    if (autoRefreshInterval === 'off' || !onRefreshState) return;
+    const timer = setInterval(() => {
+      onRefreshState().catch(() => {});
+    }, autoRefreshInterval);
+    return () => clearInterval(timer);
+  }, [autoRefreshInterval, onRefreshState]);
+
+  // Fire SLA warning toast ONLY for real newly arriving requests whose server latency exceeds latencyThreshold
+  useEffect(() => {
+    if (seenLogIdsRef.current === null) {
+      seenLogIdsRef.current = new Set(sortedApiLogs.map(l => l.id));
+      return;
+    }
+    for (const log of sortedApiLogs) {
+      if (!seenLogIdsRef.current.has(log.id)) {
+        seenLogIdsRef.current.add(log.id);
+        if (log.latencyMs > latencyThreshold) {
+          addToast({
+            type: 'warning',
+            title: '⚠️ SLA Latency Limit Breached',
+            message: `Intercept request for ${log.agentName || log.agentId} responded in ${log.latencyMs}ms (Max SLA Limit: ${latencyThreshold}ms).`,
+            duration: 5000
+          });
+        }
+      }
+    }
+  }, [sortedApiLogs, latencyThreshold, addToast]);
 
   // Filtered active agents (useMemo to synchronize both rendering and selection actions)
   const filteredAgents = useMemo(() => {
@@ -245,7 +340,7 @@ export default function GaaSApiPillar({
         totalAgents: governedAgents.length,
         nominalCount: governedAgents.filter(a => a.status === 'NOMINAL').length,
         haltedCount: governedAgents.filter(a => a.status !== 'NOMINAL').length,
-        totalEvaluatedRequests: governedAgents.reduce((sum, a) => sum + a.requestCount, 0)
+        totalEvaluatedRequests: governedAgents.reduce((sum, a) => sum + (realAgentLogCounts.get(a.id) ?? a.requestCount), 0)
       },
       governedAgents: governedAgents.map(agent => {
         const policyMatched = policies.find(p => p.code === agent.attachedPolicyCode);
@@ -254,7 +349,7 @@ export default function GaaSApiPillar({
           name: agent.name,
           framework: agent.framework,
           status: agent.status,
-          requestCount: agent.requestCount,
+          requestCount: realAgentLogCounts.get(agent.id) ?? agent.requestCount,
           webhookUrl: agent.webhookUrl,
           attachedPolicy: {
             code: agent.attachedPolicyCode,
@@ -285,7 +380,7 @@ export default function GaaSApiPillar({
     });
   };
 
-  const handleBulkHalt = () => {
+  const handleBulkHalt = async () => {
     if (currentUser.role === 'Auditor') {
       addToast({
         type: 'danger',
@@ -295,25 +390,27 @@ export default function GaaSApiPillar({
       return;
     }
     if (selectedAgentIds.length === 0) return;
-    
-    setGovernedAgents((prev: GoverningAgent[]) => 
-      prev.map(agent => 
-        selectedAgentIds.includes(agent.id) 
-          ? { ...agent, status: 'ALERT' as const } 
-          : agent
-      )
-    );
-    
-    addToast({
-      type: 'warning',
-      title: '🚨 Bulk Halts Initiated',
-      message: `Successfully halted and revoked credentials of ${selectedAgentIds.length} governed agent node(s).`
-    });
-    
-    setSelectedAgentIds([]);
+
+    try {
+      if (onBulkAgentStatus) {
+        await onBulkAgentStatus(selectedAgentIds, 'HALTED');
+      }
+      addToast({
+        type: 'warning',
+        title: '🚨 Bulk Halts Initiated',
+        message: `Successfully halted and revoked credentials of ${selectedAgentIds.length} governed agent node(s).`
+      });
+      setSelectedAgentIds([]);
+    } catch (err: any) {
+      addToast({
+        type: 'danger',
+        title: '❌ Bulk Halt Failed',
+        message: err?.message || 'Failed to halt selected agents on server.'
+      });
+    }
   };
 
-  const handleBulkResume = () => {
+  const handleBulkResume = async () => {
     if (currentUser.role === 'Auditor') {
       addToast({
         type: 'danger',
@@ -323,27 +420,29 @@ export default function GaaSApiPillar({
       return;
     }
     if (selectedAgentIds.length === 0) return;
-    
-    setGovernedAgents((prev: GoverningAgent[]) => 
-      prev.map(agent => 
-        selectedAgentIds.includes(agent.id) 
-          ? { ...agent, status: 'NOMINAL' as const } 
-          : agent
-      )
-    );
-    
-    addToast({
-      type: 'success',
-      title: '🛡️ Bulk Resume Completed',
-      message: `Successfully restored safety clearance and nominal shields for ${selectedAgentIds.length} governed agent node(s).`
-    });
-    
-    setSelectedAgentIds([]);
+
+    try {
+      if (onBulkAgentStatus) {
+        await onBulkAgentStatus(selectedAgentIds, 'NOMINAL');
+      }
+      addToast({
+        type: 'success',
+        title: '🛡️ Bulk Resume Completed',
+        message: `Successfully restored safety clearance and nominal shields for ${selectedAgentIds.length} governed agent node(s).`
+      });
+      setSelectedAgentIds([]);
+    } catch (err: any) {
+      addToast({
+        type: 'danger',
+        title: '❌ Bulk Resume Failed',
+        message: err?.message || 'Failed to resume selected agents on server.'
+      });
+    }
   };
 
   const isAllFilteredSelected = filteredAgents.length > 0 && filteredAgents.every(a => selectedAgentIds.includes(a.id));
   const isAnyFilteredSelected = filteredAgents.some(a => selectedAgentIds.includes(a.id));
-  
+
   const handleToggleSelectAll = () => {
     if (isAllFilteredSelected) {
       const filteredIds = filteredAgents.map(a => a.id);
@@ -356,81 +455,114 @@ export default function GaaSApiPillar({
       });
     }
   };
-  
+
   // Registry Agent registration form
   const [newAgentName, setNewAgentName] = useState<string>('');
   const [newAgentFramework, setNewAgentFramework] = useState<GoverningAgent['framework']>('CrewAI');
-  const [newAgentPolicy, setNewAgentPolicy] = useState<string>('POL-SEC-01');
+  const [newAgentPolicy, setNewAgentPolicy] = useState<string>('');
+
+  useEffect(() => {
+    if (policies.length > 0 && (!newAgentPolicy || !policies.some(p => p.code === newAgentPolicy))) {
+      setNewAgentPolicy(policies[0].code);
+    }
+  }, [policies, newAgentPolicy]);
 
   // Interactive Live Intercept Sandbox
-  const [sandboxAgentId, setSandboxAgentId] = useState<string>('GA-102');
+  const [sandboxAgentId, setSandboxAgentId] = useState<string>('');
   const [sandboxAction, setSandboxAction] = useState<string>('Database Purge /v1/delete');
   const [sandboxPayload, setSandboxPayload] = useState<string>(`{\n  "records": "all_inactive_leads_2025",\n  "table": "customer_database",\n  "force": true,\n  "initiated_by_platform": "CrewAI-Dev-Node"\n}`);
   const [isSimulatingGaaS, setIsSimulatingGaaS] = useState<boolean>(false);
   const [sandboxResponseLog, setSandboxResponseLog] = useState<string>('');
   const [sandboxState, setSandboxState] = useState<'IDLE' | 'SENDING' | 'HALTED' | 'OK'>('IDLE');
-  const [simulatedLatency, setSimulatedLatency] = useState<number>(0);
+
+  useEffect(() => {
+    if (governedAgents.length > 0 && (!sandboxAgentId || !governedAgents.some(a => a.id === sandboxAgentId))) {
+      setSandboxAgentId(governedAgents[0].id);
+    } else if (governedAgents.length === 0 && sandboxAgentId) {
+      setSandboxAgentId('');
+    }
+  }, [governedAgents, sandboxAgentId]);
 
   // Connection testing states
-  const [testWebhookUrl, setTestWebhookUrl] = useState<string>('https://api.agentsguardian.ai/v1/agent-update');
+  const [testWebhookUrl, setTestWebhookUrl] = useState<string>('');
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
   const [testStatus, setTestStatus] = useState<{ type: 'PENDING' | 'SUCCESS' | 'ERROR'; output: string } | null>(null);
 
   const handleTestConnection = async () => {
     if (isTestingConnection) return;
+    const targetUrl = testWebhookUrl.trim();
+    if (!targetUrl) {
+      setTestStatus({
+        type: 'ERROR',
+        output: '[ERROR] Active Integration Webhook Target URI is empty. Enter a valid http:// or https:// endpoint URL.'
+      });
+      return;
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(targetUrl);
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        throw new Error('Only http:// and https:// URLs are supported');
+      }
+    } catch (urlErr: any) {
+      setTestStatus({
+        type: 'ERROR',
+        output: `[ERROR] Invalid Webhook URI "${targetUrl}": ${urlErr?.message || 'Malformed URL'}`
+      });
+      return;
+    }
+
     setIsTestingConnection(true);
     setTestStatus({
       type: 'PENDING',
-      output: `[CONNECT] Resolving hostname...\n[DATA] Assembling dummy ping packet...\n[TLS] Executing TLS v1.3 cryptographic handshake...`
+      output: `[HTTP] Dispatching POST probe to ${parsedUrl.toString()}...`
     });
 
     const controller = new AbortController();
     const timerId = setTimeout(() => controller.abort(), 6000);
+    const startTime = performance.now();
 
     try {
-      await new Promise(r => setTimeout(r, 600));
-      setTestStatus(prev => ({
-        type: 'PENDING',
-        output: (prev ? prev.output : '') + `\n[HTTPS] Dispatching POST probe packet to ${testWebhookUrl}\nHeaders: {"X-Guardian-Key": "ag_live_...", "Content-Type": "application/json"}`
-      }));
-
-      await new Promise(r => setTimeout(r, 800));
-
-      const response = await fetch(testWebhookUrl, {
+      const response = await fetch(parsedUrl.toString(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Guardian-Key': apiKey,
           'X-GaaS-Ping': 'true'
         },
         body: JSON.stringify({
-          event: "GAAS_INTEGRATION_TEST",
-          timestamp: new Date().toISOString(),
-          test_uuid: Math.random().toString(36).substring(2),
-          payload_digest: "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          event: 'GAAS_INTEGRATION_TEST',
+          timestamp: new Date().toISOString()
         }),
         signal: controller.signal
       });
 
       clearTimeout(timerId);
+      const measuredLatencyMs = Math.max(1, Math.round(performance.now() - startTime));
+      const bodyPreview = await response.text().catch(() => '');
+      const truncatedPreview = bodyPreview.trim().slice(0, 220);
 
-      if (response.ok || response.status === 200 || response.status === 201 || response.status === 202) {
+      if (response.ok) {
         setTestStatus({
           type: 'SUCCESS',
-          output: `[HTTPS] POST packet sent successfully to ${testWebhookUrl}\n[STATUS] Response Code: ${response.status} ${response.statusText || 'OK'}\n[LATENCY] Gateway ping response time: 140ms\n[RESULT] Connection verified! Integration active.`
+          output: `[HTTP] POST ${parsedUrl.toString()}\n[STATUS] ${response.status} ${response.statusText || 'OK'}\n[LATENCY] ${measuredLatencyMs}ms${truncatedPreview ? `\n[BODY] ${truncatedPreview}` : ''}\n[RESULT] Connection verified! Integration active.`
         });
       } else {
         setTestStatus({
-          type: 'SUCCESS',
-          output: `[HTTPS] Probe received response from host.\n[STATUS] Status Code: ${response.status}\n[RESULT] Connection verified! Server is reachable.`
+          type: 'ERROR',
+          output: `[HTTP] POST ${parsedUrl.toString()}\n[STATUS] ${response.status} ${response.statusText || 'Error'}\n[LATENCY] ${measuredLatencyMs}ms${truncatedPreview ? `\n[BODY] ${truncatedPreview}` : ''}\n[RESULT] Endpoint responded with non-2xx HTTP status ${response.status}.`
         });
       }
     } catch (err: any) {
       clearTimeout(timerId);
-      
+      const measuredLatencyMs = Math.max(1, Math.round(performance.now() - startTime));
+      const errDetail = err?.name === 'AbortError'
+        ? 'Request timed out after 6000ms'
+        : (err?.message || 'Network or CORS connection failure');
+
       setTestStatus({
-        type: 'SUCCESS',
-        output: `[HTTPS] Dispatching POST probe to ${testWebhookUrl}...\n[CORS] Standard browser security sandbox limits direct client-to-third-party calls.\n[DNS] Host resolved successfully.\n[TLS] SSL/TLS session verified.\n[STATUS] Simulated Response: 200 OK\n[RESULT] Integration connection verified!`
+        type: 'ERROR',
+        output: `[HTTP] POST ${parsedUrl.toString()} failed\n[LATENCY] ${measuredLatencyMs}ms\n[ERROR] ${errDetail}`
       });
     } finally {
       setIsTestingConnection(false);
@@ -438,12 +570,12 @@ export default function GaaSApiPillar({
   };
 
   const handleCopyCode = () => {
-    navigator.clipboard.writeText(FRAMEWORK_CODE_TEMPLATES[activeCodeTab].code);
+    navigator.clipboard.writeText(frameworkCodeTemplates[activeCodeTab].code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleGenerateNewKey = () => {
+  const handleGenerateNewKey = async () => {
     if (currentUser.role !== 'SuperAdmin' && currentUser.role !== 'Admin') {
       addToast({
         type: 'danger',
@@ -453,23 +585,44 @@ export default function GaaSApiPillar({
       return;
     }
     setIsGeneratingKey(true);
-    setTimeout(() => {
-      const chars = 'abcdef0123456789';
-      let randomHex = '';
-      for (let i = 0; i < 32; i++) {
-        randomHex += chars[Math.floor(Math.random() * chars.length)];
+    try {
+      const sessionToken = sessionStorage.getItem('ag_session_token') || localStorage.getItem('ag_session_token');
+      const res = await fetch('/api/gaas/rotate-key', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {})
+        },
+        body: JSON.stringify({ tenantId: 'tenant_default' })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Rotation failed with HTTP status ${res.status}`);
       }
-      setApiKey(`ag_live_${randomHex}`);
-      setIsGeneratingKey(false);
+
+      if (!data.rawKey) {
+        throw new Error('Server did not return a rotated key');
+      }
+
+      setApiKey(data.rawKey);
       addToast({
         type: 'success',
         title: '🔑 Central GaaS Key Rotated',
-        message: 'A brand-new production-grade GaaS Tenant Access Key has been compiled and activated across all Webhook Intercept Gateways.'
+        message: 'A brand-new GaaS Tenant Access Key was generated on the server, replaced the previous key, and its SHA-256 hash is active across all intercept gateways.'
       });
-    }, 1000);
+    } catch (err: any) {
+      addToast({
+        type: 'danger',
+        title: '❌ Key Rotation Failed',
+        message: err?.message || 'Failed to rotate GaaS API credentials on server.'
+      });
+    } finally {
+      setIsGeneratingKey(false);
+    }
   };
 
-  const handleAddGovernedAgent = (e: React.FormEvent) => {
+  const handleAddGovernedAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (currentUser.role !== 'SuperAdmin' && currentUser.role !== 'Admin' && currentUser.role !== 'Operator') {
       addToast({
@@ -479,140 +632,123 @@ export default function GaaSApiPillar({
       });
       return;
     }
-    if (!newAgentName) return;
+    const cleanName = newAgentName.trim();
+    if (!cleanName) return;
+
+    const canonicalId = cleanName.replace(/[/?#]+/g, '-');
     const newAgent: GoverningAgent = {
-      id: generateTransactionId('GA'),
-      name: newAgentName,
+      id: canonicalId,
+      name: cleanName,
       framework: newAgentFramework,
-      webhookUrl: `https://gaas-hooks-api.local/${newAgentName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-      attachedPolicyCode: newAgentPolicy,
+      webhookUrl: testWebhookUrl.trim(),
+      attachedPolicyCode: newAgentPolicy || policies[0]?.code || 'POL-SEC-10',
       status: 'NOMINAL',
       requestCount: 0
     };
-    setGovernedAgents(prev => [...prev, newAgent]);
-    setNewAgentName('');
-    addToast({
-      type: 'success',
-      title: '🔌 Governing Agent Hooked',
-      message: `Successfully established communication binding and mapped rule ${newAgentPolicy} to agent "${newAgentName}".`
-    });
+
+    try {
+      if (onAddAgent) {
+        await onAddAgent(newAgent);
+      }
+      setNewAgentName('');
+      setSandboxAgentId(canonicalId);
+      addToast({
+        type: 'success',
+        title: '🔌 Governing Agent Hooked',
+        message: `Successfully registered agent "${cleanName}" (${canonicalId}) with rule ${newAgent.attachedPolicyCode}.`
+      });
+    } catch (err: any) {
+      addToast({
+        type: 'danger',
+        title: '❌ Agent Registration Failed',
+        message: err?.message || 'Server rejected governing agent registration.'
+      });
+    }
   };
 
-  const handleExecuteSandboxPost = () => {
+  const handleExecuteSandboxPost = async () => {
     if (isSimulatingGaaS) return;
+    if (!apiKey) {
+      addToast({
+        type: 'danger',
+        title: '🔑 Active Key Unavailable',
+        message: 'Cannot post to /api/v1/intercept because the active GaaS secret key has not loaded from the server.'
+      });
+      return;
+    }
+
     setIsSimulatingGaaS(true);
     setSandboxState('SENDING');
-    setSandboxResponseLog('Connecting to GaaS Gateway API intercept port at 0.0.0.0:3000...\nValidating target endpoint authentication header [X-Guardian-Key]...');
+    setSandboxResponseLog('Posting request to /api/v1/intercept with active X-Guardian-Key...');
 
-    setTimeout(() => {
-      // Find attached policy details
-      const targetAgent = governedAgents.find(a => a.id === sandboxAgentId);
-      const policyCode = targetAgent ? targetAgent.attachedPolicyCode : 'POL-SEC-01';
-      const policyMatched = policies.find(p => p.code === policyCode) || policies[0];
-
-      // Simulate the random latency
-      const lat = Math.floor(Math.random() * 18) + 21; // High performance 21-39ms latency
-      setSimulatedLatency(lat);
-
-      if (lat > latencyThreshold) {
-        addToast({
-          type: 'warning',
-          title: '⚠️ SLA Latency Limit Breached',
-          message: `Manual sandbox action responded in ${lat}ms (Threshold SLA: ${latencyThreshold}ms).\nAffected Node: ${targetAgent ? targetAgent.name : 'GaaS-Proxy-Agent'}`,
-          duration: 5000
-        });
+    const targetAgent = governedAgents.find(a => a.id === sandboxAgentId);
+    let parsedParams: any = sandboxPayload;
+    const trimmedPayload = sandboxPayload.trim();
+    if (trimmedPayload.startsWith('{') || trimmedPayload.startsWith('[')) {
+      try {
+        parsedParams = JSON.parse(trimmedPayload);
+      } catch {
+        parsedParams = sandboxPayload;
       }
+    }
 
-      const actionTextLower = sandboxAction.toLowerCase();
-      const payloadLower = sandboxPayload.toLowerCase();
-      
-      // Determine if it violates the target custom policy conditions
-      // By default, if security policy and database purging, trigger HALT.
-      const isSecurityHalt = policyMatched.category === 'security' && (actionTextLower.includes('purge') || actionTextLower.includes('delete') || payloadLower.includes('delete') || payloadLower.includes('force'));
-      const isFinHalt = policyMatched.category === 'finance';
-      
-      const shouldHalt = policyMatched.enabled && (isSecurityHalt || isFinHalt);
+    const requestStart = performance.now();
+    try {
+      const res = await fetch('/api/v1/intercept', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Guardian-Key': apiKey
+        },
+        body: JSON.stringify({
+          agent_id: targetAgent?.id || sandboxAgentId || undefined,
+          agent_name: targetAgent?.name || undefined,
+          action: sandboxAction.trim() || 'standard_action',
+          endpoint: '/v1/intercept',
+          parameters: parsedParams,
+          prompt_text: sandboxAction.trim()
+        })
+      });
 
-      // Append to real-time API request log history
-      const newRequestLogEntry: ApiRequestLog = {
-        id: generateTransactionId('REQ'),
-        timestamp: new Date().toISOString(),
-        agentId: sandboxAgentId,
-        agentName: targetAgent ? targetAgent.name : 'GaaS-Proxy-Agent',
-        endpoint: '/v1/intercept',
-        status: shouldHalt ? 'HALTED' : 'AUTHORIZED',
-        latencyMs: lat
-      };
-      setApiLogs(prev => [newRequestLogEntry, ...prev]);
+      const data = await res.json().catch(() => ({}));
+      const clientElapsedMs = Math.max(1, Math.round(performance.now() - requestStart));
 
-      // Increment agent counter
-      setGovernedAgents(prev => prev.map(a => a.id === sandboxAgentId ? { ...a, requestCount: a.requestCount + 1, status: shouldHalt ? 'ALERT' : 'NOMINAL' } : a));
-
-      if (shouldHalt) {
+      if (!res.ok) {
         setSandboxState('HALTED');
-        setSandboxResponseLog(prev => prev + `
-Authentication handshake succeeded.
-Intercepting action: "${sandboxAction}" from governed node ${sandboxAgentId}.
-Evaluating active Policy: ${policyMatched.code} - "${policyMatched.name}"
-Matched Blast Radius boundary condition: ${policyMatched.blastRadius}.
-
-🚨 [MANDATORY SERVICE GATEWAY POLICIES BROKEN]
-Status: 403 FORBIDDEN (PROTOCOL HALT INITIATED)
-Latency: ${lat}ms
-Annex IV Ledger Hash: GAAS-${new Date().getTime().toString().substring(7)}-${sandboxAgentId}
-
-Verdict: Access credentials completely revoked. Active script halted inside sandbox.`
+        setSandboxResponseLog(
+          `HTTP Status: ${res.status} ${res.statusText || ''}\n` +
+          `Error: ${data?.error || data?.reason || 'Request rejected by GaaS gateway.'}\n` +
+          `Round-trip Latency: ${clientElapsedMs}ms`
         );
-
-        // Dispatches new security event to the main App lifecycle database
-        const newHaltEvent = {
-          id: generateTransactionId('KG-GaaS'),
-          timestamp: new Date().toISOString(),
-          agentName: targetAgent ? targetAgent.name : 'GaaS-Proxy-Agent',
-          actionCommand: sandboxAction,
-          interceptedPacket: `POST /v1/webhook/intercept [GaaS API]`,
-          policyViolated: `${policyMatched.code} (${policyMatched.name})`,
-          latencyMs: lat,
-          status: 'HALTED' as const,
-          rawJsonIntent: sandboxPayload,
-          timestampAnnexV: `20260609-${new Date().getTime().toString().substring(5)}-GAAS`
-        };
-        onTriggerKillEvent(newHaltEvent);
-      } else {
-        setSandboxState('OK');
-        setSandboxResponseLog(prev => prev + `
-Authentication handshake succeeded.
-Intercepting action: "${sandboxAction}" from governed node ${sandboxAgentId}.
-Evaluating active Policy: ${policyMatched.code} - "${policyMatched.name}"
-Audit compliance matching passed.
-
-🟢 [AUTHORIZED PROCESS NOMINAL]
-Status: 200 OK (ACTION GRANTED)
-Latency: ${lat}ms
-GaaS Token: auth_bearer_${new Date().getTime().toString().substring(8)}
-
-Verdict: Session parameters registered. Downstream REST action granted.`
-        );
-
-        // Add standard stable transaction to the Economic Value tracker!
-        if (policyMatched.category === 'finance') {
-          const mockSpend = Math.random() * 8 + 0.5;
-          const newMetric = {
-            id: generateTransactionId('VAL'),
-            timestamp: new Date().toISOString(),
-            agentName: targetAgent ? targetAgent.name : 'GaaS-Governed-Bot',
-            completedTasks: 1,
-            totalApiSpend: mockSpend,
-            humanLaborSaved: 30.00,
-            roiScore: 30 / mockSpend,
-            status: 'STABLE' as const
-          };
-          onAddMetricEvent(newMetric);
-        }
+        return;
       }
 
+      const isBlocked = !data.authorized || data.status === 'HALTED' || data.decision === 'REJECTED';
+      setSandboxState(isBlocked ? 'HALTED' : 'OK');
+
+      const serverLatency = typeof data.latency_ms === 'number' ? data.latency_ms : clientElapsedMs;
+      const policyDisplay = data.policy_code
+        ? `${data.policy_code}${data.policy_violated ? ` (${data.policy_violated})` : ''}`
+        : (data.policy_violated || 'NONE');
+
+      setSandboxResponseLog(
+        `Status: ${data.status || (isBlocked ? 'HALTED' : 'AUTHORIZED')} (HTTP ${res.status} / Decision: ${data.decision || (isBlocked ? 'REJECTED' : 'ALLOWED')})\n` +
+        `Agent: ${data.agent_id || targetAgent?.id || 'N/A'}\n` +
+        `Policy: ${policyDisplay}\n` +
+        `Reason: ${data.reason || (isBlocked ? 'Action blocked by gateway policy.' : 'Allowed by gateway policy.')}\n` +
+        `Ledger Hash: ${data.ledger_hash || 'N/A'}\n` +
+        `Latency: ${serverLatency}ms`
+      );
+
+      if (onRefreshState) {
+        await onRefreshState();
+      }
+    } catch (err: any) {
+      setSandboxState('HALTED');
+      setSandboxResponseLog(`Network error posting to /api/v1/intercept: ${err?.message || 'Unknown error'}`);
+    } finally {
       setIsSimulatingGaaS(false);
-    }, 1200);
+    }
   };
 
   return (
@@ -721,7 +857,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                 </label>
                 <input
                   type="text"
-                  value="https://api.agentsguardian.ai/v1/intercept"
+                  value={typeof window !== 'undefined' ? `${window.location.origin}/api/v1/intercept` : '/api/v1/intercept'}
                   disabled
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-xs font-mono text-zinc-500"
                 />
@@ -763,7 +899,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
           className="lg:col-span-8 p-6 rounded-xl bg-[#09090B] border border-zinc-800"
         >
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 mb-3">
-            {(Object.keys(FRAMEWORK_CODE_TEMPLATES) as Array<keyof typeof FRAMEWORK_CODE_TEMPLATES>).map((key) => (
+            {(Object.keys(frameworkCodeTemplates) as Array<'python' | 'langchain' | 'crewai' | 'autogen' | 'mcp' | 'curl'>).map((key) => (
               <button
                 key={key}
                 onClick={() => setActiveCodeTab(key)}
@@ -783,7 +919,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
           {/* Interactive Code Console display */}
           <div className="relative rounded-lg overflow-hidden border border-zinc-800 bg-zinc-950 mb-3">
             <div className="flex items-center justify-between text-[10px] font-mono bg-zinc-900/60 p-2.5 px-4 border-b border-zinc-800 text-zinc-400">
-              <span className="uppercase text-zinc-400">{FRAMEWORK_CODE_TEMPLATES[activeCodeTab].title}</span>
+              <span className="uppercase text-zinc-400">{frameworkCodeTemplates[activeCodeTab].title}</span>
               <button 
                 onClick={handleCopyCode} 
                 className="hover:text-white transition flex items-center gap-1 cursor-pointer"
@@ -793,7 +929,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
               </button>
             </div>
             <pre className="p-4 overflow-x-auto text-xs text-emerald-400 font-mono h-64 leading-relaxed whitespace-pre">
-              {FRAMEWORK_CODE_TEMPLATES[activeCodeTab].code}
+              {frameworkCodeTemplates[activeCodeTab].code}
             </pre>
           </div>
 
@@ -1244,16 +1380,24 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                     <select
                       value={agent.attachedPolicyCode}
                       disabled={!(currentUser.role === 'SuperAdmin' || currentUser.role === 'Admin' || currentUser.role === 'PolicyManager')}
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const newCode = e.target.value;
-                        setGovernedAgents(prev => prev.map(a => 
-                          a.id === agent.id ? { ...a, attachedPolicyCode: newCode } : a
-                        ));
-                        addToast({
-                          type: 'success',
-                          title: '🛡️ Policy Mapping Remapped',
-                          message: `Governed Agent "${agent.name}" has been mapped to active Rule "${newCode}".`
-                        });
+                        try {
+                          if (onUpdateAgent) {
+                            await onUpdateAgent(agent.id, { attachedPolicyCode: newCode });
+                          }
+                          addToast({
+                            type: 'success',
+                            title: '🛡️ Policy Mapping Remapped',
+                            message: `Governed Agent "${agent.name}" has been mapped to active Rule "${newCode}".`
+                          });
+                        } catch (err: any) {
+                          addToast({
+                            type: 'danger',
+                            title: '❌ Policy Mapping Failed',
+                            message: err?.message || 'Failed to update agent policy on server.'
+                          });
+                        }
                       }}
                       className={`bg-[#090e17] border border-zinc-800 font-bold text-[11px] rounded px-1.5 py-0.5 focus:outline-none focus:border-zinc-700 w-28 text-right truncate bg-zinc-950 font-mono ${
                         !(currentUser.role === 'SuperAdmin' || currentUser.role === 'Admin' || currentUser.role === 'PolicyManager')
@@ -1276,7 +1420,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
 
                   <div className="mt-1 flex items-center justify-between text-xs font-mono">
                     <span className="text-zinc-500">APIs Evaluated:</span>
-                    <span className="text-zinc-300 font-semibold">{agent.requestCount} logs</span>
+                    <span className="text-zinc-300 font-semibold">{realAgentLogCounts.get(agent.id) ?? agent.requestCount} logs</span>
                   </div>
                 </div>
 
@@ -1297,7 +1441,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                   <div className="flex items-center gap-1.5">
                     {agent.status === 'NOMINAL' ? (
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (currentUser.role === 'Auditor') {
                             addToast({
                               type: 'danger',
@@ -1306,12 +1450,22 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                             });
                             return;
                           }
-                          setGovernedAgents(prev => prev.map(a => a.id === agent.id ? { ...a, status: 'ALERT' } : a));
-                          addToast({
-                            type: 'warning',
-                            title: '🚨 Agent Halted',
-                            message: `Credential keys invalidated for agent cluster "${agent.name}".`
-                          });
+                          try {
+                            if (onUpdateAgent) {
+                              await onUpdateAgent(agent.id, { status: 'HALTED' });
+                            }
+                            addToast({
+                              type: 'warning',
+                              title: '🚨 Agent Halted',
+                              message: `Credential keys invalidated for agent cluster "${agent.name}".`
+                            });
+                          } catch (err: any) {
+                            addToast({
+                              type: 'danger',
+                              title: '❌ Halt Failed',
+                              message: err?.message || 'Failed to halt agent on server.'
+                            });
+                          }
                         }}
                         disabled={currentUser.role === 'Auditor'}
                         className="px-2 py-1 text-[10px] font-mono font-bold text-rose-450 bg-rose-950/10 hover:bg-rose-900/25 border border-rose-905/30 rounded transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1322,7 +1476,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                       </button>
                     ) : (
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (currentUser.role === 'Auditor') {
                             addToast({
                               type: 'danger',
@@ -1331,12 +1485,22 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                             });
                             return;
                           }
-                          setGovernedAgents(prev => prev.map(a => a.id === agent.id ? { ...a, status: 'NOMINAL' } : a));
-                          addToast({
-                            type: 'success',
-                            title: '🛡️ Agent Reactivated',
-                            message: `Safety nominal shields and authorization tokens restored for agent cluster "${agent.name}".`
-                          });
+                          try {
+                            if (onUpdateAgent) {
+                              await onUpdateAgent(agent.id, { status: 'NOMINAL' });
+                            }
+                            addToast({
+                              type: 'success',
+                              title: '🛡️ Agent Reactivated',
+                              message: `Safety nominal shields and authorization tokens restored for agent cluster "${agent.name}".`
+                            });
+                          } catch (err: any) {
+                            addToast({
+                              type: 'danger',
+                              title: '❌ Resume Failed',
+                              message: err?.message || 'Failed to resume agent on server.'
+                            });
+                          }
                         }}
                         disabled={currentUser.role === 'Auditor'}
                         className="px-2 py-1 text-[10px] font-mono font-bold text-emerald-450 bg-emerald-950/15 hover:bg-emerald-900/25 border border-emerald-905/30 rounded transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1346,6 +1510,42 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                         Resume
                       </button>
                     )}
+                    <button
+                      onClick={async () => {
+                        if (currentUser.role === 'Auditor') {
+                          addToast({
+                            type: 'danger',
+                            title: 'Access Prohibited',
+                            message: 'Read-only Auditor accounts are restricted from altering agent configurations.'
+                          });
+                          return;
+                        }
+                        if (window.confirm(`Are you sure you want to unhook and remove agent "${agent.name}"?`)) {
+                          try {
+                            if (onDeleteAgent) {
+                              await onDeleteAgent(agent.id);
+                            }
+                            addToast({
+                              type: 'danger',
+                              title: '🔌 Agent Unhooked',
+                              message: `Governed Agent "${agent.name}" has been permanently unhooked and removed.`
+                            });
+                          } catch (err: any) {
+                            addToast({
+                              type: 'danger',
+                              title: '❌ Delete Failed',
+                              message: err?.message || 'Failed to delete agent on server.'
+                            });
+                          }
+                        }
+                      }}
+                      disabled={currentUser.role === 'Auditor'}
+                      className="px-2 py-1 text-[10px] font-mono font-bold text-zinc-400 hover:text-rose-400 bg-zinc-900/60 hover:bg-rose-950/20 border border-zinc-800 hover:border-rose-800/40 rounded transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ml-1"
+                      title={currentUser.role === 'Auditor' ? "Auditor profile is read-only" : "Unhook and remove agent"}
+                      type="button"
+                    >
+                      Delete
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1441,7 +1641,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
             </div>
 
             <button
-              onClick={() => setApiLogs([])}
+              onClick={() => setLogsClearedBeforeMs(Date.now())}
               type="button"
               className="px-2.5 py-1.5 border border-zinc-805 hover:border-red-500/30 hover:bg-rose-950/10 text-zinc-400 hover:text-red-400 font-mono text-xs rounded transition flex items-center gap-1.5 cursor-pointer"
             >
@@ -1451,7 +1651,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
         }
         className="p-6 rounded-xl bg-[#09090B] border border-zinc-800 space-y-4"
       >
-        {apiLogs.length === 0 ? (
+        {visibleApiLogs.length === 0 ? (
           <div className="p-12 text-center rounded-lg bg-zinc-950/50 border border-zinc-900 border-dashed">
             <History size={26} className="mx-auto text-zinc-650 mb-2 animate-pulse" />
             <h4 className="text-xs font-mono font-bold text-zinc-500 uppercase">Audit Terminal Empty</h4>
@@ -1473,7 +1673,7 @@ Verdict: Session parameters registered. Downstream REST action granted.`
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900">
-                {apiLogs.map((log) => {
+                {visibleApiLogs.map((log) => {
                   const isSlaBreached = log.latencyMs > latencyThreshold;
                   return (
                     <tr 

@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Shield, Activity, Coins, ArrowUpRight, CheckCircle2, Cpu, Gauge, Calendar, Flame, AlertTriangle, BarChart2, ShieldAlert, Sparkles, Clock, Filter } from 'lucide-react';
-import { KillSignalEvent, DriftLogEvent, ValueMeterMetric, ApiRequestLog, AdminUser, GoverningAgent } from '../types';
+import { KillSignalEvent, DriftLogEvent, ValueMeterMetric, ApiRequestLog, AdminUser, GoverningAgent, Policy, LaborConfig } from '../types';
 import { GUARANTEED_SLA_MS, getStatusBadge, formatTimestamp } from '../utils';
 
 interface OverviewProps {
@@ -18,24 +18,26 @@ interface OverviewProps {
   overallCognitiveHealth: number;
   apiLogs: ApiRequestLog[];
   currentUser: AdminUser;
-  policies?: any;
+  policies?: Policy[];
+  laborConfig?: LaborConfig;
+  restConnectionStatus?: 'SYNCHRONIZED' | 'DEGRADED' | 'DISCONNECTED';
+  bypassPolicyGuard?: boolean;
   addToast?: any;
   governedAgents?: GoverningAgent[];
   governanceMode?: 'setup' | 'active';
   setGovernanceMode?: (mode: 'setup' | 'active') => void;
 }
 
-const DEFAULT_AGENTS: GoverningAgent[] = [
-  { id: 'AGT-001', name: 'LeadGen-Bot-3', framework: 'CrewAI', webhookUrl: 'https://api.guardian.internal/hooks/crewai-01', attachedPolicyCode: 'POL-SEC-01', status: 'NOMINAL', requestCount: 1420 },
-  { id: 'AGT-002', name: 'SupportHQ-Bot', framework: 'LangChain', webhookUrl: 'https://api.guardian.internal/hooks/langchain-02', attachedPolicyCode: 'POL-ETH-01', status: 'NOMINAL', requestCount: 3890 },
-  { id: 'AGT-003', name: 'DevHelper-Pro', framework: 'AutoGen', webhookUrl: 'https://api.guardian.internal/hooks/autogen-03', attachedPolicyCode: 'POL-FIN-01', status: 'ALERT', requestCount: 812 },
-  { id: 'AGT-004', name: 'Financial-Audit-Bot', framework: 'MCP Server', webhookUrl: 'https://api.guardian.internal/hooks/mcp-04', attachedPolicyCode: 'POL-FIN-02', status: 'NOMINAL', requestCount: 521 }
-];
+const EMPTY_AGENTS: GoverningAgent[] = [];
 
 function computeAgentHealth(agent: GoverningAgent, logs: ApiRequestLog[]) {
-  const agentLogs = logs.filter(
-    (l) => l.agentId === agent.id || l.agentName.toLowerCase() === agent.name.toLowerCase()
-  );
+  const aId = (agent.id || '').trim().toLowerCase();
+  const aName = (agent.name || '').trim().toLowerCase();
+  const agentLogs = logs.filter((l) => {
+    const lId = (l.agentId || '').trim().toLowerCase();
+    const lName = (l.agentName || '').trim().toLowerCase();
+    return lId === aId || (aName && (lName === aName || lId === aName));
+  });
   const authorizedCount = agentLogs.filter((l) => l.status === 'AUTHORIZED').length;
   const haltedCount = agentLogs.filter((l) => l.status === 'HALTED').length;
   const totalLogs = agentLogs.length;
@@ -44,9 +46,10 @@ function computeAgentHealth(agent: GoverningAgent, logs: ApiRequestLog[]) {
   if (totalLogs > 0) {
     score = Math.round((authorizedCount / totalLogs) * 100);
   } else {
-    if (agent.status === 'NOMINAL') score = 95;
-    else if (agent.status === 'MITIGATING') score = 65;
+    if (agent.status === 'HALTED') score = 0;
     else if (agent.status === 'ALERT') score = 35;
+    else if (agent.status === 'MITIGATING') score = 65;
+    else score = 100;
   }
 
   return {
@@ -71,51 +74,96 @@ export interface HeatmapDay {
   keyEventsSummary: string[];
 }
 
+function toLocalDateKey(input: Date | string): string {
+  const d = typeof input === 'string' ? new Date(input) : input;
+  if (isNaN(d.getTime())) return '';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function generate30DayHeatmapData(
   apiLogs: ApiRequestLog[],
   killEvents: KillSignalEvent[],
   driftEvents: DriftLogEvent[]
-): HeatmapDay[] {
+): { days: HeatmapDay[]; leadingEmptyDays: number } {
   const days: HeatmapDay[] = [];
-  const endDate = new Date('2026-07-29T12:00:00Z');
+  const endDate = new Date();
+  endDate.setHours(12, 0, 0, 0);
+
+  const startDate = new Date(endDate);
+  startDate.setDate(endDate.getDate() - 29);
+  const leadingEmptyDays = (startDate.getDay() + 6) % 7;
 
   for (let i = 29; i >= 0; i--) {
     const curDate = new Date(endDate);
-    curDate.setDate(curDate.getDate() - i);
-    const dateStr = curDate.toISOString().split('T')[0];
+    curDate.setDate(endDate.getDate() - i);
+    const dateStr = toLocalDateKey(curDate);
 
-    const matchedLogs = apiLogs.filter(l => l.timestamp && l.timestamp.startsWith(dateStr));
-    const matchedKills = killEvents.filter(k => k.timestamp && k.timestamp.startsWith(dateStr));
-    const matchedDrifts = driftEvents.filter(d => d.timestamp && d.timestamp.startsWith(dateStr));
+    const matchedLogs = apiLogs.filter(l => l.timestamp && toLocalDateKey(l.timestamp) === dateStr);
+    const matchedKills = killEvents.filter(k => k.timestamp && toLocalDateKey(k.timestamp) === dateStr);
+    const matchedDrifts = driftEvents.filter(
+      d => d.timestamp && toLocalDateKey(d.timestamp) === dateStr && !d.isTest && !(d as any).is_test && !(d as any).archived && !d.remedatedAt
+    );
 
-    const daySeed = (i * 19 + curDate.getDate() * 11) % 100;
-    const baseReqCount = matchedLogs.length > 0
-      ? matchedLogs.length * 18 + (daySeed % 15)
-      : Math.floor(35 + (daySeed * 1.4) + ((i % 7) * 12));
+    const baseReqCount = matchedLogs.length;
+    const haltedLogs = matchedLogs.filter(l => l.status === 'HALTED');
+    const unmatchedKills = matchedKills.filter(k => {
+      const kTime = new Date(k.timestamp).getTime();
+      const kAgent = (k.agentId || (k as any).agent_id || k.agentName || '').trim().toLowerCase();
+      return !haltedLogs.some(hl => {
+        const hlTime = new Date(hl.timestamp).getTime();
+        const hlAgentId = (hl.agentId || '').trim().toLowerCase();
+        const hlAgentName = (hl.agentName || '').trim().toLowerCase();
+        const sameAgent = !kAgent || kAgent === hlAgentId || kAgent === hlAgentName;
+        return sameAgent && Math.abs(kTime - hlTime) <= 5000;
+      });
+    });
 
-    const realHalted = matchedLogs.filter(l => l.status === 'HALTED').length + matchedKills.length;
-    const realDrifts = matchedDrifts.filter(d => d.status !== 'NORMAL').length;
-
-    const baseAnomalies = (realHalted + realDrifts) > 0
-      ? (realHalted + realDrifts)
-      : (daySeed % 9 === 0 ? 3 : daySeed % 4 === 0 ? 1 : 0);
+    const realHalted = haltedLogs.length + unmatchedKills.length;
+    const realDrifts = matchedDrifts.filter(d => d.status === 'WARNING' || d.status === 'CRITICAL').length;
+    const baseAnomalies = realHalted + realDrifts;
 
     let intensity = 0;
-    if (baseReqCount > 110) intensity = 4;
-    else if (baseReqCount > 80) intensity = 3;
-    else if (baseReqCount > 50) intensity = 2;
-    else if (baseReqCount > 20) intensity = 1;
+    if (baseReqCount > 20) intensity = 4;
+    else if (baseReqCount > 10) intensity = 3;
+    else if (baseReqCount > 5) intensity = 2;
+    else if (baseReqCount > 0) intensity = 1;
 
-    const agents = ['LeadGen-Bot-3', 'SupportHQ-Bot', 'DevHelper-Pro', 'Financial-Audit-Bot'];
-    const primaryAgent = agents[(i + daySeed) % agents.length];
+    // Derive the actual dominant agent from real telemetry events on this day
+    const agentActivity = new Map<string, number>();
+    const trackAgent = (label?: string) => {
+      const clean = (label || '').trim();
+      if (!clean) return;
+      agentActivity.set(clean, (agentActivity.get(clean) || 0) + 1);
+    };
+    matchedLogs.forEach(l => trackAgent(l.agentName || l.agentId));
+    matchedKills.forEach(k => trackAgent(k.agentName || k.agentId || (k as any).agent_id));
+    matchedDrifts.forEach(d => trackAgent(d.agentGroup || d.agentId));
+
+    let primaryAgent = 'None';
+    let maxAgentCount = 0;
+    agentActivity.forEach((count, label) => {
+      if (count > maxAgentCount) {
+        maxAgentCount = count;
+        primaryAgent = label;
+      }
+    });
 
     const keyEvents: string[] = [];
     if (baseAnomalies > 0) {
       keyEvents.push(`${baseAnomalies} policy interception event(s) recorded`);
-    } else {
+    } else if (baseReqCount > 0) {
       keyEvents.push('100% clean policy validation rate');
+    } else {
+      keyEvents.push('No telemetry events recorded');
     }
-    keyEvents.push(`Mean Latency: ${(16 + (daySeed % 12)).toFixed(1)}ms`);
+    const latencySource = matchedLogs.length > 0 ? matchedLogs : matchedKills;
+    const avgDayLatency = latencySource.length > 0
+      ? (latencySource.reduce((acc, l) => acc + (l.latencyMs || 0), 0) / latencySource.length).toFixed(1)
+      : '0.0';
+    keyEvents.push(`Mean Latency: ${avgDayLatency}ms`);
 
     days.push({
       dateStr,
@@ -132,7 +180,7 @@ function generate30DayHeatmapData(
     });
   }
 
-  return days;
+  return { days, leadingEmptyDays };
 }
 
 export default function Overview({
@@ -145,69 +193,144 @@ export default function Overview({
   overallCognitiveHealth,
   apiLogs,
   currentUser,
-  governedAgents = DEFAULT_AGENTS,
+  policies = [],
+  laborConfig,
+  restConnectionStatus = 'SYNCHRONIZED',
+  bypassPolicyGuard = false,
+  governedAgents = EMPTY_AGENTS,
   governanceMode = 'setup',
   setGovernanceMode
 }: OverviewProps) {
   // Stats calculations
   const totalHalted = killEvents.filter(e => e.status === 'HALTED').length;
-  const activeDriftWarnings = driftEvents.filter(e => e.status !== 'NORMAL').length;
+  const activeDriftWarnings = driftEvents.filter(e => {
+    if (e.isTest || (e as any).is_test || (e as any).archived || e.remedatedAt) return false;
+    if (typeof e.cognitiveHealthScore === 'number') {
+      return e.cognitiveHealthScore <= 85;
+    }
+    return e.status === 'WARNING' || e.status === 'CRITICAL';
+  }).length;
   const totalSpend = valueMetrics.reduce((acc, m) => acc + m.totalApiSpend, 0);
   const totalSavedValue = valueMetrics.reduce((acc, m) => acc + m.humanLaborSaved, 0);
+  const netSavingsValue = totalSavedValue - totalSpend;
 
   // Overall Governance Health Score based on ratio of authorized versus total API requests
   const totalAuthorized = apiLogs.filter(log => log.status === 'AUTHORIZED').length;
   const totalRequests = apiLogs.length;
   const governanceHealthScore = totalRequests > 0 ? (totalAuthorized / totalRequests) * 100 : 100;
 
+  // Real-time SLA Compliance (<GUARANTEED_SLA_MS)
+  const slaSamples = apiLogs.length > 0 ? apiLogs : killEvents;
+  const slaWithinTargetCount = slaSamples.filter(item => (item.latencyMs ?? 0) <= GUARANTEED_SLA_MS).length;
+  const slaCompliancePct = slaSamples.length > 0 ? (slaWithinTargetCount / slaSamples.length) * 100 : 100;
+  const slaDashValue = Math.max(0, Math.min(100, Math.round(slaCompliancePct)));
+
+  // Real-time Enterprise Context Engine parameters
+  const standardLaborRate = laborConfig?.l1Rate ?? 35;
+  const enabledPolicies = policies.filter(p => p.enabled);
+  const blastRadiusLabel = bypassPolicyGuard
+    ? 'Bypass Guard Active'
+    : policies.length > 0 && enabledPolicies.length === 0
+      ? 'No Active Policies'
+      : enabledPolicies.some(p => p.category === 'security' || /strict|instant|halt/i.test(p.threshold || ''))
+        ? 'Strict Enforcement'
+        : `${enabledPolicies.length} Active Rules`;
+  const blastRadiusIsWarning = bypassPolicyGuard || (policies.length > 0 && enabledPolicies.length === 0);
+
   const isSuperAdmin = currentUser?.role === 'SuperAdmin';
 
   // 30-Day Activity & Anomaly Heatmap calculations & state
-  const heatmapData = React.useMemo(
+  const { days: heatmapData, leadingEmptyDays } = React.useMemo(
     () => generate30DayHeatmapData(apiLogs, killEvents, driftEvents),
     [apiLogs, killEvents, driftEvents]
   );
 
-  const [selectedHeatmapDay, setSelectedHeatmapDay] = React.useState<HeatmapDay | null>(null);
+  const [selectedHeatmapDateStr, setSelectedHeatmapDateStr] = React.useState<string | null>(null);
   const [heatmapMode, setHeatmapMode] = React.useState<'intensity' | 'anomalies'>('intensity');
 
-  const activeDay = selectedHeatmapDay || heatmapData[heatmapData.length - 1];
+  const activeDay = heatmapData.find(d => d.dateStr === selectedHeatmapDateStr) || heatmapData[heatmapData.length - 1];
 
   const total30DayRequests = heatmapData.reduce((acc, d) => acc + d.requests, 0);
   const total30DayAnomalies = heatmapData.reduce((acc, d) => acc + d.anomalies, 0);
   const compliantDaysCount = heatmapData.filter(d => d.anomalies === 0).length;
-  const peakDay = heatmapData.reduce((max, d) => (d.requests > max.requests ? d : max), heatmapData[0]);
+  const peakDay = heatmapData.reduce(
+    (max, d) => (d.requests >= max.requests ? d : max),
+    heatmapData[heatmapData.length - 1]
+  );
 
-  // Combine actions for a unified lifecycle ticker
-  const recentActions = [
-    ...killEvents.slice(0, 2).map(e => ({
-      type: 'SECURE',
+  // Combine all live telemetry streams, sort newest-first, then display latest 5
+  const recentActions = React.useMemo(() => {
+    const killEntries = killEvents.map(e => ({
+      type: 'SECURE' as const,
       title: 'Kill-Switch Intervention',
-      desc: `${e.agentName} was halted on '${e.actionCommand}'`,
+      desc: `${e.agentName || e.agentId || 'Agent'} was halted on '${e.actionCommand || 'action'}'`,
       time: e.timestamp,
-      status: 'HALTED',
+      status: e.status || 'HALTED',
       badgeColor: 'bg-[#E24B4A]/12 text-[#E24B4A] border-[#E24B4A]/30',
       id: e.id,
-    })),
-    ...driftEvents.slice(0, 2).map(e => ({
-      type: 'OBSERVE',
-      title: 'Cognitive Health Sentinel',
-      desc: `${e.agentGroup} shifted ${e.sentimentShiftPct}% from baseline`,
+    }));
+
+    const apiLogEntries = apiLogs
+      .filter(l => {
+        if (l.status !== 'HALTED') return true;
+        const lTime = new Date(l.timestamp).getTime();
+        const lId = (l.agentId || '').trim().toLowerCase();
+        const lName = (l.agentName || '').trim().toLowerCase();
+        return !killEvents.some(k => {
+          const kTime = new Date(k.timestamp).getTime();
+          const kAgent = (k.agentId || (k as any).agent_id || k.agentName || '').trim().toLowerCase();
+          const sameAgent = !kAgent || kAgent === lId || kAgent === lName;
+          return sameAgent && Math.abs(lTime - kTime) <= 5000;
+        });
+      })
+      .map(l => ({
+        type: 'SECURE' as const,
+        title: l.status === 'HALTED' ? 'Gateway Intercept Halt' : 'Gateway Request Authorized',
+        desc: `${l.agentName || l.agentId} verified on ${l.endpoint || '/v1/intercept'} (${Number(l.latencyMs || 0).toFixed(1)}ms)`,
+        time: l.timestamp,
+        status: l.status,
+        badgeColor: l.status === 'HALTED'
+          ? 'bg-[#E24B4A]/12 text-[#E24B4A] border-[#E24B4A]/30'
+          : 'bg-[#1D9E75]/12 text-[#1D9E75] border-[#1D9E75]/30',
+        id: l.id,
+      }));
+
+    const driftFeedEntries = driftEvents
+      .filter(e => !e.isTest && !(e as any).is_test && !(e as any).archived)
+      .map(e => ({
+        type: 'OBSERVE' as const,
+        title: 'Cognitive Health Sentinel',
+        desc: `${e.agentGroup || e.agentId || 'Agent'} shifted ${e.sentimentShiftPct}% from baseline (Health: ${e.cognitiveHealthScore}%)`,
+        time: e.timestamp,
+        status: e.status,
+        badgeColor: e.status === 'CRITICAL'
+          ? 'bg-[#E24B4A]/12 text-[#E24B4A] border-[#E24B4A]/30'
+          : e.status === 'WARNING'
+            ? 'bg-[#EF9F27]/12 text-[#EF9F27] border-[#EF9F27]/30'
+            : 'bg-[#1D9E75]/12 text-[#1D9E75] border-[#1D9E75]/30',
+        id: e.id,
+      }));
+
+    const valueEntries = valueMetrics.map(e => ({
+      type: 'MEASURE' as const,
+      title: e.status === 'STABLE' ? 'AI Value Meter Sync' : 'AI Value Meter Alert',
+      desc: e.status === 'STABLE'
+        ? `${e.agentName} generated $${Number(e.humanLaborSaved || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })} labor value (${e.roiScore.toFixed(1)}x ROI)`
+        : `${e.agentName} ROI falls to ${e.roiScore.toFixed(1)}x`,
       time: e.timestamp,
       status: e.status,
-      badgeColor: e.status === 'CRITICAL' ? 'bg-[#E24B4A]/12 text-[#E24B4A] border-[#E24B4A]/30' : 'bg-[#EF9F27]/12 text-[#EF9F27] border-[#EF9F27]/30',
+      badgeColor: e.status === 'ALERT'
+        ? 'bg-[#E24B4A]/12 text-[#E24B4A] border-[#E24B4A]/30'
+        : e.status === 'WARNING'
+          ? 'bg-[#EF9F27]/12 text-[#EF9F27] border-[#EF9F27]/30'
+          : 'bg-[#1D9E75]/12 text-[#1D9E75] border-[#1D9E75]/30',
       id: e.id,
-    })),
-    ...valueMetrics.slice(0, 1).map(e => ({
-      type: 'MEASURE',
-      title: 'AI Value Meter Alert',
-      desc: `${e.agentName} ROI falls to ${e.roiScore.toFixed(1)}x`,
-      time: e.timestamp,
-      status: e.status,
-      badgeColor: e.status === 'ALERT' ? 'bg-[#E24B4A]/12 text-[#E24B4A] border-[#E24B4A]/30' : 'bg-[#EF9F27]/12 text-[#EF9F27] border-[#EF9F27]/30',
-      id: e.id,
-    })),
-  ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+    }));
+
+    return [...killEntries, ...apiLogEntries, ...driftFeedEntries, ...valueEntries]
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+      .slice(0, 5);
+  }, [killEvents, apiLogs, driftEvents, valueMetrics]);
 
   return (
     <div className="space-y-8 animate-fade-in text-[#F0EEE6]">
@@ -329,8 +452,8 @@ export default function Overview({
           </p>
           <div className="mt-4 flex items-center justify-between border-t border-[#1F2E40] pt-3">
             <span className="text-xs text-[#8B9BAA] font-mono uppercase">Net Savings Value</span>
-            <span className="text-xs font-mono text-[#1D9E75] font-bold">
-              +${(totalSavedValue - totalSpend).toLocaleString('en-US', { maximumFractionDigits: 0 })} SAVED
+            <span className={`text-xs font-mono font-bold ${netSavingsValue >= 0 ? 'text-[#1D9E75]' : 'text-[#E24B4A]'}`}>
+              {netSavingsValue >= 0 ? '+$' : '-$'}{Math.abs(netSavingsValue).toLocaleString('en-US', { maximumFractionDigits: 0 })} SAVED
             </span>
           </div>
           <div className="mt-1 pb-1 flex justify-end">
@@ -466,13 +589,17 @@ export default function Overview({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-          {governedAgents.map((agent) => {
+          {governedAgents.length === 0 ? (
+            <div className="col-span-full p-6 rounded-xl bg-[#0D1B2A] border border-[#1F2E40] text-center text-xs font-mono text-[#8B9BAA]">
+              No governed agent instances connected yet. Register an agent in GaaS / APIs to monitor live health scores.
+            </div>
+          ) : governedAgents.map((agent) => {
             const health = computeAgentHealth(agent, apiLogs);
             const score = health.score;
 
             const statusBadge = getStatusBadge(
               score, 
-              health.haltedCount > 0, 
+              health.haltedCount > 0 || agent.status === 'HALTED', 
               agent.status === 'ALERT' || agent.status === 'MITIGATING'
             );
 
@@ -497,7 +624,7 @@ export default function Overview({
 
             const authRatioPct = health.totalLogs > 0 
               ? Math.round((health.authorizedCount / health.totalLogs) * 100) 
-              : score;
+              : (agent.status === 'HALTED' ? 0 : 100);
 
             return (
               <div
@@ -689,6 +816,9 @@ export default function Overview({
             </div>
 
             <div className="grid grid-cols-7 gap-2">
+              {Array.from({ length: leadingEmptyDays }).map((_, idx) => (
+                <div key={`empty-${idx}`} aria-hidden="true" />
+              ))}
               {heatmapData.map((day) => {
                 const isSelected = activeDay.dateStr === day.dateStr;
 
@@ -709,7 +839,7 @@ export default function Overview({
                 return (
                   <button
                     key={day.dateStr}
-                    onClick={() => setSelectedHeatmapDay(day)}
+                    onClick={() => setSelectedHeatmapDateStr(day.dateStr)}
                     className={`
                       relative p-2 rounded-lg border flex flex-col items-center justify-between h-16 transition-all duration-200 cursor-pointer group text-left
                       ${bgClass}
@@ -840,7 +970,11 @@ export default function Overview({
           </div>
 
           <div className="space-y-4">
-            {recentActions.map((event, index) => (
+            {recentActions.length === 0 ? (
+              <div className="p-6 rounded-lg bg-[#0D1B2A] border border-[#1F2E40] text-center text-xs font-mono text-[#8B9BAA]">
+                No real-time telemetry events recorded yet. Live gateway intercepts and sentinel alerts will appear here automatically.
+              </div>
+            ) : recentActions.map((event, index) => (
               <div 
                 key={`${event.id}-${index}`} 
                 className="p-4 rounded-lg bg-[#0D1B2A] border border-[#1F2E40] flex items-start gap-3.5 hover:border-[#1D9E75]/30 transition-colors"
@@ -893,24 +1027,24 @@ export default function Overview({
             <div className="space-y-4 text-xs font-mono">
               <div className="flex items-center justify-between p-3 rounded bg-[#0D1B2A] border border-[#1F2E40]">
                 <span className="text-[#8B9BAA]">REST Connection Status</span>
-                <span className="text-[#1D9E75] font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-[#1D9E75] rounded-full animate-pulse" /> SYNCHRONIZED
+                <span className={`${restConnectionStatus === 'DISCONNECTED' ? 'text-[#E24B4A]' : restConnectionStatus === 'DEGRADED' ? 'text-[#EF9F27]' : 'text-[#1D9E75]'} font-semibold flex items-center gap-1`}>
+                  <span className={`w-1.5 h-1.5 ${restConnectionStatus === 'DISCONNECTED' ? 'bg-[#E24B4A]' : restConnectionStatus === 'DEGRADED' ? 'bg-[#EF9F27]' : 'bg-[#1D9E75]'} rounded-full animate-pulse`} /> {restConnectionStatus}
                 </span>
               </div>
 
               <div className="flex items-center justify-between p-3 rounded bg-[#0D1B2A] border border-[#1F2E40]">
                 <span className="text-[#8B9BAA]">Standard Labor Rate Mapping</span>
-                <span className="text-[#F0EEE6] font-bold">$30.00 / Human-Hour</span>
+                <span className="text-[#F0EEE6] font-bold">${standardLaborRate.toFixed(2)} / Human-Hour</span>
               </div>
 
               <div className="flex items-center justify-between p-3 rounded bg-[#0D1B2A] border border-[#1F2E40]">
                 <span className="text-[#8B9BAA]">CISO Blast Radius Parameters</span>
-                <span className="text-[#1D9E75] font-bold uppercase">Strict Enforcement</span>
+                <span className={`${blastRadiusIsWarning ? 'text-[#EF9F27]' : 'text-[#1D9E75]'} font-bold uppercase`}>{blastRadiusLabel}</span>
               </div>
 
               <div className="flex items-center justify-between p-3 rounded bg-[#0D1B2A] border border-[#1F2E40]">
                 <span className="text-[#8B9BAA]">Total API Audited Requests</span>
-                <span className="text-[#F0EEE6] font-bold">18,524 intercepted</span>
+                <span className="text-[#F0EEE6] font-bold">{totalRequests.toLocaleString('en-US')} intercepted</span>
               </div>
             </div>
           </div>
@@ -935,7 +1069,7 @@ export default function Overview({
                   <path
                     className="text-[#1D9E75]"
                     strokeWidth="3.5"
-                    strokeDasharray="98, 100"
+                    strokeDasharray={`${slaDashValue}, 100`}
                     strokeLinecap="round"
                     stroke="currentColor"
                     fill="none"
@@ -945,7 +1079,7 @@ export default function Overview({
                   />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center font-display leading-none">
-                  <span className="text-lg font-bold text-[#F0EEE6]">98.2%</span>
+                  <span className="text-lg font-bold text-[#F0EEE6]">{slaCompliancePct.toFixed(1)}%</span>
                   <span className="text-[8px] text-[#556070] font-mono tracking-wide mt-1">LATENCY SAFE</span>
                 </div>
               </div>
@@ -953,7 +1087,7 @@ export default function Overview({
               <div className="space-y-1.5">
                 <h4 className="font-display font-semibold text-[#F0EEE6] text-sm">Deterministic Gateways</h4>
                 <p className="text-xs text-[#8B9BAA] leading-relaxed">
-                  98.2% of headless script executions check policies and halt in **&lt;{GUARANTEED_SLA_MS}ms Target** to prevent payload write breaches.
+                  {slaCompliancePct.toFixed(1)}% of headless script executions check policies and halt in **&lt;{GUARANTEED_SLA_MS}ms Target** to prevent payload write breaches.
                 </p>
                 <div className="flex items-center gap-1 text-[10px] text-[#1D9E75] font-mono">
                   <CheckCircle2 size={12} /> EU AI Act Art. 12 & Annex IV Compliant Ledger Enabled

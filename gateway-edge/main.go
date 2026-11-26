@@ -35,12 +35,14 @@ type InterceptRequest struct {
 type InterceptResponse struct {
 	ID             string  `json:"id"`
 	TenantID       string  `json:"tenant_id,omitempty"`
+	AgentID        string  `json:"agent_id,omitempty"`
 	Status         string  `json:"status"` // AUTHORIZED | HALTED
 	Authorized     bool    `json:"authorized"`
 	PolicyViolated string  `json:"policy_violated,omitempty"`
 	LatencyMs      int64   `json:"latency_ms"`
 	VerifiedCost   float64 `json:"verified_cost_usd,omitempty"`
 	LedgerHash     string  `json:"ledger_hash,omitempty"`
+	PromptText     string  `json:"prompt_text,omitempty"`
 	Reason         string  `json:"reason,omitempty"`
 }
 
@@ -519,11 +521,35 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 		actionType = "file.delete"
 	}
 
+	// Check POL-WEB-01: Destructive or sensitive web actions
+	isWebAction := lowerAction == "web_click" || lowerAction == "web_type" || lowerAction == "web_goto" || strings.HasPrefix(lowerAction, "web_") || strings.Contains(lowerPayload, "web_click") || strings.Contains(lowerPayload, "web_type") || strings.Contains(lowerPayload, "web_goto")
+	isSensitiveWeb := false
+	webViolationReason := ""
+
+	if isWebAction {
+		if strings.Contains(lowerPayload, "delete all") || strings.Contains(lowerPayload, "clear all") || strings.Contains(lowerPayload, "empty cart") || strings.Contains(lowerPayload, "clear cart") || strings.Contains(lowerPayload, "remove all items") || strings.Contains(lowerPayload, "clear_all") {
+			isSensitiveWeb = true
+			webViolationReason = "Irreversible browser action blocked by POL-WEB-01: deleting or clearing all items."
+		} else if strings.Contains(lowerPayload, "delete account") || strings.Contains(lowerPayload, "close account") || strings.Contains(lowerPayload, "terminate account") {
+			isSensitiveWeb = true
+			webViolationReason = "Irreversible browser action blocked by POL-WEB-01: deleting or terminating user account."
+		} else if strings.Contains(lowerPayload, "buy now") || strings.Contains(lowerPayload, "place your order") || strings.Contains(lowerPayload, "place order") || strings.Contains(lowerPayload, "proceed to checkout") || strings.Contains(lowerPayload, "submit payment") || strings.Contains(lowerPayload, "pay now") || strings.Contains(lowerPayload, "confirm order") {
+			isSensitiveWeb = true
+			webViolationReason = "Sensitive financial browser action blocked by POL-WEB-01: placing an order or submitting payment."
+		} else if strings.Contains(lowerPayload, "change password") || strings.Contains(lowerPayload, "update password") || strings.Contains(lowerPayload, "reset password") {
+			isSensitiveWeb = true
+			webViolationReason = "Sensitive security browser action blocked by POL-WEB-01: changing or resetting password."
+		} else if strings.Contains(lowerPayload, "ssn") || strings.Contains(lowerPayload, "social security") || strings.Contains(lowerPayload, "aadhaar") || strings.Contains(lowerPayload, "aadhar") || strings.Contains(lowerPayload, "passport") || strings.Contains(lowerPayload, "credit card") || strings.Contains(lowerPayload, "card number") || strings.Contains(lowerPayload, "cvv") || strings.Contains(lowerPayload, "bank account") || strings.Contains(lowerPayload, "routing number") || (lowerAction == "web_type" && strings.Contains(lowerPayload, "password")) {
+			isSensitiveWeb = true
+			webViolationReason = "Sensitive data entry blocked by POL-WEB-01: typing personal credentials into a web form."
+		}
+	}
+
 	// 2. Local Threat & Injection Detection
 	isPromptInjection, containsSecrets := localSecurityScan(payloadText)
 
 	// High-risk action type allowlist for synchronous blocking: shell.exec, db.write, file.delete
-	isHighRiskActionType := actionType == "shell.exec" || actionType == "db.write" || actionType == "file.delete"
+	isHighRiskActionType := actionType == "shell.exec" || actionType == "db.write" || actionType == "file.delete" || isSensitiveWeb
 	isHighRiskCandidate := isHighRiskActionType || isPromptInjection || containsSecrets
 
 	// 3. Integrated Tier 2 Semantic Scan (Gemini / Cognitive Verification)
@@ -565,7 +591,7 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If semantic scan or local threat check flagged block, override authorized
-	if isPromptInjection || containsSecrets || (scanRes != nil && scanRes.Recommendation == "BLOCK") {
+	if isPromptInjection || containsSecrets || isSensitiveWeb || (scanRes != nil && scanRes.Recommendation == "BLOCK") {
 		authorized = false
 	}
 
@@ -582,7 +608,10 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 		policyCode := "POL-SEC-01"
 		reason := "Action matches forbidden non-human identity boundary constraint."
 
-		if costBypassAttempt {
+		if isSensitiveWeb {
+			policyCode = "POL-WEB-01"
+			reason = webViolationReason
+		} else if costBypassAttempt {
 			policyCode = "POL-FIN-02"
 			reason = fmt.Sprintf("Reported $0 cost on high-complexity request flagged as budget bypass attempt. Reconciled cost: $%.4f", effectiveCost)
 		} else if actionType == "shell.exec" {
@@ -601,12 +630,14 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 		resp := InterceptResponse{
 			ID:             reqID,
 			TenantID:       req.TenantID,
+			AgentID:        req.AgentID,
 			Status:         "HALTED",
 			Authorized:     false,
 			PolicyViolated: policyCode,
 			LatencyMs:      latencyMs,
 			VerifiedCost:   effectiveCost,
 			LedgerHash:     ledgerHash,
+			PromptText:     req.PromptText,
 			Reason:         reason,
 		}
 
@@ -677,11 +708,13 @@ func handleIntercept(w http.ResponseWriter, r *http.Request) {
 	resp := InterceptResponse{
 		ID:           reqID,
 		TenantID:     req.TenantID,
+		AgentID:      req.AgentID,
 		Status:       "AUTHORIZED",
 		Authorized:   true,
 		LatencyMs:    latencyMs,
 		VerifiedCost: effectiveCost,
 		LedgerHash:   ledgerHash,
+		PromptText:   req.PromptText,
 	}
 
 	if isHighRiskCandidate {

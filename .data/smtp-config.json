@@ -1,0 +1,8 @@
+{
+  "host": "smtp.gmail.com",
+  "port": 465,
+  "secure": true,
+  "user": "guardianagent12@gmail.com",
+  "pass": "xjcjjwdmeckjnmdn",
+  "from": "AgentsGuardian <guardianagent12@gmail.com>"
+}

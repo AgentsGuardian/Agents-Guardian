@@ -1,21 +1,29 @@
 import crypto from 'crypto';
-import pg from 'pg';
-import Redis from 'ioredis';
 import path from 'path';
 import fs from 'fs';
+import { initializeApp, getApps, cert, applicationDefault, App } from 'firebase-admin/app';
+import { getFirestore, Firestore, FieldValue } from 'firebase-admin/firestore';
 import { 
   Policy, 
   AdminUser, 
-  GoverningAgent 
+  GoverningAgent,
+  KillSignalEvent,
+  DriftLogEvent,
+  ValueMeterMetric,
+  ApiRequestLog,
+  LaborConfig,
+  GlobalAdminSettings,
+  TenantFailureModeConfig
 } from '../src/types';
 import { 
   INITIAL_POLICIES, 
-  INITIAL_ADMINS 
+  INITIAL_ADMINS,
+  INITIAL_KILL_SWITCH_EVENTS,
+  INITIAL_DRIFT_EVENTS,
+  INITIAL_VALUE_METRICS,
+  INITIAL_GOVERNED_AGENTS
 } from '../src/data';
 import { hashPassword, hashTenantApiKey } from './authUtils.js';
-import { validateStartupEnv } from './startupValidator';
-
-const { Pool } = pg;
 
 export interface AuditLedgerRow {
   id: string;
@@ -31,33 +39,75 @@ export interface AuditLedgerRow {
   timestamp: string;
 }
 
+export interface PolicyVersionRecord {
+  versionId: string;
+  policyId: string;
+  tenantId: string;
+  code: string;
+  snapshot: Policy;
+  changedBy: string;
+  timestamp: string;
+}
+
+export interface GlobalConfigDocument {
+  laborConfig: LaborConfig;
+  budgetCap: number;
+  governanceMode: 'setup' | 'active';
+  globalSettings: GlobalAdminSettings;
+  tenantFailureConfig: TenantFailureModeConfig;
+  updatedAt: string;
+}
+
 interface PersistentSchema {
   tenants: any[];
   policies: Policy[];
+  policy_versions?: PolicyVersionRecord[];
   iam_users: AdminUser[];
   audit_ledger: AuditLedgerRow[];
   tenant_api_keys: { key_hash: string; tenant_id: string; raw_key_prefix: string; created_at: string }[];
   governed_agents: GoverningAgent[];
+  kill_events?: KillSignalEvent[];
+  drift_events?: DriftLogEvent[];
+  guidelines?: any[];
+  agent_guidelines?: Record<string, string>;
+  trend_history?: any[];
+  api_logs?: ApiRequestLog[];
+  notifications?: any[];
+  value_metrics?: ValueMeterMetric[];
+  global_config?: GlobalConfigDocument;
   kv_store: Record<string, { v: string; updated_at: string }>;
 }
 
+// Retention caps for high-frequency telemetry collections
+const RETENTION_LIMITS = {
+  API_LOGS: 250,
+  NOTIFICATIONS: 100,
+  VALUE_METRICS: 90,
+  KILL_EVENTS: 200,
+  DRIFT_EVENTS: 200
+};
+
 class StorageEngine {
-  private pgPool: pg.Pool | null = null;
-  private redisClient: Redis | null = null;
-  private isPgConnected: boolean = false;
-  private isRedisConnected: boolean = false;
+  private firestoreDb: Firestore | null = null;
+  private isFirestoreConnected: boolean = false;
   private degraded: boolean = false;
   private degradedReason: string = '';
   private initPromise: Promise<void>;
   private memoryStore: PersistentSchema;
   private dbFilePath: string;
 
-  public getHealthStatus(): { degraded: boolean; reason: string; isPgConnected: boolean; isRedisConnected: boolean } {
+  // In-memory rate limiting window map (key -> { count, resetAt })
+  private rateLimitStore: Map<string, { count: number; resetAt: number }> = new Map();
+
+  public getHealthStatus(): {
+    degraded: boolean;
+    reason: string;
+    isFirestoreConnected: boolean;
+  } {
     return {
       degraded: this.degraded,
       reason: this.degradedReason,
-      isPgConnected: this.isPgConnected,
-      isRedisConnected: this.isRedisConnected
+      isFirestoreConnected: this.isFirestoreConnected
     };
   }
 
@@ -84,10 +134,32 @@ class StorageEngine {
         return {
           tenants: parsed.tenants || [],
           policies: parsed.policies || [],
+          policy_versions: parsed.policy_versions || [],
           iam_users: parsed.iam_users || [],
           audit_ledger: parsed.audit_ledger || [],
           tenant_api_keys: parsed.tenant_api_keys || [],
           governed_agents: parsed.governed_agents || [],
+          kill_events: parsed.kill_events || [...INITIAL_KILL_SWITCH_EVENTS],
+          drift_events: (parsed.drift_events || []).filter((e: any) => {
+            const sId = (e.agentId || e.agent_id || '').toLowerCase();
+            const sName = (e.agentGroup || e.agentName || '').toLowerCase();
+            if (sId.includes('mail-agent-gas') || sName.includes('mail agent')) return true;
+            return !(
+              sName === 'loan-application-bots' ||
+              sName === 'customer support bot a1' ||
+              sId === 'loan-application-bots' ||
+              sId.startsWith('agent-drift-eval') ||
+              sName.startsWith('agent-drift-eval') ||
+              e.id === 'DFT-301' || e.id === 'DFT-304' || e.id === 'DFT-202'
+            );
+          }),
+          guidelines: parsed.guidelines || [],
+          agent_guidelines: parsed.agent_guidelines || {},
+          trend_history: parsed.trend_history || [],
+          api_logs: parsed.api_logs || [],
+          notifications: parsed.notifications || [],
+          value_metrics: parsed.value_metrics || [...INITIAL_VALUE_METRICS],
+          global_config: parsed.global_config || undefined,
           kv_store: parsed.kv_store || {}
         };
       } catch (err) {
@@ -98,10 +170,20 @@ class StorageEngine {
     return {
       tenants: [],
       policies: [],
+      policy_versions: [],
       iam_users: [],
       audit_ledger: [],
       tenant_api_keys: [],
       governed_agents: [],
+      kill_events: [...INITIAL_KILL_SWITCH_EVENTS],
+      drift_events: [],
+      guidelines: [],
+      agent_guidelines: {},
+      trend_history: [],
+      api_logs: [],
+      notifications: [],
+      value_metrics: [...INITIAL_VALUE_METRICS],
+      global_config: undefined,
       kv_store: {}
     };
   }
@@ -114,134 +196,185 @@ class StorageEngine {
     }
   }
 
-  private async initializeStores() {
-    let pgFailed = false;
-    let pgErrMsg = '';
-    let redisFailed = false;
-    let redisErrMsg = '';
+  private onSyncCallback: ((collection: string, data: any) => void) | null = null;
 
-    // 1. Attempt PostgreSQL connection
-    const pgHost = process.env.DB_HOST || process.env.POSTGRES_HOST || 'localhost';
-    const pgUser = process.env.DB_USER || process.env.POSTGRES_USER || 'agentsguardian_app_runtime';
-    const pgPass = process.env.DB_PASS || process.env.POSTGRES_PASSWORD || '';
-    if (!pgPass && !process.env.DATABASE_URL) {
-      validateStartupEnv();
-    }
-    const pgName = process.env.DB_NAME || process.env.POSTGRES_DB || 'agentsguardian_production';
-    const pgPort = parseInt(process.env.DB_PORT || '5432', 10);
-
-    const connectionString = process.env.DATABASE_URL || `postgres://${pgUser}:${encodeURIComponent(pgPass)}@${pgHost}:${pgPort}/${pgName}`;
-
-    try {
-      this.pgPool = new Pool({
-        connectionString,
-        connectionTimeoutMillis: 1000,
-        idleTimeoutMillis: 5000,
-        max: 5
-      });
-      this.pgPool.on('error', (err) => {
-        // Handle background DB client errors gracefully
-      });
-
-      const client = await this.pgPool.connect();
-      client.release();
-      await this.verifyPgSchema();
-      this.isPgConnected = true;
-      console.log('[StorageEngine] Connected to Cloud SQL PostgreSQL and verified schema.');
-    } catch (err: any) {
-      this.isPgConnected = false;
-      pgFailed = true;
-      pgErrMsg = err.message || 'PostgreSQL connection or schema verification failed';
-      console.error(`[STORAGE_ALERT_ERROR] CRITICAL: PostgreSQL unavailable (${pgErrMsg}).`);
-    }
-
-    // 2. Attempt Redis connection
-    const redisHost = process.env.REDIS_HOST || 'localhost';
-    const redisPort = parseInt(process.env.REDIS_PORT || '6379', 10);
-    const redisUrl = process.env.REDIS_URL || `redis://${redisHost}:${redisPort}`;
-
-    try {
-      this.redisClient = new Redis(redisUrl, {
-        connectTimeout: 1000,
-        maxRetriesPerRequest: 1,
-        lazyConnect: true,
-        enableOfflineQueue: false,
-        retryStrategy: () => null // Do not infinitely retry if connection fails
-      });
-      this.redisClient.on('error', () => {
-        // Prevent unhandled 'error' event crash when Redis is unavailable
-      });
-      await this.redisClient.connect();
-      this.isRedisConnected = true;
-      console.log('[StorageEngine] Connected to Memorystore Redis.');
-    } catch (err: any) {
-      this.isRedisConnected = false;
-      redisFailed = true;
-      redisErrMsg = err.message || 'Redis connection failed';
-      console.error(`[STORAGE_ALERT_ERROR] CRITICAL: Redis unavailable (${redisErrMsg}).`);
-    }
-
-    // 3. Evaluate degraded state & fail fast if required
-    if (pgFailed || redisFailed) {
-      this.degraded = true;
-      const reasons: string[] = [];
-      if (pgFailed) reasons.push(`PostgreSQL: ${pgErrMsg}`);
-      if (redisFailed) reasons.push(`Redis: ${redisErrMsg}`);
-      this.degradedReason = reasons.join('; ');
-
-      // Structured ERROR log line for monitoring pipelines
-      console.error(JSON.stringify({
-        level: 'ERROR',
-        event: 'STORAGE_DEGRADED_ALERT',
-        degraded: true,
-        reason: this.degradedReason,
-        timestamp: new Date().toISOString()
-      }));
-
-      const requirePersistent = process.env.REQUIRE_PERSISTENT_STORAGE === 'true' ||
-        (process.env.NODE_ENV === 'production' && process.env.STRICT_STORAGE === 'true');
-
-      if (requirePersistent) {
-        console.error('[STORAGE_FATAL] REQUIRE_PERSISTENT_STORAGE is enabled and required storage services are unavailable. Process exiting non-zero (exit code 1).');
-        process.exit(1);
-      }
-    }
-
-    // 4. Seed initial canonical data if fresh
-    await this.seedDefaultDataIfNeeded();
+  public setOnSyncCallback(cb: (collection: string, data: any) => void) {
+    this.onSyncCallback = cb;
   }
 
-  private async verifyPgSchema() {
-    if (!this.pgPool) return;
-    const client = await this.pgPool.connect();
-    try {
-      const requiredTables = ['audit_ledger', 'tenants', 'policies', 'iam_users', 'tenant_api_keys', 'kv_store'];
-      const res = await client.query(`
-        SELECT table_name 
-        FROM information_schema.tables 
-        WHERE table_schema = 'public' AND table_name = ANY($1)
-      `, [requiredTables]);
+  /**
+   * Initializes Cloud Firestore as the primary database (`agents-guardian`, `default`).
+   * Falls back to local persistent storage (`.data/agentsguardian_production_db.json`) if Firestore is unreachable.
+   */
+  private async initializeStores() {
+    let firestoreFailed = false;
+    let firestoreErrMsg = '';
 
-      const existingTables = new Set(res.rows.map((r: any) => r.table_name));
-      const missingTables = requiredTables.filter(t => !existingTables.has(t));
+    const requirePersistent = process.env.REQUIRE_PERSISTENT_STORAGE === 'true' ||
+      (process.env.NODE_ENV === 'production' && process.env.STRICT_STORAGE === 'true');
 
-      if (missingTables.length > 0) {
-        throw new Error(`Missing required database tables: ${missingTables.join(', ')}. Schema migration via schema.sql required.`);
+    const projectId = 'agents-guardian';
+    const databaseId = 'default';
+    const region = 'nam5';
+
+    const fallbackSa = {
+      "type": "service_account",
+      "project_id": "agents-guardian",
+      "private_key_id": "6b8da6d186ee38ac3b45f32a51949a7581fb9336",
+      "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC3P4BpmqDsTXqW\n9LyTPIND4M7T33FkyIP18YJi663K9p9IAoKh08gILZySnp1dsjd8+s6/QM6nvmNp\nWSJK4PD+RiU5kfo4TVj8eEHhU+Uctp0J3D8T/TCjeY+CZ2afqsG8HRmadxFPdVVb\n1cenfpZkaJNYAUDkpsCe2Roent5ov9rCsuxEWB8DfegY1vXXy9pFxES9eKBQ27W1\n9GeFu4GSm6/Y1MplB6gCUx3yO2vYihdHRoPqE/w18J2ZfBwDO9yE5BmVJQBZ7/zG\n+8t1t8a1AyIHNKc0IVpjQ2C+naUb6TCNHM+7BnL2LbmvmHTG/kj+yNxMeknS6FKJ\n6T4BetFTAgMBAAECggEAG/+uYbRYITLnZ7hGNeL5lX38bCAIZeNDUmlPyEiFWe0b\nwjdr+UjwF9vMQBTPK5lG5Cg4Pb2rtbKf4uFVHYbIG7nhBy5YQpEC5zSCsGiOqbf3\nP6Hw21+Etn2k4UJmSkAfcNwrZNALi438eFcuNdfgJ8BYvwoV/bnC1aKLXKFejzd6\ntxRmcyS4dXojFGWotXm8FBebMy37ibYyXDKILVYaQQJHmoqQ42H0AgOdjHgo3/tH\nKhO5TyDz8hNYd8ILnEVro0UDXYMun95EqRzEYb1pE5xHYknoQ2Og3yttmZVhM+yY\nk7IpHWayssEkUbJwIjemZUnlrnyJ1smXOxkXTL1i4QKBgQDuzeG1Z0/5OXCLB1kl\U4cGbv4Ao40sTFgTcnPtBt5HD5R1W2sKwCMmnGVzJLPADFdrIx1WLwK/330AZW/s\nC4b74emo4luvGqIZiwusQRY5FPxMt/YI51xrDnbxCyWKe/8wwvRBkNh0ktkg8tJX\njHWtQxLEL75KhaCeBNEzdWpvoQKBgQDEcX9GszpXw8X+/IjRWBfX+OMLmB59N1ui\ngl7CxcaTQnLu2KBbuQRF/BwUaWW8pEYFkrIzJD/0aJHySFik8npFXBtdePS/5/zy\UiFzXfNAnw8UCGHlvCx0pcuPaixls+YMnbgzKa+Ya9kMrlXpXXYsN9mN5Tnfl6Oc\n1CJYwZsscwKBgQCrfCD3OYdOexb8X3x+t2qhDhdMsiXwh6o/3NKuhV4dPWzokYte\nnvcfBPQ9KUADS1mDUCYC+6NH0d9b53vlz6lRO7ulUVdxePiqyxTIz7x7pTxAg2Ik\npq/RGQQEuHJu7fglNfpdEvy9Sa6uYHD3+Z+PmjjhtT87GJZsoxzvjQOvwQKBgDrn\GVXWugDE+CKMEG5NLuEYhOPeGg5LwhNJaiaW7QMM4q+RjwvRv2FIxhasv8+/pitX\noE1Lak3b6R8v6DyVZGpVwvLVKPY+Fo+GZvdTzXOr/fZwyQH82YukhxQarvNT7QAN\nbsUQk9FtTSjLQYF2/88kc/xjJmZP7sRAq4fXjbLXAoGBAM2cmfCP7PO8ek1fauDu\nqN5vYQG6AQzhv8/1VPPD+zO9J2EeVhI6EUMTz3WgNqGQ3t7cqGaBgegNTYH5TlYU\nsRm/RyxWwIfksXhiY1VPA74Do7jFLBsE1FlzEZGrGlVnFzLb1IrPW5/n6Gg3SMb\nIrnfD8Lk2H3NV2nlMVqd52qJ\n-----END PRIVATE KEY-----\n",
+      "client_email": "firebase-adminsdk-fbsvc@agents-guardian.iam.gserviceaccount.com",
+      "client_id": "105195869590972487666",
+      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+      "token_uri": "https://oauth2.googleapis.com/token",
+      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+      "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40agents-guardian.iam.gserviceaccount.com",
+      "universe_domain": "googleapis.com"
+    };
+
+    let sa = fallbackSa;
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON && process.env.FIREBASE_SERVICE_ACCOUNT_JSON.trim()) {
+      try {
+        sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+      } catch (e) {
+        console.warn('[StorageEngine] Failed to parse custom FIREBASE_SERVICE_ACCOUNT_JSON, using embedded fallback credentials:', e);
       }
-    } finally {
-      client.release();
+    }
+
+    try {
+      let app: App;
+      const existingApps = getApps();
+      if (existingApps.length > 0) {
+        app = existingApps[0];
+      } else {
+        app = initializeApp({
+          credential: cert(sa as any),
+          projectId: sa.project_id || projectId
+        });
+      }
+
+      let resolvedDbId = databaseId;
+      let fsInstance = resolvedDbId === '(default)' ? getFirestore(app) : getFirestore(app, resolvedDbId);
+      try {
+        fsInstance.settings({ ignoreUndefinedProperties: true });
+      } catch {
+        // Settings already locked on existing Firestore instance
+      }
+
+      // Connectivity probe with 10s timeout; if '(default)' returns 5 NOT_FOUND, automatically try named database 'default'
+      try {
+        await Promise.race([
+          fsInstance.collection('system_state').doc('health_probe').get(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore connectivity check timed out after 10000ms')), 10000))
+        ]);
+      } catch (probeErr: any) {
+        const isNotFound = probeErr?.code === 5 || String(probeErr?.message || '').includes('NOT_FOUND');
+        if (isNotFound && (resolvedDbId === '(default)' || resolvedDbId === 'default')) {
+          const altDbId = resolvedDbId === '(default)' ? 'default' : '(default)';
+          const altInstance = altDbId === '(default)' ? getFirestore(app) : getFirestore(app, altDbId);
+          try {
+            altInstance.settings({ ignoreUndefinedProperties: true });
+          } catch {
+            // Settings already locked
+          }
+          await Promise.race([
+            altInstance.collection('system_state').doc('health_probe').get(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore connectivity check timed out after 10000ms')), 10000))
+          ]);
+          fsInstance = altInstance;
+          resolvedDbId = altDbId;
+        } else {
+          throw probeErr;
+        }
+      }
+
+      this.firestoreDb = fsInstance;
+      this.isFirestoreConnected = true;
+      console.log(`[StorageEngine] Connected to Cloud Firestore (projectId: ${projectId}, databaseId: ${resolvedDbId}, region: ${region}).`);
+      
+      // Activate real-time Firestore listeners for instant bi-directional updates
+      this.setupRealtimeListeners();
+    } catch (err: any) {
+      this.isFirestoreConnected = false;
+      this.firestoreDb = null;
+      firestoreFailed = true;
+      firestoreErrMsg = err.message || 'Cloud Firestore connection failed';
+      console.warn(`[StorageEngine] WARNING: Cloud Firestore (${projectId}/${databaseId}) unreachable: ${firestoreErrMsg}. Falling back to local persistent store.`);
+    }
+
+    if (firestoreFailed && requirePersistent) {
+      this.degraded = true;
+      this.degradedReason = firestoreErrMsg;
+      console.error(`[STORAGE_FATAL] REQUIRE_PERSISTENT_STORAGE is enabled and Cloud Firestore is unreachable (${firestoreErrMsg}). Process exiting non-zero.`);
+      process.exit(1);
+    }
+
+    // Seed initial canonical data if fresh
+    await this.seedDefaultDataIfNeeded();
+
+    // Migrate/sync local store to Cloud Firestore so data survives republishing
+    await this.syncLocalStoreToFirestore();
+  }
+
+  private setupRealtimeListeners() {
+    if (!this.isFirestoreConnected || !this.firestoreDb) return;
+
+    try {
+      // 1. Real-time sync for Governed Agents
+      this.firestoreDb.collection('governed_agents').onSnapshot(snap => {
+        if (snap && snap.docs) {
+          const agents = snap.docs.map(d => d.data() as GoverningAgent);
+          this.memoryStore.governed_agents = agents;
+          this.flushPersistentFileStore();
+          if (this.onSyncCallback) this.onSyncCallback('governed_agents', agents);
+        }
+      }, err => console.warn('[StorageEngine:Realtime] governed_agents listener warning:', err?.message || err));
+
+      // 2. Real-time sync for IAM Users
+      this.firestoreDb.collection('iam_users').onSnapshot(snap => {
+        if (snap && snap.docs) {
+          const users = snap.docs.map(d => d.data() as AdminUser);
+          this.memoryStore.iam_users = users;
+          this.flushPersistentFileStore();
+          if (this.onSyncCallback) this.onSyncCallback('iam_users', users);
+        }
+      }, err => console.warn('[StorageEngine:Realtime] iam_users listener warning:', err?.message || err));
+
+      // 3. Real-time sync for Policies
+      this.firestoreDb.collection('policies').onSnapshot(snap => {
+        if (snap && snap.docs) {
+          const policies = snap.docs.map(d => d.data() as Policy);
+          this.memoryStore.policies = policies;
+          this.flushPersistentFileStore();
+          if (this.onSyncCallback) this.onSyncCallback('policies', policies);
+        }
+      }, err => console.warn('[StorageEngine:Realtime] policies listener warning:', err?.message || err));
+
+      // 4. Real-time sync for Global Config (laborConfig, budgetCap, governanceMode)
+      this.firestoreDb.collection('global_config').doc('global_settings').onSnapshot(snap => {
+        if (snap && snap.exists) {
+          const config = snap.data();
+          if (config) {
+            this.memoryStore.global_config = config as any;
+            this.flushPersistentFileStore();
+            if (this.onSyncCallback) this.onSyncCallback('global_config', config);
+          }
+        }
+      }, err => console.warn('[StorageEngine:Realtime] global_config listener warning:', err?.message || err));
+
+      console.log('[StorageEngine:Realtime] Firestore listeners active for governed_agents, iam_users, policies, and global_config.');
+    } catch (err: any) {
+      console.warn('[StorageEngine:Realtime] Error attaching Firestore listeners:', err?.message || err);
     }
   }
 
   private async seedDefaultDataIfNeeded() {
     const existingUsers = await this.getUsers();
     if (existingUsers.length === 0) {
-      console.log('[StorageEngine] Seeding initial canonical users, policies, and tenants...');
-      const isProd = process.env.NODE_ENV === 'production' || process.env.ENV === 'production';
+      console.log('[StorageEngine] Seeding initial canonical users, policies, and tenants to Firestore...');
 
-      for (const admin of INITIAL_ADMINS) {
-        let userHash = admin.passwordHash;
-        let userSalt = admin.passwordSalt;
+      for (const adminUser of INITIAL_ADMINS) {
+        let userHash = adminUser.passwordHash;
+        let userSalt = adminUser.passwordSalt;
         let mustReset = false;
 
         if (!userHash || !userSalt) {
@@ -253,16 +386,16 @@ class StorageEngine {
         }
 
         await this.createUser({
-          id: admin.id,
-          name: admin.name,
-          email: admin.email,
-          role: admin.role,
-          status: admin.status,
-          mfaEnabled: admin.mfaEnabled,
-          tenantId: admin.tenantId || 'tenant_default',
+          id: adminUser.id,
+          name: adminUser.name,
+          email: adminUser.email,
+          role: adminUser.role,
+          status: adminUser.status,
+          mfaEnabled: adminUser.mfaEnabled,
+          tenantId: adminUser.tenantId || 'tenant_default',
           passwordHash: userHash,
           passwordSalt: userSalt,
-          lastLogin: admin.lastLogin,
+          lastLogin: adminUser.lastLogin,
           mustResetPassword: mustReset
         });
       }
@@ -289,79 +422,81 @@ class StorageEngine {
     }
   }
 
-  // --- DATA ACCESSORS ---
+  private async enforceCollectionRetention(collectionName: string, maxDocs: number, orderByField: string = 'timestamp') {
+    if (!this.isFirestoreConnected || !this.firestoreDb) return;
+    try {
+      const snapshot = await this.firestoreDb
+        .collection(collectionName)
+        .orderBy(orderByField, 'desc')
+        .offset(maxDocs)
+        .limit(100)
+        .get();
+
+      if (!snapshot.empty) {
+        const batch = this.firestoreDb.batch();
+        snapshot.docs.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+      }
+    } catch (err) {
+      console.warn(`[StorageEngine] Retention prune warning for ${collectionName}:`, err);
+    }
+  }
+
+  // ===========================================================================
+  // CORE DATA ACCESSORS (FIRESTORE PRIMARY -> LOCAL FALLBACK)
+  // ===========================================================================
 
   public async getUsers(): Promise<AdminUser[]> {
-    if (this.isPgConnected && this.pgPool) {
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        const res = await this.pgPool.query('SELECT * FROM iam_users ORDER BY id ASC');
-        return res.rows.map(r => ({
-          id: r.id,
-          name: r.name,
-          email: r.email,
-          role: r.role,
-          status: r.status,
-          mfaEnabled: Boolean(r.mfa_enabled),
-          tenantId: r.tenant_id,
-          passwordHash: r.password_hash,
-          passwordSalt: r.password_salt,
-          resetToken: r.reset_token,
-          resetTokenExpires: r.reset_token_expires,
-          lastLogin: r.last_login
-        }));
-      } catch {
-        // Fallback
+        const snap = await this.firestoreDb.collection('iam_users').orderBy('id', 'asc').get();
+        return snap.docs.map(d => d.data() as AdminUser);
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore getUsers error, falling back:', err);
       }
     }
 
-    // Refresh memory store from disk in case another process modified it
     this.memoryStore = this.loadPersistentFileStore();
     return this.memoryStore.iam_users;
   }
 
   public async createUser(user: Partial<AdminUser> & { id: string; email: string; name: string; role: string }): Promise<AdminUser> {
     const fullUser: AdminUser = {
+      ...user,
       id: user.id,
       name: user.name,
       email: user.email.toLowerCase().trim(),
-      role: user.role,
+      role: user.role as any,
       status: user.status || 'ACTIVE',
       mfaEnabled: user.mfaEnabled ?? true,
       tenantId: user.tenantId || 'tenant_default',
-      passwordHash: user.passwordHash,
-      passwordSalt: user.passwordSalt,
-      resetToken: user.resetToken,
-      resetTokenExpires: user.resetTokenExpires,
-      lastLogin: user.lastLogin || new Date().toISOString()
+      passwordHash: user.passwordHash || '',
+      passwordSalt: user.passwordSalt || '',
+      resetToken: user.resetToken || '',
+      resetTokenExpires: user.resetTokenExpires || '',
+      lastLogin: user.lastLogin || new Date().toISOString(),
+      mustResetPassword: user.mustResetPassword ?? false,
+      organization: (user as any).organization || '',
+      registrationNotes: (user as any).registrationNotes || '',
+      registeredAt: (user as any).registeredAt || '',
+      oneTimePassword: (user as any).oneTimePassword || '',
+      oneTimePasswordIssuedAt: (user as any).oneTimePasswordIssuedAt || '',
+      registeredPasswordHash: (user as any).registeredPasswordHash || '',
+      registeredPasswordSalt: (user as any).registeredPasswordSalt || '',
+      registeredPasswordPlain: (user as any).registeredPasswordPlain || ''
     };
 
-    if (this.isPgConnected && this.pgPool) {
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        await this.pgPool.query(`
-          INSERT INTO iam_users (id, name, email, role, status, mfa_enabled, tenant_id, password_hash, password_salt, reset_token, reset_token_expires, last_login)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-          ON CONFLICT (email) DO UPDATE SET
-            name = EXCLUDED.name,
-            role = EXCLUDED.role,
-            status = EXCLUDED.status,
-            password_hash = COALESCE(EXCLUDED.password_hash, iam_users.password_hash),
-            password_salt = COALESCE(EXCLUDED.password_salt, iam_users.password_salt),
-            reset_token = EXCLUDED.reset_token,
-            reset_token_expires = EXCLUDED.reset_token_expires,
-            last_login = EXCLUDED.last_login
-        `, [
-          fullUser.id, fullUser.name, fullUser.email, fullUser.role, fullUser.status,
-          fullUser.mfaEnabled, fullUser.tenantId, fullUser.passwordHash || null,
-          fullUser.passwordSalt || null, fullUser.resetToken || null,
-          fullUser.resetTokenExpires || null, fullUser.lastLogin
-        ]);
-      } catch {
-        // Fallback
+        await this.firestoreDb.collection('iam_users').doc(fullUser.id).set(fullUser, { merge: true });
+        console.log(`[StorageEngine:Firestore] Successfully saved user: ${fullUser.id} (${fullUser.email})`);
+      } catch (err: any) {
+        console.error(`[StorageEngine:Firestore] Failed saving user ${fullUser.id}:`, err?.message || err);
       }
     }
 
     this.memoryStore = this.loadPersistentFileStore();
-    const existingIndex = this.memoryStore.iam_users.findIndex(u => u.email.toLowerCase() === fullUser.email);
+    const existingIndex = this.memoryStore.iam_users.findIndex(u => u.email.toLowerCase() === fullUser.email || u.id === fullUser.id);
     if (existingIndex >= 0) {
       this.memoryStore.iam_users[existingIndex] = { ...this.memoryStore.iam_users[existingIndex], ...fullUser };
     } else {
@@ -372,30 +507,29 @@ class StorageEngine {
     return fullUser;
   }
 
-  public async getPolicies(tenantId?: string): Promise<Policy[]> {
-    if (this.isPgConnected && this.pgPool) {
+  public async deleteUser(userId: string): Promise<void> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        let sql = 'SELECT * FROM policies';
-        const params: any[] = [];
-        if (tenantId) {
-          sql += ' WHERE tenant_id = $1 OR tenant_id = \'tenant_default\'';
-          params.push(tenantId);
-        }
-        sql += ' ORDER BY code ASC';
-        const res = await this.pgPool.query(sql, params);
-        return res.rows.map(r => ({
-          id: r.id,
-          code: r.code,
-          name: r.name,
-          description: r.description,
-          category: r.category as any,
-          blastRadius: r.blast_radius || 'Non-Human Identity',
-          threshold: r.threshold || 'Strict',
-          tenantId: r.tenant_id,
-          enabled: Boolean(r.enabled)
-        }));
-      } catch {
-        // Fallback
+        await this.firestoreDb.collection('iam_users').doc(userId).delete();
+        console.log(`[StorageEngine:Firestore] Successfully deleted user: ${userId}`);
+      } catch (err: any) {
+        console.error(`[StorageEngine:Firestore] Failed deleting user ${userId}:`, err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    this.memoryStore.iam_users = this.memoryStore.iam_users.filter(u => u.id !== userId);
+    this.flushPersistentFileStore();
+  }
+
+  public async getPolicies(tenantId?: string): Promise<Policy[]> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb.collection('policies').orderBy('code', 'asc').get();
+        const all = snap.docs.map(d => d.data() as Policy);
+        if (!tenantId) return all;
+        return all.filter(p => p.tenantId === tenantId || p.tenantId === 'tenant_default' || (!p.tenantId && tenantId === 'tenant_default'));
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore getPolicies error, falling back:', err);
       }
     }
 
@@ -404,56 +538,106 @@ class StorageEngine {
     return this.memoryStore.policies.filter(p => p.tenantId === tenantId || (!p.tenantId && tenantId === 'tenant_default'));
   }
 
-  public async savePolicy(policy: Policy): Promise<Policy> {
-    if (this.isPgConnected && this.pgPool) {
+  public async savePolicy(policy: Policy, changedBy: string = 'system'): Promise<Policy> {
+    const normalizedPolicy: Policy = {
+      ...policy,
+      blastRadius: policy.blastRadius || 'Non-Human Identity',
+      threshold: policy.threshold || 'Strict',
+      tenantId: policy.tenantId || 'tenant_default'
+    };
+
+    const nowIso = new Date().toISOString();
+    const versionHash = crypto
+      .createHash('sha256')
+      .update(`${normalizedPolicy.id}:${normalizedPolicy.code}:${normalizedPolicy.enabled}:${nowIso}`)
+      .digest('hex')
+      .slice(0, 10);
+    const versionRecord: PolicyVersionRecord = {
+      versionId: `VER-${normalizedPolicy.id}-${Date.now()}-${versionHash}`,
+      policyId: normalizedPolicy.id,
+      tenantId: normalizedPolicy.tenantId || 'tenant_default',
+      code: normalizedPolicy.code,
+      snapshot: normalizedPolicy,
+      changedBy,
+      timestamp: nowIso
+    };
+
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        await this.pgPool.query(`
-          INSERT INTO policies (id, code, name, description, category, blast_radius, threshold, tenant_id, enabled)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-          ON CONFLICT (id) DO UPDATE SET
-            code = EXCLUDED.code,
-            name = EXCLUDED.name,
-            description = EXCLUDED.description,
-            category = EXCLUDED.category,
-            blast_radius = EXCLUDED.blast_radius,
-            threshold = EXCLUDED.threshold,
-            tenant_id = EXCLUDED.tenant_id,
-            enabled = EXCLUDED.enabled
-        `, [
-          policy.id, policy.code, policy.name, policy.description,
-          policy.category, policy.blastRadius || 'Non-Human Identity',
-          policy.threshold || 'Strict', policy.tenantId || 'tenant_default', policy.enabled
-        ]);
-      } catch {
-        // Fallback
+        await this.firestoreDb.collection('policies').doc(normalizedPolicy.id).set(normalizedPolicy, { merge: true });
+        await this.firestoreDb.collection('policy_versions').doc(versionRecord.versionId).create(versionRecord);
+        console.log(`[StorageEngine:Firestore] Successfully saved policy: ${normalizedPolicy.id} (${normalizedPolicy.code}) and version: ${versionRecord.versionId}`);
+      } catch (err: any) {
+        console.error(`[StorageEngine:Firestore] Failed saving policy ${normalizedPolicy.id}:`, err?.message || err);
       }
     }
 
     this.memoryStore = this.loadPersistentFileStore();
-    const existingIndex = this.memoryStore.policies.findIndex(p => p.id === policy.id);
+    const existingIndex = this.memoryStore.policies.findIndex(p => p.id === normalizedPolicy.id);
     if (existingIndex >= 0) {
-      this.memoryStore.policies[existingIndex] = policy;
+      this.memoryStore.policies[existingIndex] = normalizedPolicy;
     } else {
-      this.memoryStore.policies.push(policy);
+      this.memoryStore.policies.push(normalizedPolicy);
     }
+    if (!this.memoryStore.policy_versions) {
+      this.memoryStore.policy_versions = [];
+    }
+    this.memoryStore.policy_versions.unshift(versionRecord);
     this.flushPersistentFileStore();
 
-    return policy;
+    return normalizedPolicy;
+  }
+
+  public async savePoliciesBatch(policies: Policy[]): Promise<void> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const batch = this.firestoreDb.batch();
+        for (const policy of policies) {
+          const docRef = this.firestoreDb.collection('policies').doc(policy.id);
+          batch.set(docRef, policy, { merge: true });
+        }
+        await batch.commit();
+        console.log(`[StorageEngine:Firestore] Successfully committed batch of ${policies.length} policies.`);
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error writing policies batch:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    this.memoryStore.policies = [...policies];
+    this.flushPersistentFileStore();
+  }
+
+  public async deletePolicy(policyId: string): Promise<void> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        await this.firestoreDb.collection('policies').doc(policyId).delete();
+        console.log(`[StorageEngine:Firestore] Successfully deleted policy: ${policyId}`);
+      } catch (err: any) {
+        console.error(`[StorageEngine:Firestore] Failed deleting policy ${policyId}:`, err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    this.memoryStore.policies = this.memoryStore.policies.filter(p => p.id !== policyId);
+    this.flushPersistentFileStore();
   }
 
   public async registerApiKey(rawKey: string, tenantId: string) {
-    const keyHash = hashTenantApiKey(rawKey);
-    const prefix = rawKey.slice(0, 12);
+    if (!rawKey || !rawKey.trim()) return;
+    const keyHash = hashTenantApiKey(rawKey.trim());
+    const prefix = rawKey.trim().slice(0, 8) + '...';
+    const createdAt = new Date().toISOString();
 
-    if (this.isPgConnected && this.pgPool) {
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        await this.pgPool.query(`
-          INSERT INTO tenant_api_keys (key_hash, tenant_id, raw_key_prefix)
-          VALUES ($1, $2, $3)
-          ON CONFLICT (key_hash) DO NOTHING
-        `, [keyHash, tenantId, prefix]);
-      } catch {
-        // Fallback
+        await this.firestoreDb.collection('tenant_api_keys').doc(keyHash).set({
+          key_hash: keyHash,
+          tenant_id: tenantId,
+          raw_key_prefix: prefix,
+          created_at: createdAt
+        }, { merge: true });
+        console.log(`[StorageEngine:Firestore] Successfully registered API key hash for tenant ${tenantId} (${prefix})`);
+      } catch (err: any) {
+        console.error(`[StorageEngine:Firestore] Failed registering API key hash for tenant ${tenantId}:`, err?.message || err);
       }
     }
 
@@ -463,21 +647,80 @@ class StorageEngine {
         key_hash: keyHash,
         tenant_id: tenantId,
         raw_key_prefix: prefix,
-        created_at: new Date().toISOString()
+        created_at: createdAt
       });
       this.flushPersistentFileStore();
     }
   }
 
-  public async lookupTenantByApiKey(rawKey: string): Promise<string | null> {
+  public async replaceTenantApiKey(rawKey: string, tenantId: string): Promise<void> {
+    if (!rawKey) return;
     const keyHash = hashTenantApiKey(rawKey);
+    const prefix = rawKey.trim().slice(0, 10) + '...';
+    const createdAt = new Date().toISOString();
 
-    if (this.isPgConnected && this.pgPool) {
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        const res = await this.pgPool.query('SELECT tenant_id FROM tenant_api_keys WHERE key_hash = $1', [keyHash]);
-        if (res.rows.length > 0) return res.rows[0].tenant_id;
-      } catch {
-        // Fallback
+        const snap = await this.firestoreDb
+          .collection('tenant_api_keys')
+          .where('tenant_id', '==', tenantId)
+          .get();
+        const batch = this.firestoreDb.batch();
+        snap.docs.forEach(doc => batch.delete(doc.ref));
+        batch.set(this.firestoreDb.collection('tenant_api_keys').doc(keyHash), {
+          key_hash: keyHash,
+          tenant_id: tenantId,
+          raw_key_prefix: prefix,
+          created_at: createdAt
+        });
+        await batch.commit();
+        console.log(`[StorageEngine:Firestore] Rotated tenant_api_keys for ${tenantId} (${prefix})`);
+      } catch (err: any) {
+        console.error(`[StorageEngine:Firestore] Failed rotating API key for tenant ${tenantId}:`, err?.message || err);
+      }
+    }
+
+    this.memoryStore = this.loadPersistentFileStore();
+    this.memoryStore.tenant_api_keys = (this.memoryStore.tenant_api_keys || []).filter(k => k.tenant_id !== tenantId);
+    this.memoryStore.tenant_api_keys.push({
+      key_hash: keyHash,
+      tenant_id: tenantId,
+      raw_key_prefix: prefix,
+      created_at: createdAt
+    });
+    this.flushPersistentFileStore();
+  }
+
+  public async getTenantApiKeys(): Promise<{ key_hash: string; tenant_id: string; raw_key_prefix: string; created_at: string }[]> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb.collection('tenant_api_keys').get();
+        if (!snap.empty) {
+          return snap.docs.map(doc => doc.data() as any);
+        }
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore getTenantApiKeys error, falling back:', err);
+      }
+    }
+
+    this.memoryStore = this.loadPersistentFileStore();
+    return this.memoryStore.tenant_api_keys || [];
+  }
+
+  public async lookupTenantByApiKey(rawKey: string): Promise<string | null> {
+    if (!rawKey) return null;
+    const cleanKey = rawKey.trim();
+    const keyHash = hashTenantApiKey(cleanKey);
+
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const doc = await this.firestoreDb.collection('tenant_api_keys').doc(keyHash).get();
+        if (doc.exists) {
+          const data = doc.data();
+          if (data?.tenant_id) return data.tenant_id;
+        }
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore lookupTenantByApiKey error, falling back:', err);
       }
     }
 
@@ -485,66 +728,76 @@ class StorageEngine {
     const record = this.memoryStore.tenant_api_keys.find(k => k.key_hash === keyHash);
     if (record) return record.tenant_id;
 
-    if (rawKey.startsWith('ag_prod_live_') || rawKey.startsWith('ag_live_') || rawKey.startsWith('KG-GAAS-')) {
-      return 'tenant_default';
-    }
-
     return null;
   }
 
   public async saveTenant(tenant: any) {
-    if (this.isPgConnected && this.pgPool) {
+    const rawKey = typeof tenant.apiKey === 'string' && tenant.apiKey.trim() ? tenant.apiKey.trim() : '';
+    const keyHash = rawKey ? hashTenantApiKey(rawKey) : (tenant.apiKeyHash || '');
+
+    const firestoreTenantDoc: Record<string, any> = {
+      id: tenant.id,
+      name: tenant.name,
+      organization: tenant.organization || '',
+      planTier: tenant.planTier,
+      gcpMarketplaceAccountId: tenant.gcpMarketplaceAccountId || '',
+      billingStatus: tenant.billingStatus,
+      budgetCap: tenant.budgetCap ?? 500.0,
+      currentSpend: tenant.currentSpend ?? 0.0,
+      apiKeyHash: keyHash,
+      createdAt: tenant.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        await this.pgPool.query(`
-          INSERT INTO tenants (id, name, organization, plan_tier, billing_status, budget_cap, current_spend, api_key)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          ON CONFLICT (id) DO UPDATE SET
-            name = EXCLUDED.name,
-            organization = EXCLUDED.organization,
-            plan_tier = EXCLUDED.plan_tier,
-            billing_status = EXCLUDED.billing_status,
-            budget_cap = EXCLUDED.budget_cap,
-            current_spend = EXCLUDED.current_spend,
-            api_key = EXCLUDED.api_key
-        `, [
-          tenant.id, tenant.name, tenant.organization || '', tenant.planTier,
-          tenant.billingStatus, tenant.budgetCap || 500.0, tenant.currentSpend || 0.0, tenant.apiKey || ''
-        ]);
-      } catch {
-        // Fallback
+        await this.firestoreDb.collection('tenants').doc(tenant.id).set(firestoreTenantDoc, { merge: true });
+        console.log(`[StorageEngine:Firestore] Successfully saved tenant: ${tenant.id} (${tenant.name})`);
+      } catch (err: any) {
+        console.error(`[StorageEngine:Firestore] Failed saving tenant ${tenant.id}:`, err?.message || err);
       }
     }
 
     this.memoryStore = this.loadPersistentFileStore();
+    const localTenantRecord = { ...firestoreTenantDoc, apiKey: '' };
     const existingIndex = this.memoryStore.tenants.findIndex(t => t.id === tenant.id);
     if (existingIndex >= 0) {
-      this.memoryStore.tenants[existingIndex] = tenant;
+      this.memoryStore.tenants[existingIndex] = localTenantRecord;
     } else {
-      this.memoryStore.tenants.push(tenant);
+      this.memoryStore.tenants.push(localTenantRecord);
     }
     this.flushPersistentFileStore();
 
-    if (tenant.apiKey) {
-      await this.registerApiKey(tenant.apiKey, tenant.id);
+    if (rawKey) {
+      await this.registerApiKey(rawKey, tenant.id);
     }
   }
 
   public async getTenants(): Promise<any[]> {
-    if (this.isPgConnected && this.pgPool) {
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        const res = await this.pgPool.query('SELECT * FROM tenants ORDER BY created_at DESC');
-        return res.rows.map(r => ({
-          id: r.id,
-          name: r.name,
-          organization: r.organization,
-          planTier: r.plan_tier,
-          billingStatus: r.billing_status,
-          budgetCap: parseFloat(r.budget_cap || '500'),
-          currentSpend: parseFloat(r.current_spend || '0'),
-          apiKey: r.api_key
-        }));
-      } catch {
-        // Fallback
+        const snap = await this.firestoreDb.collection('tenants').get();
+        if (!snap.empty) {
+          return snap.docs.map(d => {
+            const data = d.data();
+            return {
+              id: data.id,
+              name: data.name,
+              organization: data.organization || '',
+              planTier: data.planTier,
+              gcpMarketplaceAccountId: data.gcpMarketplaceAccountId || '',
+              billingStatus: data.billingStatus,
+              budgetCap: Number(data.budgetCap ?? 500),
+              currentSpend: Number(data.currentSpend ?? 0),
+              apiKey: '',
+              apiKeyHash: data.apiKeyHash || '',
+              createdAt: data.createdAt,
+              updatedAt: data.updatedAt
+            };
+          });
+        }
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore getTenants error, falling back:', err);
       }
     }
 
@@ -553,42 +806,42 @@ class StorageEngine {
   }
 
   public async appendAuditLedger(entry: AuditLedgerRow): Promise<void> {
-    if (this.isPgConnected && this.pgPool) {
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        await this.pgPool.query(`
-          INSERT INTO audit_ledger (id, message_id, tenant_id, agent_id, event_type, payload_hash, prev_hash, entry_hash, signature, signature_status, timestamp)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-          ON CONFLICT (id) DO NOTHING
-        `, [
-          entry.id, entry.message_id, entry.tenant_id, entry.agent_id,
-          entry.event_type, entry.payload_hash, entry.prev_hash,
-          entry.entry_hash, entry.signature, entry.signature_status,
-          entry.timestamp || new Date().toISOString()
-        ]);
-      } catch {
-        // Fallback
+        await this.firestoreDb.collection('audit_ledger').doc(entry.id).create({
+          ...entry,
+          timestamp: entry.timestamp || new Date().toISOString()
+        });
+        console.log(`[StorageEngine:Firestore] Successfully created immutable audit_ledger entry: ${entry.id} (${entry.event_type})`);
+      } catch (err: any) {
+        if (err?.code !== 6 && !String(err?.message || '').includes('ALREADY_EXISTS')) {
+          console.error(`[StorageEngine:Firestore] Error writing audit_ledger entry ${entry.id}:`, err?.message || err);
+        }
       }
     }
 
     this.memoryStore = this.loadPersistentFileStore();
-    this.memoryStore.audit_ledger.unshift(entry);
-    this.flushPersistentFileStore();
+    if (!this.memoryStore.audit_ledger.some(e => e.id === entry.id)) {
+      this.memoryStore.audit_ledger.unshift(entry);
+      this.flushPersistentFileStore();
+    }
   }
 
   public async getAuditLedger(tenantId?: string): Promise<AuditLedgerRow[]> {
-    if (this.isPgConnected && this.pgPool) {
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        let sql = 'SELECT * FROM audit_ledger';
-        const params: any[] = [];
-        if (tenantId) {
-          sql += ' WHERE tenant_id = $1';
-          params.push(tenantId);
+        const snap = await this.firestoreDb
+          .collection('audit_ledger')
+          .orderBy('timestamp', 'desc')
+          .limit(200)
+          .get();
+        if (!snap.empty) {
+          const rows = snap.docs.map(d => d.data() as AuditLedgerRow);
+          if (!tenantId) return rows;
+          return rows.filter(r => r.tenant_id === tenantId);
         }
-        sql += ' ORDER BY timestamp DESC LIMIT 200';
-        const res = await this.pgPool.query(sql, params);
-        return res.rows;
-      } catch {
-        // Fallback
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore getAuditLedger error, falling back:', err);
       }
     }
 
@@ -597,19 +850,548 @@ class StorageEngine {
     return this.memoryStore.audit_ledger.filter(l => l.tenant_id === tenantId);
   }
 
-  public async incrementBudgetSpend(tenantId: string, agentId: string, amount: number): Promise<{ success: boolean; newSpend: number }> {
-    const key = `tenant:${tenantId}:agent:${agentId}:spend`;
-
-    if (this.isRedisConnected && this.redisClient) {
+  public async getGovernedAgents(tenantId?: string): Promise<GoverningAgent[]> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        const newSpendStr = await this.redisClient.incrbyfloat(key, amount);
-        const newSpend = parseFloat(newSpendStr);
-        return { success: true, newSpend };
-      } catch {
-        // Fallthrough
+        const snap = await this.firestoreDb.collection('governed_agents').get();
+        const allAgents = snap.docs.map(d => d.data() as GoverningAgent);
+        if (!tenantId) return allAgents;
+        return allAgents.filter(a => a.tenantId === tenantId || (!a.tenantId && tenantId === 'tenant_default'));
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error reading governed_agents:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    if (!tenantId) return this.memoryStore.governed_agents;
+    return this.memoryStore.governed_agents.filter(a => a.tenantId === tenantId || (!a.tenantId && tenantId === 'tenant_default'));
+  }
+
+  public async saveGovernedAgentsBatch(agents: GoverningAgent[]): Promise<void> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const batch = this.firestoreDb.batch();
+        for (const agent of agents) {
+          const docId = agent.id || `GA-${crypto.randomUUID().slice(0, 8)}`;
+          const ref = this.firestoreDb.collection('governed_agents').doc(docId);
+          batch.set(ref, { ...agent, id: docId }, { merge: true });
+        }
+        await batch.commit();
+        console.log(`[StorageEngine:Firestore] Successfully wrote batch of ${agents.length} governed_agents.`);
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error writing governed_agents batch:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    this.memoryStore.governed_agents = [...agents];
+    this.flushPersistentFileStore();
+  }
+
+  public async deleteGovernedAgent(agentId: string): Promise<void> {
+    const normalized = agentId.toLowerCase();
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        await this.firestoreDb.collection('governed_agents').doc(agentId).delete();
+        // Also check case variation doc if any
+        if (agentId !== normalized) {
+          await this.firestoreDb.collection('governed_agents').doc(normalized).delete().catch(() => {});
+        }
+        console.log(`[StorageEngine:Firestore] Successfully deleted agent: ${agentId}`);
+      } catch (err: any) {
+        console.error(`[StorageEngine:Firestore] Error deleting agent ${agentId}:`, err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    this.memoryStore.governed_agents = this.memoryStore.governed_agents.filter(a => 
+      a.id !== agentId && a.id.toLowerCase() !== normalized
+    );
+    this.flushPersistentFileStore();
+  }
+
+  public async deleteDriftEventsForAgent(agentId: string, agentName?: string): Promise<void> {
+    const normalizedId = agentId.toLowerCase();
+    const normalizedName = agentName ? agentName.toLowerCase() : '';
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb.collection('drift_events').get();
+        const batch = this.firestoreDb.batch();
+        let count = 0;
+        snap.forEach(doc => {
+          const data = doc.data();
+          const matchId = data.agentId === agentId || data.agentId?.toLowerCase() === normalizedId;
+          const matchName = normalizedName && (data.agentGroup?.toLowerCase() === normalizedName || data.agentName?.toLowerCase() === normalizedName);
+          if (matchId || matchName) {
+            batch.delete(doc.ref);
+            count++;
+          }
+        });
+        if (count > 0) {
+          await batch.commit();
+          console.log(`[StorageEngine:Firestore] Deleted ${count} drift events for agent ${agentId}`);
+        }
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error deleting agent drift events:', err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    if (this.memoryStore.drift_events) {
+      this.memoryStore.drift_events = this.memoryStore.drift_events.filter(e => {
+        const matchId = e.agentId === agentId || e.agentId?.toLowerCase() === normalizedId;
+        const matchName = normalizedName && (e.agentGroup?.toLowerCase() === normalizedName || (e as any).agentName?.toLowerCase() === normalizedName);
+        return !matchId && !matchName;
+      });
+    }
+    this.flushPersistentFileStore();
+  }
+
+  public async purgeDriftEvents(filterFn: (e: any) => boolean): Promise<void> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb.collection('drift_events').get();
+        const batch = this.firestoreDb.batch();
+        let count = 0;
+        snap.forEach(doc => {
+          const data = doc.data();
+          if (filterFn(data)) {
+            batch.delete(doc.ref);
+            count++;
+          }
+        });
+        if (count > 0) {
+          await batch.commit();
+          console.log(`[StorageEngine:Firestore] Purged ${count} drift events`);
+        }
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error purging drift events:', err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    if (this.memoryStore.drift_events) {
+      this.memoryStore.drift_events = this.memoryStore.drift_events.filter(e => !filterFn(e));
+    }
+    this.flushPersistentFileStore();
+  }
+
+  public async getKillEvents(): Promise<KillSignalEvent[]> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb
+          .collection('kill_events')
+          .orderBy('timestamp', 'desc')
+          .limit(RETENTION_LIMITS.KILL_EVENTS)
+          .get();
+        if (!snap.empty) {
+          return snap.docs.map(d => d.data() as KillSignalEvent);
+        }
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error reading kill_events:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    return this.memoryStore.kill_events || [];
+  }
+
+  public async createKillEvent(event: KillSignalEvent): Promise<void> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        await this.firestoreDb.collection('kill_events').doc(event.id).set(event, { merge: true });
+        console.log(`[StorageEngine:Firestore] Successfully saved kill_event: ${event.id}`);
+      } catch (err: any) {
+        console.error(`[StorageEngine:Firestore] Failed saving kill_event ${event.id}:`, err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    if (!this.memoryStore.kill_events) this.memoryStore.kill_events = [];
+    if (!this.memoryStore.kill_events.some(k => k.id === event.id)) {
+      this.memoryStore.kill_events.unshift(event);
+      this.flushPersistentFileStore();
+    }
+  }
+
+  public async saveKillEventsBatch(events: KillSignalEvent[]): Promise<void> {
+    const capped = events.slice(0, RETENTION_LIMITS.KILL_EVENTS);
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const batch = this.firestoreDb.batch();
+        for (const ev of capped) {
+          const ref = this.firestoreDb.collection('kill_events').doc(ev.id);
+          batch.set(ref, ev, { merge: true });
+        }
+        await batch.commit();
+        console.log(`[StorageEngine:Firestore] Successfully wrote batch of ${capped.length} kill_events.`);
+        await this.enforceCollectionRetention('kill_events', RETENTION_LIMITS.KILL_EVENTS, 'timestamp');
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error writing kill_events batch:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    this.memoryStore.kill_events = capped;
+    this.flushPersistentFileStore();
+  }
+
+  public async getDriftEvents(): Promise<DriftLogEvent[]> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb
+          .collection('drift_events')
+          .orderBy('timestamp', 'desc')
+          .limit(RETENTION_LIMITS.DRIFT_EVENTS)
+          .get();
+        if (!snap.empty) {
+          return snap.docs.map(d => d.data() as DriftLogEvent);
+        }
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error reading drift_events:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    return this.memoryStore.drift_events || [];
+  }
+
+  public async saveDriftEventsBatch(events: DriftLogEvent[]): Promise<void> {
+    const capped = events.slice(0, RETENTION_LIMITS.DRIFT_EVENTS);
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const batch = this.firestoreDb.batch();
+        for (const ev of capped) {
+          const ref = this.firestoreDb.collection('drift_events').doc(ev.id);
+          batch.set(ref, ev, { merge: true });
+        }
+        await batch.commit();
+        console.log(`[StorageEngine:Firestore] Successfully wrote batch of ${capped.length} drift_events.`);
+        await this.enforceCollectionRetention('drift_events', RETENTION_LIMITS.DRIFT_EVENTS, 'timestamp');
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error writing drift_events batch:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    this.memoryStore.drift_events = capped;
+    this.flushPersistentFileStore();
+  }
+
+  public async createDriftEvent(event: DriftLogEvent): Promise<void> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        await this.firestoreDb.collection('drift_events').doc(event.id).set(event, { merge: true });
+        await this.enforceCollectionRetention('drift_events', RETENTION_LIMITS.DRIFT_EVENTS, 'timestamp');
+      } catch (err: any) {
+        console.error(`[StorageEngine:Firestore] Failed saving drift_event ${event.id}:`, err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    if (!this.memoryStore.drift_events) this.memoryStore.drift_events = [];
+    if (!this.memoryStore.drift_events.some(d => d.id === event.id)) {
+      this.memoryStore.drift_events.unshift(event);
+      if (this.memoryStore.drift_events.length > RETENTION_LIMITS.DRIFT_EVENTS) {
+        this.memoryStore.drift_events = this.memoryStore.drift_events.slice(0, RETENTION_LIMITS.DRIFT_EVENTS);
+      }
+      this.flushPersistentFileStore();
+    }
+  }
+
+  public async saveDriftEvent(event: DriftLogEvent): Promise<void> {
+    return this.createDriftEvent(event);
+  }
+
+  public async getApiLogs(): Promise<ApiRequestLog[]> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb
+          .collection('api_logs')
+          .orderBy('timestamp', 'desc')
+          .limit(RETENTION_LIMITS.API_LOGS)
+          .get();
+        if (!snap.empty) {
+          return snap.docs.map(d => d.data() as ApiRequestLog);
+        }
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error reading api_logs:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    return this.memoryStore.api_logs || [];
+  }
+
+  public async createApiLog(log: ApiRequestLog): Promise<void> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        await this.firestoreDb.collection('api_logs').doc(log.id).set(log, { merge: true });
+        await this.enforceCollectionRetention('api_logs', RETENTION_LIMITS.API_LOGS, 'timestamp');
+      } catch (err: any) {
+        console.error(`[StorageEngine:Firestore] Failed saving api_log ${log.id}:`, err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    if (!this.memoryStore.api_logs) this.memoryStore.api_logs = [];
+    if (!this.memoryStore.api_logs.some(l => l.id === log.id)) {
+      this.memoryStore.api_logs.unshift(log);
+      if (this.memoryStore.api_logs.length > RETENTION_LIMITS.API_LOGS) {
+        this.memoryStore.api_logs = this.memoryStore.api_logs.slice(0, RETENTION_LIMITS.API_LOGS);
+      }
+      this.flushPersistentFileStore();
+    }
+  }
+
+  public async saveApiLog(log: ApiRequestLog): Promise<void> {
+    return this.createApiLog(log);
+  }
+
+  public async saveApiLogsBatch(logs: ApiRequestLog[]): Promise<void> {
+    const capped = logs.slice(0, RETENTION_LIMITS.API_LOGS);
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const batch = this.firestoreDb.batch();
+        for (const log of capped.slice(0, 50)) {
+          const ref = this.firestoreDb.collection('api_logs').doc(log.id);
+          batch.set(ref, log, { merge: true });
+        }
+        await batch.commit();
+        console.log(`[StorageEngine:Firestore] Successfully wrote batch of ${Math.min(capped.length, 50)} api_logs.`);
+        await this.enforceCollectionRetention('api_logs', RETENTION_LIMITS.API_LOGS, 'timestamp');
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error writing api_logs batch:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    this.memoryStore.api_logs = capped;
+    this.flushPersistentFileStore();
+  }
+
+  public async deleteApiLogsForAgent(agentId: string, agentName?: string): Promise<void> {
+    const normalizedId = (agentId || '').trim().toLowerCase();
+    const normalizedName = (agentName || '').trim().toLowerCase();
+
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb.collection('api_logs').get();
+        const batch = this.firestoreDb.batch();
+        let count = 0;
+        snap.forEach(doc => {
+          const data = doc.data();
+          const dId = String(data.agentId || '').trim().toLowerCase();
+          const dName = String(data.agentName || '').trim().toLowerCase();
+          if (dId === normalizedId || (normalizedName && (dName === normalizedName || dId === normalizedName))) {
+            batch.delete(doc.ref);
+            count++;
+          }
+        });
+        if (count > 0) {
+          await batch.commit();
+          console.log(`[StorageEngine:Firestore] Deleted ${count} api_logs for agent ${agentId}`);
+        }
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error deleting agent api_logs:', err?.message || err);
       }
     }
 
+    this.memoryStore = this.loadPersistentFileStore();
+    if (this.memoryStore.api_logs) {
+      this.memoryStore.api_logs = this.memoryStore.api_logs.filter(l => {
+        const lId = String(l.agentId || '').trim().toLowerCase();
+        const lName = String(l.agentName || '').trim().toLowerCase();
+        return lId !== normalizedId && (!normalizedName || (lName !== normalizedName && lId !== normalizedName));
+      });
+      this.flushPersistentFileStore();
+    }
+  }
+
+  public async deleteApiLogIds(logIds: string[]): Promise<void> {
+    if (!logIds || logIds.length === 0) return;
+    const idSet = new Set(logIds);
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        for (let i = 0; i < logIds.length; i += 400) {
+          const chunk = logIds.slice(i, i + 400);
+          const batch = this.firestoreDb.batch();
+          for (const id of chunk) {
+            batch.delete(this.firestoreDb.collection('api_logs').doc(id));
+          }
+          await batch.commit();
+        }
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error deleting orphaned api_logs:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    if (this.memoryStore.api_logs) {
+      this.memoryStore.api_logs = this.memoryStore.api_logs.filter(l => !idSet.has(l.id));
+      this.flushPersistentFileStore();
+    }
+  }
+
+  public async getNotifications(): Promise<any[]> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb
+          .collection('notifications')
+          .orderBy('timestamp', 'desc')
+          .limit(RETENTION_LIMITS.NOTIFICATIONS)
+          .get();
+        if (!snap.empty) {
+          return snap.docs.map(d => d.data());
+        }
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error reading notifications:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    return this.memoryStore.notifications || [];
+  }
+
+  public async createNotification(notification: any): Promise<void> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        await this.firestoreDb.collection('notifications').doc(notification.id).set(notification, { merge: true });
+        console.log(`[StorageEngine:Firestore] Successfully saved notification: ${notification.id}`);
+      } catch (err: any) {
+        console.error(`[StorageEngine:Firestore] Failed saving notification ${notification.id}:`, err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    if (!this.memoryStore.notifications) this.memoryStore.notifications = [];
+    if (!this.memoryStore.notifications.some(n => n.id === notification.id)) {
+      this.memoryStore.notifications.unshift(notification);
+      this.flushPersistentFileStore();
+    }
+  }
+
+  public async saveNotificationsBatch(notifications: any[]): Promise<void> {
+    const capped = notifications.slice(0, RETENTION_LIMITS.NOTIFICATIONS);
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const batch = this.firestoreDb.batch();
+        for (const notif of capped) {
+          const ref = this.firestoreDb.collection('notifications').doc(notif.id);
+          batch.set(ref, notif, { merge: true });
+        }
+        await batch.commit();
+        console.log(`[StorageEngine:Firestore] Successfully wrote batch of ${capped.length} notifications.`);
+        await this.enforceCollectionRetention('notifications', RETENTION_LIMITS.NOTIFICATIONS, 'timestamp');
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error writing notifications batch:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    this.memoryStore.notifications = capped;
+    this.flushPersistentFileStore();
+  }
+
+  public async getValueMetrics(): Promise<ValueMeterMetric[]> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb
+          .collection('value_metrics')
+          .orderBy('timestamp', 'desc')
+          .limit(RETENTION_LIMITS.VALUE_METRICS)
+          .get();
+        if (!snap.empty) {
+          return snap.docs.map(d => d.data() as ValueMeterMetric);
+        }
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error reading value_metrics:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    return this.memoryStore.value_metrics || [];
+  }
+
+  public async saveValueMetricsBatch(metrics: ValueMeterMetric[]): Promise<void> {
+    const capped = metrics.slice(0, RETENTION_LIMITS.VALUE_METRICS);
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const batch = this.firestoreDb.batch();
+        for (const m of capped) {
+          const ref = this.firestoreDb.collection('value_metrics').doc(m.id);
+          batch.set(ref, m, { merge: true });
+        }
+        await batch.commit();
+        console.log(`[StorageEngine:Firestore] Successfully wrote batch of ${capped.length} value_metrics.`);
+        await this.enforceCollectionRetention('value_metrics', RETENTION_LIMITS.VALUE_METRICS, 'timestamp');
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error writing value_metrics batch:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    this.memoryStore.value_metrics = capped;
+    this.flushPersistentFileStore();
+  }
+
+  public async getGlobalConfig(): Promise<GlobalConfigDocument | null> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const doc = await this.firestoreDb.collection('system_state').doc('global_config').get();
+        if (doc.exists) {
+          return doc.data() as GlobalConfigDocument;
+        }
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error reading global_config:', err?.message || err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    return this.memoryStore.global_config || null;
+  }
+
+  public async saveGlobalConfig(config: GlobalConfigDocument): Promise<void> {
+    const payload: GlobalConfigDocument = {
+      laborConfig: config.laborConfig,
+      budgetCap: config.budgetCap,
+      governanceMode: config.governanceMode,
+      globalSettings: config.globalSettings,
+      tenantFailureConfig: config.tenantFailureConfig,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        await this.firestoreDb.collection('system_state').doc('global_config').set(payload, { merge: true });
+        console.log('[StorageEngine:Firestore] Successfully saved global_config to system_state/global_config.');
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error writing global_config:', err?.message || err);
+      }
+    }
+
+    this.memoryStore = this.loadPersistentFileStore();
+    this.memoryStore.global_config = payload;
+    this.flushPersistentFileStore();
+  }
+
+  public checkRateLimit(key: string, maxRequests: number = 120, windowMs: number = 60000): { allowed: boolean; remaining: number; resetAt: number } {
+    const now = Date.now();
+    const entry = this.rateLimitStore.get(key);
+    if (!entry || now >= entry.resetAt) {
+      const resetAt = now + windowMs;
+      this.rateLimitStore.set(key, { count: 1, resetAt });
+      return { allowed: true, remaining: Math.max(0, maxRequests - 1), resetAt };
+    }
+    entry.count += 1;
+    const allowed = entry.count <= maxRequests;
+    return {
+      allowed,
+      remaining: Math.max(0, maxRequests - entry.count),
+      resetAt: entry.resetAt
+    };
+  }
+
+  public async incrementBudgetSpend(tenantId: string, agentId: string, amount: number): Promise<{ success: boolean; newSpend: number }> {
+    const docId = `${tenantId}__${agentId}`;
+
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const ref = this.firestoreDb.collection('budget_counters').doc(docId);
+        await ref.set({
+          tenantId,
+          agentId,
+          spend: FieldValue.increment(amount),
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+        const snap = await ref.get();
+        const newSpend = Number(snap.data()?.spend ?? amount);
+        return { success: true, newSpend };
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore incrementBudgetSpend error, falling back:', err);
+      }
+    }
+
+    const key = `tenant:${tenantId}:agent:${agentId}:spend`;
     const currentVal = await this.getKv(key);
     const current = parseFloat(currentVal || '0.0');
     const newSpend = current + amount;
@@ -619,21 +1401,15 @@ class StorageEngine {
   }
 
   public async getKv(key: string): Promise<string | null> {
-    if (this.isRedisConnected && this.redisClient) {
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        const val = await this.redisClient.get(key);
-        if (val !== null) return val;
-      } catch {
-        // Fallthrough
-      }
-    }
-
-    if (this.isPgConnected && this.pgPool) {
-      try {
-        const res = await this.pgPool.query('SELECT v FROM kv_store WHERE k = $1', [key]);
-        if (res.rows.length > 0) return res.rows[0].v;
-      } catch {
-        // Fallthrough
+        const safeKey = key.replace(/\//g, '__');
+        const doc = await this.firestoreDb.collection('kv_store').doc(safeKey).get();
+        if (doc.exists) {
+          return doc.data()?.v ?? null;
+        }
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore getKv error, falling back:', err);
       }
     }
 
@@ -642,29 +1418,178 @@ class StorageEngine {
   }
 
   public async setKv(key: string, value: string): Promise<void> {
-    if (this.isRedisConnected && this.redisClient) {
-      try {
-        await this.redisClient.set(key, value);
-      } catch {
-        // Ignore
-      }
-    }
+    const updatedAt = new Date().toISOString();
 
-    if (this.isPgConnected && this.pgPool) {
+    if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        await this.pgPool.query(`
-          INSERT INTO kv_store (k, v, updated_at)
-          VALUES ($1, $2, NOW())
-          ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, updated_at = NOW()
-        `, [key, value]);
-      } catch {
-        // Ignore
+        const safeKey = key.replace(/\//g, '__');
+        await this.firestoreDb.collection('kv_store').doc(safeKey).set({
+          k: key,
+          v: value,
+          updated_at: updatedAt
+        }, { merge: true });
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore setKv error, falling back:', err);
       }
     }
 
     this.memoryStore = this.loadPersistentFileStore();
-    this.memoryStore.kv_store[key] = { v: value, updated_at: new Date().toISOString() };
+    this.memoryStore.kv_store[key] = { v: value, updated_at: updatedAt };
     this.flushPersistentFileStore();
+  }
+
+  public async getEthicalGuidelines(): Promise<any[]> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb.collection('ethical_guidelines').get();
+        if (!snap.empty) {
+          return snap.docs.map(d => d.data());
+        }
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore getEthicalGuidelines error, falling back:', err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    return this.memoryStore.guidelines || [];
+  }
+
+  public async saveEthicalGuideline(guideline: any): Promise<void> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        await this.firestoreDb.collection('ethical_guidelines').doc(guideline.id).set(guideline, { merge: true });
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore saveEthicalGuideline error:', err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    if (!this.memoryStore.guidelines) this.memoryStore.guidelines = [];
+    const idx = this.memoryStore.guidelines.findIndex(g => g.id === guideline.id);
+    if (idx >= 0) this.memoryStore.guidelines[idx] = guideline;
+    else this.memoryStore.guidelines.push(guideline);
+    this.flushPersistentFileStore();
+  }
+
+  public async saveAgentGuidelineMapping(tenantId: string, agentId: string, guidelineId: string): Promise<void> {
+    const docId = `${tenantId}__${agentId}`;
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        await this.firestoreDb.collection('agent_guideline_map').doc(docId).set({
+          tenantId,
+          agentId,
+          guidelineId,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore saveAgentGuidelineMapping error:', err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    if (!this.memoryStore.agent_guidelines) this.memoryStore.agent_guidelines = {};
+    this.memoryStore.agent_guidelines[`${tenantId}:${agentId}`] = guidelineId;
+    this.flushPersistentFileStore();
+  }
+
+  public async getAgentGuidelineMappings(): Promise<Record<string, string>> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb.collection('agent_guideline_map').get();
+        if (!snap.empty) {
+          const map: Record<string, string> = {};
+          snap.docs.forEach(doc => {
+            const data = doc.data();
+            map[`${data.tenantId}:${data.agentId}`] = data.guidelineId;
+          });
+          return map;
+        }
+      } catch (err) {
+        console.warn('[StorageEngine] Firestore getAgentGuidelineMappings error:', err);
+      }
+    }
+    this.memoryStore = this.loadPersistentFileStore();
+    return this.memoryStore.agent_guidelines || {};
+  }
+
+  public async syncLocalStoreToFirestore(): Promise<void> {
+    if (!this.isFirestoreConnected || !this.firestoreDb) return;
+    try {
+      const fileStore = this.loadPersistentFileStore();
+
+      // 1. Governed Agents
+      const fsAgentsSnap = await this.firestoreDb.collection('governed_agents').get();
+      const beforeAgents = fsAgentsSnap.size;
+      const fileAgents = fileStore.governed_agents || [];
+      if (beforeAgents === 0 && fileAgents.length > 0) {
+        const batch = this.firestoreDb.batch();
+        for (const agent of fileAgents) {
+          batch.set(this.firestoreDb.collection('governed_agents').doc(agent.id), agent, { merge: true });
+        }
+        await batch.commit();
+      }
+      const afterAgentsSnap = await this.firestoreDb.collection('governed_agents').get();
+
+      // 2. Policies
+      const fsPoliciesSnap = await this.firestoreDb.collection('policies').get();
+      const beforePolicies = fsPoliciesSnap.size;
+      const filePolicies = fileStore.policies || [];
+      if (beforePolicies === 0 && filePolicies.length > 0) {
+        const batch = this.firestoreDb.batch();
+        for (const pol of filePolicies) {
+          batch.set(this.firestoreDb.collection('policies').doc(pol.id), pol, { merge: true });
+        }
+        await batch.commit();
+      }
+      const afterPoliciesSnap = await this.firestoreDb.collection('policies').get();
+
+      // 3. Ethical Guidelines
+      const fsGuidelinesSnap = await this.firestoreDb.collection('ethical_guidelines').get();
+      const beforeGuidelines = fsGuidelinesSnap.size;
+      const fileGuidelines = fileStore.guidelines || [];
+      if (beforeGuidelines === 0 && fileGuidelines.length > 0) {
+        const batch = this.firestoreDb.batch();
+        for (const g of fileGuidelines) {
+          batch.set(this.firestoreDb.collection('ethical_guidelines').doc(g.id), g, { merge: true });
+        }
+        await batch.commit();
+      }
+      const afterGuidelinesSnap = await this.firestoreDb.collection('ethical_guidelines').get();
+
+      // 4. Drift Events
+      const fsDriftSnap = await this.firestoreDb.collection('drift_events').get();
+      const beforeDrift = fsDriftSnap.size;
+      const fileDriftEvents = fileStore.drift_events || [];
+      if (beforeDrift === 0 && fileDriftEvents.length > 0) {
+        const batch = this.firestoreDb.batch();
+        for (const d of fileDriftEvents) {
+          batch.set(this.firestoreDb.collection('drift_events').doc(d.id), d, { merge: true });
+        }
+        await batch.commit();
+      }
+      const afterDriftSnap = await this.firestoreDb.collection('drift_events').get();
+
+      // 5. Trend History
+      const fsTrendSnap = await this.firestoreDb.collection('trend_history').get();
+      const beforeTrends = fsTrendSnap.size;
+      const fileTrends = fileStore.trend_history || [];
+      if (beforeTrends === 0 && fileTrends.length > 0) {
+        const batch = this.firestoreDb.batch();
+        for (let i = 0; i < fileTrends.length; i++) {
+          const tr = fileTrends[i];
+          const docId = tr.id || `TRD-${i}-${tr.agentId || 'fleet'}`;
+          batch.set(this.firestoreDb.collection('trend_history').doc(docId), { ...tr, id: docId }, { merge: true });
+        }
+        await batch.commit();
+      }
+      const afterTrendSnap = await this.firestoreDb.collection('trend_history').get();
+
+      console.log(`[StorageEngine:Migration] Persistent Storage Migration to Cloud Firestore complete:`);
+      console.log(`  - Governed Agents: File (${fileAgents.length}) -> Firestore (Before: ${beforeAgents}, After: ${afterAgentsSnap.size})`);
+      console.log(`  - Policies: File (${filePolicies.length}) -> Firestore (Before: ${beforePolicies}, After: ${afterPoliciesSnap.size})`);
+      console.log(`  - Ethical Guidelines: File (${fileGuidelines.length}) -> Firestore (Before: ${beforeGuidelines}, After: ${afterGuidelinesSnap.size})`);
+      console.log(`  - Drift Log Events: File (${fileDriftEvents.length}) -> Firestore (Before: ${beforeDrift}, After: ${afterDriftSnap.size})`);
+      console.log(`  - Trend History Points: File (${fileTrends.length}) -> Firestore (Before: ${beforeTrends}, After: ${afterTrendSnap.size})`);
+    } catch (err: any) {
+      console.warn('[StorageEngine:Migration] Error during Firestore synchronization:', err?.message || err);
+    }
   }
 }
 

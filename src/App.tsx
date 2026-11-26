@@ -19,54 +19,11 @@ import GaaSAccessGate from './components/GaaSAccessGate';
 import NotificationCenter from './components/NotificationCenter';
 import UpdatePasswordModal from './components/UpdatePasswordModal';
 import { useGovernanceStore } from './store/useGovernanceStore';
-import { Sliders, Palette, ChevronDown, Check, LogOut, Users, KeyRound, Eye } from 'lucide-react';
+import { Sliders, Palette, ChevronDown, Check, LogOut, Users, KeyRound, Eye, ShieldCheck } from 'lucide-react';
 
-import { Policy, KillSignalEvent, DriftLogEvent, ValueMeterMetric, GoverningAgent, ApiRequestLog, Toast, AdminUser, LaborConfig, AdminRole } from './types';
+import { Policy, KillSignalEvent, DriftLogEvent, ValueMeterMetric, Toast, AdminUser, LaborConfig, AdminRole } from './types';
 import { GUARANTEED_SLA_MS, generateTransactionId } from './utils';
-import { 
-  INITIAL_POLICIES, 
-  INITIAL_KILL_SWITCH_EVENTS, 
-  INITIAL_DRIFT_EVENTS, 
-  INITIAL_VALUE_METRICS,
-  INITIAL_ADMINS
-} from './data';
-
-const INITIAL_GOVERNED_AGENTS: GoverningAgent[] = [
-  { id: 'GA-101', name: 'SalesSummarizer-CrewAI', framework: 'CrewAI', webhookUrl: 'https://internal-workflow.org/hooks/sales-bot', attachedPolicyCode: 'POL-SEC-01', status: 'NOMINAL', requestCount: 394 },
-  { id: 'GA-102', name: 'AutoTrader-Langchain', framework: 'LangChain', webhookUrl: 'https://trading-node-2.net/gaas/gate', attachedPolicyCode: 'POL-FIN-01', status: 'NOMINAL', requestCount: 1242 },
-  { id: 'GA-103', name: 'AutoGen-TriageHQ', framework: 'AutoGen', webhookUrl: 'https://conversation.firm.com/api/v1', attachedPolicyCode: 'POL-ETH-01', status: 'NOMINAL', requestCount: 8905 },
-  { id: 'GA-104', name: 'Postgres-MCP-Server', framework: 'MCP Server', webhookUrl: 'https://mcp.enterprise.io/v1/tools/call', attachedPolicyCode: 'POL-SEC-01', status: 'NOMINAL', requestCount: 2150 }
-];
-
-const INITIAL_API_LOGS: ApiRequestLog[] = [
-  {
-    id: 'REQ-94812',
-    timestamp: new Date(Date.now() - 40000).toISOString(),
-    agentId: 'GA-103',
-    agentName: 'AutoGen-TriageHQ',
-    endpoint: '/v1/intercept',
-    status: 'AUTHORIZED',
-    latencyMs: 24
-  },
-  {
-    id: 'REQ-94801',
-    timestamp: new Date(Date.now() - 120000).toISOString(),
-    agentId: 'GA-102',
-    agentName: 'AutoTrader-Langchain',
-    endpoint: '/v1/intercept',
-    status: 'AUTHORIZED',
-    latencyMs: 31
-  },
-  {
-    id: 'REQ-94775',
-    timestamp: new Date(Date.now() - 300000).toISOString(),
-    agentId: 'GA-101',
-    agentName: 'SalesSummarizer-CrewAI',
-    endpoint: '/v1/intercept',
-    status: 'HALTED',
-    latencyMs: 42
-  }
-];
+import { INITIAL_ADMINS } from './data';
 
 export default function App() {
   const [activeTab, setActiveTabState] = useState<string>(() => {
@@ -219,8 +176,12 @@ export default function App() {
     setIsLoggedIn,
     governedAgents,
     setGovernedAgents,
+    apiLogs,
+    setApiLogs,
     laborConfig,
     setLaborConfig,
+    budgetCap,
+    updateBudgetCap,
     notifications,
     addNotification,
     markAllNotificationsRead,
@@ -230,12 +191,25 @@ export default function App() {
     setDisableAlertsGlobally,
     governanceMode,
     setGovernanceMode,
-    currentUser: realUser,
+    restSyncStatus,
+    globalSettings,
+    currentUser: storeCurrentUser,
     effectiveUser,
+    authenticatedUser,
+    isSwitchedIdentity,
+    switchActiveIdentity,
+    revertToAuthenticatedIdentity,
     impersonatedRole,
     startImpersonation,
     stopImpersonation,
     updateLaborConfig,
+    addAgent,
+    updateAgent,
+    deleteAgent,
+    bulkUpdateAgentsStatus,
+    createUser,
+    updateUser,
+    deleteUser,
     refreshState
   } = useGovernanceStore();
 
@@ -249,9 +223,9 @@ export default function App() {
     lastLogin: 'Just now'
   }, []);
 
-  const currentUser = effectiveUser || realUser || defaultUser;
+  const realUser = authenticatedUser || storeCurrentUser || defaultUser;
+  const currentUser = effectiveUser || storeCurrentUser || defaultUser;
 
-  const [budgetCap, setBudgetCap] = useState<number>(50);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   const getAuthHeaders = () => {
@@ -267,12 +241,7 @@ export default function App() {
   };
 
   const handleUpdateBudgetCap = (cap: number) => {
-    setBudgetCap(cap);
-    fetch('/api/budget-cap', {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ budgetCap: cap })
-    }).catch(e => console.warn('Failed to save budget cap on server:', e));
+    updateBudgetCap(cap);
   };
 
   const handleToggleSidebar = () => {
@@ -280,11 +249,7 @@ export default function App() {
   };
 
   const setCurrentUser = (selectedVal: AdminUser) => {
-    setActingUserId(selectedVal.id);
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('ag_acting_user_id', selectedVal.id);
-      localStorage.setItem('ag_acting_user_id', selectedVal.id);
-    }
+    switchActiveIdentity(selectedVal);
   };
 
   const handleRegisterUser = (newUser: AdminUser) => {
@@ -319,7 +284,6 @@ export default function App() {
   };
 
   // Uplifted GaaS API States
-  const [apiLogs, setApiLogs] = useState<ApiRequestLog[]>(INITIAL_API_LOGS);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | 'off'>(30000);
   const [latencyThreshold, setLatencyThreshold] = useState<number>(GUARANTEED_SLA_MS);
 
@@ -381,94 +345,24 @@ export default function App() {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
-  // Live Auto-Refresh GaaS Background Api Transaction logs and SLA monitor
-  useEffect(() => {
-    if (!isLoggedIn || autoRefreshInterval === 'off') return;
-
-    const intervalId = setInterval(() => {
-      setGovernedAgents(prevAgents => {
-        if (prevAgents.length === 0) return prevAgents;
-        const randomAgentIndex = Math.floor(Math.random() * prevAgents.length);
-        const agent = prevAgents[randomAgentIndex];
-
-        const endpoints = ['/v1/intercept', '/v1/intercept', '/v1/token/validate', '/v1/policy/evaluate'];
-        const randomEndpoint = endpoints[Math.floor(Math.random() * endpoints.length)];
-        
-        // 90% AUTHORIZED, 10% HALTED
-        const status = Math.random() > 0.10 ? 'AUTHORIZED' : 'HALTED';
-        // Wider latency range up to 450ms makes the SLA limit simulator highly interactive
-        const latencyMs = Math.floor(Math.random() * 420) + 12;
-
-        const newLog: ApiRequestLog = {
-          id: generateTransactionId('REQ'),
-          timestamp: new Date().toISOString(),
-          agentId: agent.id,
-          agentName: agent.name,
-          endpoint: randomEndpoint,
-          status: status as 'AUTHORIZED' | 'HALTED',
-          latencyMs
-        };
-
-        setApiLogs(prev => [newLog, ...prev.slice(0, 19)]);
-
-        // 1. SLA Latency Breach Check
-        if (latencyMs > latencyThreshold) {
-          addToast({
-            type: 'warning',
-            title: `⚠️ SLA Latency Limit Breached`,
-            message: `Gateway API Intercept responded in ${latencyMs}ms (Threshold SLA: ${latencyThreshold}ms).\nAffected Node: ${agent.name}`,
-            duration: 5000
-          });
-        }
-
-        // 2. Kill Switch / Halted state check in Background live-traffic
-        if (status === 'HALTED') {
-          const newHaltEvent: KillSignalEvent = {
-            id: generateTransactionId('KG-GaaS'),
-            timestamp: new Date().toISOString(),
-            agentName: agent.name,
-            actionCommand: 'Intercepted anomalous command thread',
-            interceptedPacket: `POST ${randomEndpoint} [GaaS API Live]`,
-            policyViolated: 'POL-SEC-01 (Security Shield Protocol)',
-            latencyMs: latencyMs,
-            status: 'HALTED',
-            rawJsonIntent: '{"anomaly": "Background script evaluated illegal system execution parameters"}',
-            timestampAnnexV: `20260609-${new Date().getTime().toString().substring(5)}-GAAS`
-          };
-
-          // Timeout avoids calling handleTriggerKillEvent inside GaaS state dispatch loop
-          setTimeout(() => {
-            handleTriggerKillEvent(newHaltEvent);
-          }, 0);
-        }
-
-        return prevAgents.map(a => 
-          a.id === agent.id 
-            ? { 
-                ...a, 
-                requestCount: a.requestCount + 1,
-                status: status === 'HALTED' ? 'ALERT' : a.status === 'ALERT' ? 'NOMINAL' : a.status
-              } 
-            : a
-        );
-      });
-    }, autoRefreshInterval);
-
-    return () => clearInterval(intervalId);
-  }, [autoRefreshInterval, latencyThreshold, isLoggedIn]);
+  // Item 5: No synthetic traffic or random SLA breach intervals. Only real server events trigger toasts and SLA alerts.
 
 
   // Computed state calculations
   const avgLatency = useMemo(() => {
-    if (killEvents.length === 0) return 0;
-    const total = killEvents.reduce((acc, curr) => acc + curr.latencyMs, 0);
-    return Math.round(total / killEvents.length);
-  }, [killEvents]);
+    const samples = [
+      ...apiLogs.map(l => l.latencyMs),
+      ...killEvents.map(k => k.latencyMs)
+    ].filter((v): v is number => typeof v === 'number' && !isNaN(v) && v >= 0);
+    if (samples.length === 0) return 0;
+    return Math.round(samples.reduce((acc, curr) => acc + curr, 0) / samples.length);
+  }, [apiLogs, killEvents]);
 
   const overallCognitiveHealth = useMemo(() => {
-    if (driftEvents.length === 0) return 100;
-    const total = driftEvents.reduce((acc, curr) => acc + curr.cognitiveHealthScore, 0);
-    return Math.round(total / driftEvents.length);
+    const activeDrifts = driftEvents.filter(e => !e.isTest && !(e as any).is_test && !(e as any).archived && !e.remedatedAt);
+    if (activeDrifts.length === 0) return 100;
+    const total = activeDrifts.reduce((acc, curr) => acc + (typeof curr.cognitiveHealthScore === 'number' ? curr.cognitiveHealthScore : 100), 0);
+    return Math.round(total / activeDrifts.length);
   }, [driftEvents]);
 
   const overallRoi = useMemo(() => {
@@ -496,16 +390,11 @@ export default function App() {
   const handleRemediateDrift = (id: string) => {
     setDriftEvents(prev => prev.map(event => {
       if (event.id === id) {
-        addToast({
-          type: 'success',
-          title: 'Ethical Deviation Remediated',
-          message: `Successfully recalibrated standards alignment for event [${id}] (Cognitive health restored).`
-        });
+        const score = typeof event.cognitiveHealthScore === 'number' ? event.cognitiveHealthScore : 100;
+        const scoreDerivedStatus = score > 85 ? 'HEALTHY' : score >= 70 ? 'WARNING' : 'CRITICAL';
         return {
           ...event,
-          status: 'NORMAL',
-          cognitiveHealthScore: Math.min(event.cognitiveHealthScore + 15, 100),
-          sentimentShiftPct: Math.max(event.sentimentShiftPct - 10, 2.5),
+          status: scoreDerivedStatus as any,
           remedatedAt: new Date().toISOString()
         };
       }
@@ -608,7 +497,7 @@ export default function App() {
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
         policiesCount={policies.length}
-        haltedCount={killEvents.filter(e => e.status === 'HALTED').length}
+        haltedCount={governedAgents.filter(a => a.status === 'HALTED' || a.status === 'ALERT').length}
         currentUser={currentUser}
         setCurrentUser={setCurrentUser}
         users={users}
@@ -621,6 +510,36 @@ export default function App() {
       {/* Main content display window */}
       <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 overflow-y-auto space-y-6 h-screen select-none">
         
+        {/* OTP / First-Time Provisioning Password Reminder Banner */}
+        {currentUser?.mustResetPassword && !impersonatedRole && (
+          <div 
+            id="otp-activation-banner"
+            className="w-full bg-gradient-to-r from-teal-950/90 via-zinc-900 to-zinc-900 border border-teal-500/40 rounded-xl text-teal-100 px-4 py-3 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in duration-200"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 rounded-lg bg-teal-500/20 text-teal-300 border border-teal-500/40 flex items-center justify-center shrink-0">
+                <KeyRound size={17} />
+              </div>
+              <div className="text-xs">
+                <div className="font-bold text-teal-300 font-mono text-[11px] uppercase tracking-wider flex items-center gap-2">
+                  <span>One-Time Activation Credentials Active</span>
+                </div>
+                <div className="text-zinc-300 text-[11.5px] mt-0.5">
+                  You signed in using a provisioned one-time password. Configure your personal permanent password to finalize account onboarding.
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowUpdatePasswordModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal-500/25 hover:bg-teal-500/40 border border-teal-400/50 text-teal-100 hover:text-white text-xs font-mono font-bold rounded-lg transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+              id="set-permanent-pass-banner-btn"
+            >
+              <KeyRound size={13} />
+              <span>Set Permanent Password</span>
+            </button>
+          </div>
+        )}
+
         {/* Persistent Scoped Role Impersonation Banner (Visible on every screen during preview mode) */}
         {impersonatedRole && realUser && (
           <div 
@@ -665,6 +584,48 @@ export default function App() {
             >
               <LogOut size={13} />
               <span>Exit Preview Mode</span>
+            </button>
+          </div>
+        )}
+
+        {/* Persistent Scoped Identity Impersonation Banner */}
+        {isSwitchedIdentity && authenticatedUser && (
+          <div 
+            id="identity-swapped-persistent-banner"
+            className="w-full bg-gradient-to-r from-blue-950/95 via-indigo-950/90 to-blue-950/95 border border-cyan-500/50 rounded-xl text-cyan-100 px-4 py-3 shadow-2xl backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center justify-center shrink-0">
+                <ShieldCheck size={18} className="animate-pulse" />
+              </div>
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs font-sans">
+                <span className="font-mono uppercase font-black tracking-widest text-[9.5px] bg-cyan-500/30 text-cyan-200 px-2 py-0.5 rounded border border-cyan-500/50">
+                  Switched Active Identity
+                </span>
+                <span className="text-cyan-100 text-sm">
+                  Active Persona: <strong className="text-cyan-300 font-bold underline decoration-cyan-400/60 uppercase font-mono">{currentUser.name}</strong> ({currentUser.role})
+                </span>
+                <span className="text-cyan-300/50 hidden sm:inline">•</span>
+                <span className="text-cyan-200/90 text-xs font-mono">
+                  SuperAdmin Session: <strong className="text-white font-bold">{authenticatedUser.name}</strong> ({authenticatedUser.role})
+                </span>
+              </div>
+            </div>
+
+            <button
+              id="revert-swapped-identity-btn"
+              onClick={() => {
+                revertToAuthenticatedIdentity();
+                addToast({
+                  type: 'info',
+                  title: '🔐 Identity Restored',
+                  message: `Returned to authenticated session as ${authenticatedUser.name} (${authenticatedUser.role}).`
+                });
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-cyan-500/25 hover:bg-cyan-500/40 border border-cyan-400/50 text-cyan-100 hover:text-white text-xs font-mono font-bold rounded-lg transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+            >
+              <LogOut size={13} />
+              <span>Revert to {authenticatedUser.name}</span>
             </button>
           </div>
         )}
@@ -846,7 +807,7 @@ export default function App() {
                     })()}
 
                     {/* Tenant Identity Isolation & Switch Session Controller */}
-                    {currentUser.role === 'SuperAdmin' ? (
+                    {(authenticatedUser?.role === 'SuperAdmin' || currentUser.role === 'SuperAdmin') ? (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <label className="text-[9px] text-[#8B9BAA] font-bold uppercase tracking-widest block font-mono">
@@ -883,10 +844,26 @@ export default function App() {
                           {users.map(u => (
                             <option key={u.id} value={u.id} className="bg-[#111E2E] text-xs text-slate-300">
                               {u.role === 'SuperAdmin' ? '👑 ' : u.role === 'Admin' ? '💎 ' : '👤 '} 
-                              {u.name} ({u.role})
+                              {u.name} ({u.role}) {authenticatedUser?.id === u.id ? '★ (Authentic Session)' : ''}
                             </option>
                           ))}
                         </select>
+
+                        {isSwitchedIdentity && authenticatedUser && (
+                          <button
+                            onClick={() => {
+                              revertToAuthenticatedIdentity();
+                              addToast({
+                                type: 'info',
+                                title: '🔐 Identity Restored',
+                                message: `Returned to authenticated session as ${authenticatedUser.name} (${authenticatedUser.role}).`
+                              });
+                            }}
+                            className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/35 text-cyan-300 text-[10px] font-mono font-bold rounded-lg transition-all cursor-pointer"
+                          >
+                            <LogOut size={12} /> Revert to {authenticatedUser.name} (SuperAdmin)
+                          </button>
+                        )}
 
                         <button
                           onClick={() => {
@@ -1052,6 +1029,10 @@ export default function App() {
             overallCognitiveHealth={overallCognitiveHealth}
             apiLogs={apiLogs}
             currentUser={currentUser}
+            policies={policies}
+            laborConfig={laborConfig}
+            restConnectionStatus={restSyncStatus}
+            bypassPolicyGuard={globalSettings?.bypassPolicyGuard}
             governedAgents={governedAgents}
             governanceMode={governanceMode}
             setGovernanceMode={setGovernanceMode}
@@ -1076,6 +1057,7 @@ export default function App() {
             onSetDriftEvents={setDriftEvents}
             addToast={addToast}
             currentUser={currentUser}
+            onNavigateTab={setActiveTab}
           />
         )}
 
@@ -1098,6 +1080,11 @@ export default function App() {
             onAddMetricEvent={handleAddMetricEvent}
             governedAgents={governedAgents}
             setGovernedAgents={setGovernedAgents}
+            onAddAgent={addAgent}
+            onUpdateAgent={updateAgent}
+            onDeleteAgent={deleteAgent}
+            onBulkAgentStatus={bulkUpdateAgentsStatus}
+            onRefreshState={refreshState}
             apiLogs={apiLogs}
             setApiLogs={setApiLogs}
             autoRefreshInterval={autoRefreshInterval}
@@ -1125,8 +1112,12 @@ export default function App() {
             impersonatedRole={impersonatedRole}
             onStartImpersonation={startImpersonation}
             onStopImpersonation={stopImpersonation}
+            onSwitchIdentity={setCurrentUser}
             users={users}
             setUsers={setUsers}
+            onCreateUser={createUser}
+            onUpdateUser={updateUser}
+            onDeleteUser={deleteUser}
             addToast={addToast}
             disableAlertsGlobally={disableAlertsGlobally}
             setDisableAlertsGlobally={setDisableAlertsGlobally}

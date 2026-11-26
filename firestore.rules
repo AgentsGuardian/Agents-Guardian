@@ -1,0 +1,76 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check authentication
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Allow authenticated users to read and write their own user data
+    match /iam_users/{userId} {
+      allow read, write: if isAuthenticated() && (request.auth.uid == userId || resource.data.id == userId || request.resource.data.id == userId);
+    }
+
+    // Allow authenticated users to read and write governed agents and telemetry data
+    match /governed_agents/{agentId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /kill_events/{eventId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /drift_events/{eventId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /api_logs/{logId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /notifications/{notificationId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /value_metrics/{metricId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /tenants/{tenantId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /policies/{policyId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Audit Ledger & Policy Versions remain immutable / append-only for integrity
+    match /audit_ledger/{entryId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if false;
+    }
+
+    match /policy_versions/{versionId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if false;
+    }
+
+    match /kv_store/{keyId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /system_state/{docId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /budget_counters/{counterId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Catch-all rule for authenticated users accessing their data
+    match /{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}

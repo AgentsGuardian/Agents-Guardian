@@ -5,9 +5,11 @@ import {
   DriftLogEvent, 
   ValueMeterMetric, 
   GoverningAgent, 
+  ApiRequestLog,
   AdminUser, 
   LaborConfig,
-  AdminRole 
+  AdminRole,
+  GlobalAdminSettings
 } from '../types';
 
 import { generateTransactionId } from '../utils';
@@ -37,6 +39,7 @@ export function useGovernanceStore() {
   });
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [governedAgents, setGovernedAgents] = useState<GoverningAgent[]>([]);
+  const [apiLogs, setApiLogs] = useState<ApiRequestLog[]>([]);
   const [laborConfig, setLaborConfig] = useState<LaborConfig>({
     l1Rate: 35,
     l2Rate: 75,
@@ -44,9 +47,12 @@ export function useGovernanceStore() {
     auditRate: 60,
     avgHoursPerTask: 0.25
   });
+  const [budgetCap, setBudgetCap] = useState<number>(500);
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [governanceMode, setGovernanceModeState] = useState<'setup' | 'active'>('active');
   const [disableAlertsGlobally, setDisableAlertsGlobally] = useState<boolean>(false);
+  const [restSyncStatus, setRestSyncStatus] = useState<'SYNCHRONIZED' | 'DEGRADED' | 'DISCONNECTED'>('SYNCHRONIZED');
+  const [globalSettings, setGlobalSettings] = useState<GlobalAdminSettings | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [impersonatedRole, setImpersonatedRole] = useState<AdminRole | null>(() => {
     if (typeof window !== 'undefined') {
@@ -58,14 +64,16 @@ export function useGovernanceStore() {
     return null;
   });
 
-  // Derived real current user: returns the matched authenticated user or null
-  const currentUser = useMemo<AdminUser | null>(() => {
-    if (!actingUserId) return null;
-    const found = users.find(u => u.id === actingUserId || u.email.toLowerCase().trim() === actingUserId.toLowerCase().trim());
-    return found || null;
-  }, [users, actingUserId]);
+  const [authenticatedUser, setAuthenticatedUser] = useState<AdminUser | null>(null);
 
-  // Derived effective user: UI preview persona when impersonation is active, real user otherwise
+  // Derived real current user: returns the matched acting user, or falls back to authenticated session user
+  const currentUser = useMemo<AdminUser | null>(() => {
+    if (!actingUserId) return authenticatedUser || null;
+    const found = users.find(u => u.id === actingUserId || u.email.toLowerCase().trim() === actingUserId.toLowerCase().trim());
+    return found || authenticatedUser || null;
+  }, [users, actingUserId, authenticatedUser]);
+
+  // Derived effective user: UI preview persona when role impersonation is active, real current user otherwise
   const effectiveUser = useMemo<AdminUser | null>(() => {
     if (!currentUser) return null;
     if (impersonatedRole) {
@@ -76,6 +84,34 @@ export function useGovernanceStore() {
     }
     return currentUser;
   }, [currentUser, impersonatedRole]);
+
+  // Identity switching helpers for SuperAdmin
+  const isSwitchedIdentity = useMemo<boolean>(() => {
+    return Boolean(
+      authenticatedUser && 
+      actingUserId && 
+      actingUserId !== authenticatedUser.id &&
+      (authenticatedUser.role === 'SuperAdmin' || authenticatedUser.role === 'Admin')
+    );
+  }, [authenticatedUser, actingUserId]);
+
+  const switchActiveIdentity = useCallback((selectedUser: AdminUser) => {
+    setActingUserId(selectedUser.id);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('ag_acting_user_id', selectedUser.id);
+      localStorage.setItem('ag_acting_user_id', selectedUser.id);
+    }
+  }, []);
+
+  const revertToAuthenticatedIdentity = useCallback(() => {
+    if (authenticatedUser?.id) {
+      setActingUserId(authenticatedUser.id);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('ag_acting_user_id', authenticatedUser.id);
+        localStorage.setItem('ag_acting_user_id', authenticatedUser.id);
+      }
+    }
+  }, [authenticatedUser]);
 
   const getAuthHeaders = useCallback(() => {
     const token = typeof window !== 'undefined' ? (sessionStorage.getItem('ag_session_token') || localStorage.getItem('ag_session_token')) : null;
@@ -105,15 +141,18 @@ export function useGovernanceStore() {
       });
 
       if (!sessionRes.ok) {
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('ag_session_token');
-          localStorage.removeItem('ag_acting_user_id');
-          sessionStorage.removeItem('ag_session_token');
-          sessionStorage.removeItem('ag_acting_user_id');
-          sessionStorage.removeItem('ag_impersonated_role');
+        if (sessionRes.status === 401) {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('ag_session_token');
+            localStorage.removeItem('ag_acting_user_id');
+            sessionStorage.removeItem('ag_session_token');
+            sessionStorage.removeItem('ag_acting_user_id');
+            sessionStorage.removeItem('ag_impersonated_role');
+          }
+          setActingUserId('');
+          setAuthenticatedUser(null);
+          setIsLoggedIn(false);
         }
-        setActingUserId('');
-        setIsLoggedIn(false);
         setIsLoading(false);
         return;
       }
@@ -121,22 +160,39 @@ export function useGovernanceStore() {
       const sessionData = await sessionRes.json();
       const authUser: AdminUser = sessionData.user;
       if (authUser && authUser.id) {
-        setActingUserId(authUser.id);
-        if (typeof window !== 'undefined') {
-          sessionStorage.setItem('ag_acting_user_id', authUser.id);
-          localStorage.setItem('ag_acting_user_id', authUser.id);
+        setAuthenticatedUser(authUser);
+
+        const storedActingId = typeof window !== 'undefined'
+          ? (sessionStorage.getItem('ag_acting_user_id') || localStorage.getItem('ag_acting_user_id'))
+          : '';
+
+        // If the authenticated user is SuperAdmin and has chosen a switched identity, preserve it across polling
+        if (authUser.role === 'SuperAdmin' && storedActingId) {
+          setActingUserId(storedActingId);
+        } else if (!storedActingId || authUser.role !== 'SuperAdmin') {
+          setActingUserId(authUser.id);
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('ag_acting_user_id', authUser.id);
+            localStorage.setItem('ag_acting_user_id', authUser.id);
+          }
         }
       }
+      setIsLoggedIn(true);
 
-      // Step 2: Fetch global governance state
-      const res = await fetch('/api/state', {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      // Step 2: Fetch global governance state & live health
+      const [res, healthRes] = await Promise.all([
+        fetch('/api/state', {
+          cache: 'no-store',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        }),
+        fetch('/api/health', { cache: 'no-store' }).catch(() => null)
+      ]);
 
       if (!res.ok) {
+        setRestSyncStatus('DISCONNECTED');
         if (res.status === 401) {
           if (typeof window !== 'undefined') {
             localStorage.removeItem('ag_session_token');
@@ -150,18 +206,37 @@ export function useGovernanceStore() {
         return;
       }
 
+      if (healthRes && healthRes.ok) {
+        const healthData = await healthRes.json().catch(() => null);
+        setRestSyncStatus(healthData?.degraded ? 'DEGRADED' : 'SYNCHRONIZED');
+      } else {
+        setRestSyncStatus('SYNCHRONIZED');
+      }
+
       const data = await res.json();
       if (data.policies) setPolicies(data.policies);
       if (data.killEvents) setKillEvents(data.killEvents);
       if (data.driftEvents) setDriftEvents(data.driftEvents);
       if (data.valueMetrics) setValueMetrics(data.valueMetrics);
-      if (data.users) setUsers(data.users);
+      if (data.users) {
+        if (authUser && !data.users.some((u: AdminUser) => u.id === authUser.id)) {
+          setUsers([authUser, ...data.users]);
+        } else {
+          setUsers(data.users);
+        }
+      } else if (authUser) {
+        setUsers(prev => prev.some(u => u.id === authUser.id) ? prev : [authUser, ...prev]);
+      }
       if (data.governedAgents) setGovernedAgents(data.governedAgents);
+      if (Array.isArray(data.apiLogs)) setApiLogs(data.apiLogs);
       if (data.laborConfig) setLaborConfig(data.laborConfig);
+      if (typeof data.budgetCap === 'number') setBudgetCap(data.budgetCap);
       if (data.notifications) setNotifications(data.notifications);
       if (data.governanceMode) setGovernanceModeState(data.governanceMode);
+      if (data.globalSettings) setGlobalSettings(data.globalSettings);
       setIsLoggedIn(true);
     } catch (err) {
+      setRestSyncStatus('DISCONNECTED');
       console.warn('[GovernanceStore] Admin API state sync error:', err);
     } finally {
       setIsLoading(false);
@@ -170,6 +245,24 @@ export function useGovernanceStore() {
 
   useEffect(() => {
     refreshState();
+    // Real-time synchronization loop: continuously poll server and Firestore every 4s
+    const pollInterval = setInterval(() => {
+      if (typeof window !== 'undefined' && (sessionStorage.getItem('ag_session_token') || localStorage.getItem('ag_session_token'))) {
+        refreshState();
+      }
+    }, 4000);
+
+    const handleFocus = () => {
+      if (typeof window !== 'undefined' && (sessionStorage.getItem('ag_session_token') || localStorage.getItem('ag_session_token'))) {
+        refreshState();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(pollInterval);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [refreshState]);
 
   // Actions wired to Backend API
@@ -247,17 +340,103 @@ export function useGovernanceStore() {
   }, [getAuthHeaders, refreshState]);
 
   const addAgent = useCallback(async (agent: Partial<GoverningAgent>) => {
+    const res = await fetch('/api/agents', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(agent)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error || `Failed to register agent (HTTP ${res.status})`);
+    }
+    await refreshState();
+  }, [getAuthHeaders, refreshState]);
+
+  const updateAgent = useCallback(async (id: string, updates: Partial<GoverningAgent>) => {
+    const res = await fetch(`/api/agents/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(updates)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      await refreshState();
+      throw new Error(data?.error || `Failed to update agent (HTTP ${res.status})`);
+    }
+    await refreshState();
+  }, [getAuthHeaders, refreshState]);
+
+  const deleteAgent = useCallback(async (id: string) => {
+    const res = await fetch(`/api/agents/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      await refreshState();
+      throw new Error(data?.error || `Failed to delete agent (HTTP ${res.status})`);
+    }
+    setApiLogs(prev => prev.filter(l => l.agentId.toLowerCase() !== id.toLowerCase()));
+    await refreshState();
+  }, [getAuthHeaders, refreshState]);
+
+  const bulkUpdateAgentsStatus = useCallback(async (ids: string[], status: 'NOMINAL' | 'ALERT' | 'HALTED') => {
+    const res = await fetch('/api/agents/bulk-status', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ ids, status })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      await refreshState();
+      throw new Error(data?.error || `Failed to update agents (HTTP ${res.status})`);
+    }
+    await refreshState();
+  }, [getAuthHeaders, refreshState]);
+
+  const createUser = useCallback(async (user: Partial<AdminUser>) => {
     try {
-      const res = await fetch('/api/agents', {
+      const res = await fetch('/api/users', {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify(agent)
+        body: JSON.stringify(user)
       });
       if (res.ok) {
         await refreshState();
       }
     } catch (err) {
-      console.error('Failed to add agent via API:', err);
+      console.error('Failed to create user via API:', err);
+    }
+  }, [getAuthHeaders, refreshState]);
+
+  const updateUser = useCallback(async (id: string, updates: Partial<AdminUser>) => {
+    try {
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, ...updates } : u));
+      const res = await fetch(`/api/users/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(updates)
+      });
+      if (res.ok) {
+        await refreshState();
+      }
+    } catch (err) {
+      console.error('Failed to update user via API:', err);
+    }
+  }, [getAuthHeaders, refreshState]);
+
+  const deleteUser = useCallback(async (id: string) => {
+    try {
+      setUsers(prev => prev.filter(u => u.id !== id));
+      const res = await fetch(`/api/users/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        await refreshState();
+      }
+    } catch (err) {
+      console.error('Failed to delete user via API:', err);
     }
   }, [getAuthHeaders, refreshState]);
 
@@ -273,6 +452,20 @@ export function useGovernanceStore() {
       console.error('Failed to update labor config via API:', err);
     }
   }, [getAuthHeaders]);
+
+  const updateBudgetCap = useCallback(async (cap: number) => {
+    try {
+      setBudgetCap(cap);
+      await fetch('/api/budget-cap', {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ budgetCap: cap })
+      });
+      await refreshState();
+    } catch (err) {
+      console.error('Failed to update budget cap via API:', err);
+    }
+  }, [getAuthHeaders, refreshState]);
 
   const markAllNotificationsRead = useCallback(async () => {
     try {
@@ -300,16 +493,22 @@ export function useGovernanceStore() {
 
   const setGovernanceMode = useCallback(async (mode: 'setup' | 'active') => {
     setGovernanceModeState(mode);
-    if (mode === 'active') {
-      try {
+    try {
+      if (mode === 'active') {
         await fetch('/api/onboarding/complete', {
           method: 'POST',
           headers: getAuthHeaders()
         });
-        await refreshState();
-      } catch (err) {
-        console.error('Failed to set governance mode via API:', err);
+      } else {
+        await fetch('/api/governance-mode', {
+          method: 'PUT',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ mode })
+        });
       }
+      await refreshState();
+    } catch (err) {
+      console.error('Failed to set governance mode via API:', err);
     }
   }, [getAuthHeaders, refreshState]);
 
@@ -387,16 +586,27 @@ export function useGovernanceStore() {
     setIsLoggedIn,
     governedAgents,
     setGovernedAgents,
+    apiLogs,
+    setApiLogs,
     laborConfig,
     setLaborConfig,
+    budgetCap,
+    setBudgetCap,
+    updateBudgetCap,
     notifications,
     setNotifications,
     disableAlertsGlobally,
     setDisableAlertsGlobally,
     governanceMode,
     setGovernanceMode,
+    restSyncStatus,
+    globalSettings,
     currentUser,
     effectiveUser,
+    authenticatedUser,
+    isSwitchedIdentity,
+    switchActiveIdentity,
+    revertToAuthenticatedIdentity,
     impersonatedRole,
     startImpersonation,
     stopImpersonation,
@@ -408,6 +618,12 @@ export function useGovernanceStore() {
     addKillEvent,
     clearKillEvents,
     addAgent,
+    updateAgent,
+    deleteAgent,
+    bulkUpdateAgentsStatus,
+    createUser,
+    updateUser,
+    deleteUser,
     updateLaborConfig,
     addNotification,
     markAllNotificationsRead,

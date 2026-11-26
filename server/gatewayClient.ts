@@ -26,7 +26,19 @@ export async function forwardToGatewayEdge(
   },
   clientHeaders: Record<string, string | string[] | undefined> = {}
 ): Promise<{ status: number; data: GatewayEdgeResponse }> {
-  const gatewayUrl = process.env.GATEWAY_EDGE_URL || 'http://localhost:8081';
+  const gatewayUrl = process.env.GATEWAY_EDGE_URL;
+  if (!gatewayUrl) {
+    return {
+      status: 503,
+      data: {
+        status: 'HALTED',
+        authorized: false,
+        error: 'Gateway Edge Interception Service Unavailable',
+        code: 'GATEWAY_EDGE_OFFLINE',
+        reason: 'The canonical gateway-edge governance engine is unreachable.'
+      }
+    };
+  }
   const internalSecret = process.env.INTERNAL_SERVICE_SECRET || '';
 
   const headers: Record<string, string> = {
@@ -62,7 +74,7 @@ export async function forwardToGatewayEdge(
       data: data as GatewayEdgeResponse
     };
   } catch (err: any) {
-    console.error('[Gateway Edge Client] Error communicating with gateway-edge service:', err?.message || err);
+    console.warn('[Gateway Edge Client] Gateway-edge service unreachable:', err?.message || err);
     return {
       status: 503,
       data: {

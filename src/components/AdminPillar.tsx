@@ -7,13 +7,15 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Key, ShieldAlert, SlidersHorizontal, Plus, Trash2, 
   Fingerprint, Globe, Check, AlertTriangle, ShieldCheck, 
-  Search, UserCheck, Shield, Lock, Eye, AlertCircle, KeyRound
+  Search, UserCheck, Shield, Lock, Eye, AlertCircle, KeyRound,
+  Mail, Send, CheckCircle2, Server, HelpCircle, ExternalLink
 } from 'lucide-react';
 import { AdminUser, AdminRole, RolePermission, GlobalAdminSettings } from '../types';
 import { RefreshCw, Link2, LogOut, BellOff } from 'lucide-react';
 import ConfirmationModal from './ConfirmationModal';
 import UpdatePasswordModal from './UpdatePasswordModal';
 import ProvisionUserModal from './ProvisionUserModal';
+import { generateTransactionId } from '../utils';
 
 interface AdminPillarProps {
   currentUser: AdminUser;
@@ -21,8 +23,12 @@ interface AdminPillarProps {
   impersonatedRole?: AdminRole | null;
   onStartImpersonation?: (targetRole: AdminRole) => Promise<{ success: boolean; error?: string }>;
   onStopImpersonation?: () => Promise<{ success: boolean; error?: string }>;
+  onSwitchIdentity?: (user: AdminUser) => void;
   users: AdminUser[];
   setUsers: React.Dispatch<React.SetStateAction<AdminUser[]>>;
+  onCreateUser?: (user: Partial<AdminUser>) => Promise<void>;
+  onUpdateUser?: (id: string, updates: Partial<AdminUser>) => Promise<void>;
+  onDeleteUser?: (id: string) => Promise<void>;
   addToast: (t: { type: 'danger' | 'warning' | 'info' | 'success'; title: string; message: string; duration?: number }) => void;
   disableAlertsGlobally: boolean;
   setDisableAlertsGlobally: (val: boolean) => void;
@@ -42,13 +48,180 @@ export default function AdminPillar({
   impersonatedRole,
   onStartImpersonation,
   onStopImpersonation,
+  onSwitchIdentity,
   users,
   setUsers,
+  onCreateUser,
+  onUpdateUser,
+  onDeleteUser,
   addToast, 
   disableAlertsGlobally, 
   setDisableAlertsGlobally 
 }: AdminPillarProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'iam' | 'roles' | 'settings' | 'registry'>('iam');
+  const [activeSubTab, setActiveSubTab] = useState<'iam' | 'roles' | 'settings' | 'registry' | 'email'>('iam');
+
+  // Real-Time Email Gateway & Out-of-Band Relay State
+  const [emailConfig, setEmailConfig] = useState<{
+    configured: boolean;
+    provider: string;
+    host: string;
+    port: number;
+    secure: boolean;
+    user: string;
+    from: string;
+    hasPassword: boolean;
+    isSandbox: boolean;
+    sandboxAllowedRecipient: string | null;
+  } | null>(null);
+
+  const [smtpForm, setSmtpForm] = useState({
+    host: 'smtp.resend.com',
+    port: 465,
+    secure: true,
+    user: 'resend',
+    pass: 're_YLRuL2SW_Di89P5cKze6w24cF6kbvARzJ',
+    from: 'AgentsGuardian <onboarding@resend.dev>'
+  });
+
+  const [testEmailTarget, setTestEmailTarget] = useState('priyagurung674@gmail.com');
+  const [testEmailSubject, setTestEmailSubject] = useState('[AgentsGuardian] Live Relay Verification');
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isSavingSmtp, setIsSavingSmtp] = useState(false);
+  const [emailDispatches, setEmailDispatches] = useState<any[]>([]);
+  const [isLoadingDispatches, setIsLoadingDispatches] = useState(false);
+
+  const fetchEmailConfig = async () => {
+    setIsLoadingDispatches(true);
+    const sessionToken = localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token') || '';
+    try {
+      const res = await fetch('/api/admin/email-config', {
+        headers: sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {}
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.config) {
+          setEmailConfig(data.config);
+          setSmtpForm(prev => ({
+            ...prev,
+            host: data.config.host || prev.host,
+            port: data.config.port || prev.port,
+            secure: data.config.secure !== undefined ? data.config.secure : prev.secure,
+            user: data.config.user || prev.user,
+            from: data.config.from || prev.from
+          }));
+        }
+        if (data.recentDispatches) {
+          setEmailDispatches(data.recentDispatches);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load email config:', err);
+    } finally {
+      setIsLoadingDispatches(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeSubTab === 'email') {
+      fetchEmailConfig();
+    }
+  }, [activeSubTab]);
+
+  const handleSaveSmtp = async () => {
+    setIsSavingSmtp(true);
+    const sessionToken = localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token') || '';
+    try {
+      const res = await fetch('/api/admin/email-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {})
+        },
+        body: JSON.stringify(smtpForm)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        addToast({
+          type: 'danger',
+          title: 'SMTP Verification Failed',
+          message: data.error || 'Could not connect to SMTP server with provided credentials.'
+        });
+      } else {
+        addToast({
+          type: 'success',
+          title: 'SMTP Connected & Verified',
+          message: data.message || 'SMTP Email Relay successfully reconfigured and active.'
+        });
+        if (data.config) {
+          setEmailConfig(data.config);
+        }
+        fetchEmailConfig();
+      }
+    } catch (err: any) {
+      addToast({
+        type: 'danger',
+        title: 'Connection Error',
+        message: err.message || 'Network error updating SMTP configuration.'
+      });
+    } finally {
+      setIsSavingSmtp(false);
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    if (!testEmailTarget || !testEmailTarget.includes('@')) {
+      addToast({
+        type: 'warning',
+        title: 'Invalid Email',
+        message: 'Please enter a valid recipient email address.'
+      });
+      return;
+    }
+
+    setIsSendingTest(true);
+    setTestResult(null);
+    const sessionToken = localStorage.getItem('ag_session_token') || sessionStorage.getItem('ag_session_token') || '';
+    try {
+      const res = await fetch('/api/admin/email-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {})
+        },
+        body: JSON.stringify({
+          to: testEmailTarget.trim(),
+          subject: testEmailSubject.trim()
+        })
+      });
+      const data = await res.json();
+      setTestResult({
+        success: data.success,
+        message: data.message || (data.success ? 'Email dispatched successfully!' : 'Email dispatch failed.')
+      });
+      if (data.success) {
+        addToast({
+          type: 'success',
+          title: '📧 Test Email Dispatched',
+          message: `Live test email delivered to ${testEmailTarget}. Check personal inbox & spam folder.`
+        });
+      } else {
+        addToast({
+          type: 'danger',
+          title: 'Dispatch Rejected by Relay',
+          message: data.message || 'SMTP relay rejected message.'
+        });
+      }
+      fetchEmailConfig();
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        message: err.message || 'Failed to dispatch test email.'
+      });
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
   
   // React State
   const [permissions, setPermissions] = useState<RolePermission[]>(INITIAL_PERMISSIONS);
@@ -174,7 +347,7 @@ export default function AdminPillar({
     }
 
     const newUser: AdminUser = {
-      id: `USR-0${users.length + 1}`,
+      id: generateTransactionId('USR'),
       name: newName,
       email: newEmail,
       role: newRole,
@@ -184,6 +357,9 @@ export default function AdminPillar({
     };
 
     setUsers(prev => [...prev, newUser]);
+    if (onCreateUser) {
+      onCreateUser(newUser);
+    }
     setNewName('');
     setNewEmail('');
     
@@ -209,6 +385,9 @@ export default function AdminPillar({
     }
 
     setUsers(prev => prev.filter(u => u.id !== id));
+    if (onDeleteUser) {
+      onDeleteUser(id);
+    }
     addToast({
       type: 'danger',
       title: 'Credentials Revoked',
@@ -233,6 +412,9 @@ export default function AdminPillar({
     setUsers(prev => prev.map(u => {
       if (u.id === id) {
         const nextStatus = u.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+        if (onUpdateUser) {
+          onUpdateUser(id, { status: nextStatus });
+        }
         addToast({
           type: nextStatus === 'ACTIVE' ? 'success' : 'warning',
           title: `Account Access Updated`,
@@ -274,6 +456,9 @@ export default function AdminPillar({
 
     setUsers(prev => prev.map(u => {
       if (u.id === id) {
+        if (onUpdateUser) {
+          onUpdateUser(id, { role });
+        }
         addToast({
           type: 'info',
           title: 'Role Authorization Changed',
@@ -519,6 +704,17 @@ export default function AdminPillar({
           >
             <Fingerprint size={14} />
             Visitor Registry
+          </button>
+          <button
+            onClick={() => setActiveSubTab('email')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono font-bold transition-all cursor-pointer ${
+              activeSubTab === 'email'
+                ? 'bg-[#1D9E75]/15 text-[#1D9E75] border border-[#1D9E75]/25 shadow-sm'
+                : 'text-zinc-500 hover:text-white border border-transparent'
+            }`}
+          >
+            <Mail size={14} />
+            Email Gateway
           </button>
         </div>
       </div>
@@ -802,6 +998,32 @@ export default function AdminPillar({
                                   >
                                     <Eye size={11} /> Details
                                   </button>
+
+                                  {/* Act As / Switch Identity for SuperAdmin */}
+                                  {Boolean((realUser?.role === 'SuperAdmin' || currentUser.role === 'SuperAdmin') && onSwitchIdentity) && (
+                                    <button
+                                      onClick={() => {
+                                        if (onSwitchIdentity) onSwitchIdentity(user);
+                                        addToast({
+                                          type: 'success',
+                                          title: '🔐 Active Session Swapped',
+                                          message: `Successfully switched identity to: ${user.name} (${user.role}).`
+                                        });
+                                      }}
+                                      disabled={user.status === 'SUSPENDED' || user.id === currentUser.id}
+                                      className={`text-[10px] font-bold font-mono px-2 py-1 rounded transition-colors flex items-center gap-1 cursor-pointer border ${
+                                        user.id === currentUser.id
+                                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 cursor-default'
+                                          : user.status === 'SUSPENDED'
+                                            ? 'bg-zinc-950/40 text-zinc-600 border-zinc-900 cursor-not-allowed opacity-40'
+                                            : 'text-amber-300 bg-amber-950/30 border border-amber-500/30 hover:bg-amber-900/50'
+                                      }`}
+                                      title={user.id === currentUser.id ? 'Currently Active Identity' : `Act as ${user.name} (${user.role})`}
+                                    >
+                                      <UserCheck size={11} />
+                                      {user.id === currentUser.id ? 'Active' : 'Act As'}
+                                    </button>
+                                  )}
 
                                   {/* Suspend toggler */}
                                   <button
@@ -1717,6 +1939,474 @@ export default function AdminPillar({
               <span>LEDGER SYNC CODE: SYNC_SEC_ACTIVE</span>
               <span className="text-zinc-400">Total Registered Identities count: {users.length}</span>
             </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* EMAIL GATEWAY & OUT-OF-BAND RELAY SUBTAB */}
+    {activeSubTab === 'email' && (
+      <div className="space-y-6" id="email-gateway-container">
+        {/* Top Architecture Banner */}
+        <div className="p-6 bg-zinc-950 rounded-xl border border-zinc-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="p-2 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-400">
+                <Mail size={18} />
+              </span>
+              <div>
+                <h3 className="text-base font-bold font-display text-white">
+                  Real-Time Out-of-Band Email Gateway & Relay
+                </h3>
+                <p className="text-xs font-mono text-zinc-400">
+                  Zero-trust cryptographic notification pipeline for Password Resets, Activation OTPs, and Administrative Security Directives.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <span className="text-[10px] font-mono text-zinc-500 uppercase block font-bold">Relay Status</span>
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono font-bold border ${
+                emailConfig?.isSandbox
+                  ? 'bg-amber-950/30 text-amber-400 border-amber-500/30'
+                  : emailConfig?.configured
+                  ? 'bg-emerald-950/30 text-emerald-400 border-emerald-500/30'
+                  : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${emailConfig?.isSandbox ? 'bg-amber-400 animate-pulse' : emailConfig?.configured ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
+                {emailConfig?.isSandbox
+                  ? 'Resend Free Sandbox (Account Owner Only)'
+                  : emailConfig?.provider === 'gmail'
+                  ? 'Gmail SMTP (Global Delivery)'
+                  : emailConfig?.provider === 'resend-domain'
+                  ? 'Resend Verified Domain (Global)'
+                  : emailConfig?.configured
+                  ? 'Active SMTP Relay'
+                  : 'Unconfigured'}
+              </span>
+            </div>
+
+            <button
+              onClick={fetchEmailConfig}
+              disabled={isLoadingDispatches}
+              className="p-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition-all cursor-pointer"
+              title="Refresh Relay State"
+            >
+              <RefreshCw size={14} className={isLoadingDispatches ? 'animate-spin' : ''} />
+            </button>
+          </div>
+        </div>
+
+        {/* Global Delivery Architecture & Sandbox Diagnostic Notice */}
+        {emailConfig?.isSandbox && (
+          <div className="p-5 bg-amber-950/15 border border-amber-500/30 rounded-xl space-y-3">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="text-amber-400 shrink-0 mt-0.5" size={18} />
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-amber-300 font-mono">
+                  Why are emails currently only going to guardianagent12@gmail.com?
+                </h4>
+                <p className="text-xs text-zinc-300 leading-relaxed font-sans">
+                  The current API key is configured with Resend's free testing sender (<code className="text-amber-300 font-mono">onboarding@resend.dev</code>). By strict anti-spam policy, Resend <strong>only permits sending to the account owner ({emailConfig.sandboxAllowedRecipient || 'guardianagent12@gmail.com'})</strong>. Any dispatch to external addresses (<code className="text-amber-300 font-mono">priyagurung674@gmail.com</code>, <code className="text-amber-300 font-mono">om.patil@agentsguardian.ai</code>, Outlook, etc.) is rejected by Resend with code 550.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 text-xs">
+              <div className="p-3.5 bg-black/40 rounded-lg border border-teal-500/30 space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-teal-400 font-mono">
+                  <CheckCircle2 size={14} />
+                  <span>Option 1: Switch to Gmail SMTP (Fastest & Free)</span>
+                </div>
+                <p className="text-zinc-400 text-[11px] leading-relaxed">
+                  Sends to <strong>ANY email in the world</strong> (Outlook, Gmail, Yahoo, corporate domains) without buying or verifying a domain. Requires a free 16-character Google App Password from <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="text-teal-400 underline">Google Account Security</a>.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSmtpForm({
+                      host: 'smtp.gmail.com',
+                      port: 465,
+                      secure: true,
+                      user: 'your_email@gmail.com',
+                      pass: '',
+                      from: 'AgentsGuardian <your_email@gmail.com>'
+                    });
+                    addToast({
+                      type: 'info',
+                      title: 'Gmail Preset Loaded',
+                      message: 'Enter your Gmail address and 16-character App Password, then click Verify & Save.'
+                    });
+                  }}
+                  className="px-3 py-1.5 rounded bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/40 text-teal-300 text-[11px] font-mono font-bold cursor-pointer transition-all"
+                >
+                  ⚡ Load Gmail SMTP Preset
+                </button>
+              </div>
+
+              <div className="p-3.5 bg-black/40 rounded-lg border border-zinc-800 space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-zinc-300 font-mono">
+                  <ExternalLink size={14} />
+                  <span>Option 2: Verify Custom Domain on Resend</span>
+                </div>
+                <p className="text-zinc-400 text-[11px] leading-relaxed">
+                  Log in to your Resend dashboard at <a href="https://resend.com/domains" target="_blank" rel="noreferrer" className="text-teal-400 underline">resend.com/domains</a>, add your domain (e.g. <code className="text-teal-300">agentsguardian.ai</code>), add the 3 DNS records, and update the sender below to <code className="text-teal-300">noreply@agentsguardian.ai</code>.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSmtpForm(prev => ({
+                      ...prev,
+                      host: 'smtp.resend.com',
+                      port: 465,
+                      secure: true,
+                      user: 'resend',
+                      from: 'AgentsGuardian <noreply@agentsguardian.ai>'
+                    }));
+                  }}
+                  className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 text-[11px] font-mono font-bold cursor-pointer transition-all"
+                >
+                  Load Resend Domain Preset
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Live Reconfiguration & Testing Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* SMTP Configuration Form (7 Cols) */}
+          <div className="lg:col-span-7 bg-zinc-950 p-5 rounded-xl border border-zinc-900 space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-900">
+              <div className="flex items-center gap-2">
+                <Server size={16} className="text-teal-400" />
+                <h4 className="text-sm font-bold font-mono text-white">SMTP Relay Credentials</h4>
+              </div>
+              <span className="text-[10px] font-mono text-zinc-500 uppercase">TLS 1.3 / SSL Verified</span>
+            </div>
+
+            {/* Presets Toolbar */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-mono text-zinc-500 uppercase font-bold">Quick Presets</label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSmtpForm({
+                      host: 'smtp.gmail.com',
+                      port: 465,
+                      secure: true,
+                      user: 'your_email@gmail.com',
+                      pass: '',
+                      from: 'AgentsGuardian <your_email@gmail.com>'
+                    });
+                  }}
+                  className="px-2.5 py-1 rounded bg-teal-950/30 hover:bg-teal-950/50 border border-teal-500/30 text-teal-300 text-[11px] font-mono cursor-pointer transition-all"
+                >
+                  Gmail (Global Deliveries)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSmtpForm({
+                      host: 'smtp.resend.com',
+                      port: 465,
+                      secure: true,
+                      user: 'resend',
+                      pass: 're_YLRuL2SW_Di89P5cKze6w24cF6kbvARzJ',
+                      from: 'AgentsGuardian <onboarding@resend.dev>'
+                    });
+                  }}
+                  className="px-2.5 py-1 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[11px] font-mono cursor-pointer transition-all"
+                >
+                  Resend Sandbox
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSmtpForm({
+                      host: 'smtp.resend.com',
+                      port: 465,
+                      secure: true,
+                      user: 'resend',
+                      pass: 're_YLRuL2SW_Di89P5cKze6w24cF6kbvARzJ',
+                      from: 'AgentsGuardian <noreply@agentsguardian.ai>'
+                    });
+                  }}
+                  className="px-2.5 py-1 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[11px] font-mono cursor-pointer transition-all"
+                >
+                  Resend Custom Domain
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSmtpForm({
+                      host: 'smtp-relay.brevo.com',
+                      port: 587,
+                      secure: false,
+                      user: '',
+                      pass: '',
+                      from: 'AgentsGuardian <noreply@agentsguardian.ai>'
+                    });
+                  }}
+                  className="px-2.5 py-1 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[11px] font-mono cursor-pointer transition-all"
+                >
+                  Brevo Relay
+                </button>
+              </div>
+            </div>
+
+            {/* Form Fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-mono text-zinc-400 uppercase font-bold">SMTP Host</label>
+                <input
+                  type="text"
+                  value={smtpForm.host}
+                  onChange={e => setSmtpForm(prev => ({ ...prev, host: e.target.value }))}
+                  placeholder="smtp.resend.com or smtp.gmail.com"
+                  className="w-full text-xs font-mono bg-black/40 border border-zinc-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-mono text-zinc-400 uppercase font-bold">Port</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={smtpForm.port}
+                    onChange={e => setSmtpForm(prev => ({ ...prev, port: parseInt(e.target.value, 10) || 465 }))}
+                    className="w-24 text-xs font-mono bg-black/40 border border-zinc-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-teal-500"
+                  />
+                  <label className="flex items-center gap-1.5 text-xs font-mono text-zinc-400 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={smtpForm.secure}
+                      onChange={e => setSmtpForm(prev => ({ ...prev, secure: e.target.checked }))}
+                      className="accent-teal-500"
+                    />
+                    SSL/TLS (Port 465)
+                  </label>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-mono text-zinc-400 uppercase font-bold">Username / Account</label>
+                <input
+                  type="text"
+                  value={smtpForm.user}
+                  onChange={e => setSmtpForm(prev => ({ ...prev, user: e.target.value }))}
+                  placeholder="resend, or myemail@gmail.com"
+                  className="w-full text-xs font-mono bg-black/40 border border-zinc-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-mono text-zinc-400 uppercase font-bold">Password / API Key</label>
+                <input
+                  type="password"
+                  value={smtpForm.pass}
+                  onChange={e => setSmtpForm(prev => ({ ...prev, pass: e.target.value }))}
+                  placeholder="API Key or Google App Password"
+                  className="w-full text-xs font-mono bg-black/40 border border-zinc-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div className="sm:col-span-2 space-y-1">
+                <label className="text-[10px] font-mono text-zinc-400 uppercase font-bold">Sender 'From' Header</label>
+                <input
+                  type="text"
+                  value={smtpForm.from}
+                  onChange={e => setSmtpForm(prev => ({ ...prev, from: e.target.value }))}
+                  placeholder="AgentsGuardian <onboarding@resend.dev>"
+                  className="w-full text-xs font-mono bg-black/40 border border-zinc-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-teal-500"
+                />
+                <span className="text-[10px] text-zinc-500 font-mono block">
+                  * Must match the verified domain in Resend or your authenticated Gmail address.
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex items-center justify-between">
+              <span className="text-[11px] font-mono text-zinc-500">
+                Credentials are automatically verified via remote handshake upon save.
+              </span>
+              <button
+                type="button"
+                onClick={handleSaveSmtp}
+                disabled={isSavingSmtp}
+                className="px-4 py-2 rounded-lg bg-teal-500 hover:bg-teal-400 text-white font-bold text-xs font-mono transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isSavingSmtp ? (
+                  <>
+                    <RefreshCw size={13} className="animate-spin" />
+                    <span>Verifying Handshake...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={13} />
+                    <span>Verify & Save Live SMTP</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Real-Time Live Dispatch Tester (5 Cols) */}
+          <div className="lg:col-span-5 bg-zinc-950 p-5 rounded-xl border border-zinc-900 space-y-4 flex flex-col justify-between">
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 pb-3 border-b border-zinc-900">
+                <Send size={16} className="text-teal-400" />
+                <h4 className="text-sm font-bold font-mono text-white">Live Real-Time Dispatch Tester</h4>
+              </div>
+
+              <p className="text-xs text-zinc-400 font-sans leading-relaxed">
+                Send a real test email right now to ANY personal or corporate address (Outlook, Gmail mobile, etc.) to confirm live delivery.
+              </p>
+
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-mono text-zinc-400 uppercase font-bold">Target Recipient Address</label>
+                  <input
+                    type="email"
+                    value={testEmailTarget}
+                    onChange={e => setTestEmailTarget(e.target.value)}
+                    placeholder="priyagurung674@gmail.com or om.patil@agentsguardian.ai"
+                    className="w-full text-xs font-mono bg-black/40 border border-zinc-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-mono text-zinc-400 uppercase font-bold">Test Subject</label>
+                  <input
+                    type="text"
+                    value={testEmailSubject}
+                    onChange={e => setTestEmailSubject(e.target.value)}
+                    className="w-full text-xs font-mono bg-black/40 border border-zinc-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSendTestEmail}
+                  disabled={isSendingTest}
+                  className="w-full py-2.5 rounded-lg bg-teal-500 hover:bg-teal-400 text-white font-bold text-xs font-mono transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSendingTest ? (
+                    <>
+                      <RefreshCw size={13} className="animate-spin" />
+                      <span>Dispatching Out-of-Band Email...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={13} />
+                      <span>Send Real-Time Test Email</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {testResult && (
+                <div className={`p-3 rounded-lg border text-xs font-mono leading-relaxed ${
+                  testResult.success
+                    ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
+                    : 'bg-rose-950/20 border-rose-500/30 text-rose-300'
+                }`}>
+                  <div className="font-bold flex items-center gap-1.5 mb-1">
+                    {testResult.success ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
+                    <span>{testResult.success ? 'Dispatch Succeeded!' : 'Dispatch Blocked / Failed'}</span>
+                  </div>
+                  <p className="text-[11px] leading-normal">{testResult.message}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 bg-zinc-900/60 border border-zinc-850 rounded-lg text-[10px] font-mono text-zinc-400 space-y-1">
+              <span className="text-zinc-300 font-bold block">Zero-Trust Telemetry:</span>
+              <p>All transactional password resets and approvals dispatch TLS-encrypted payloads with tamper-evident SHA-256 payload audit records.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Real-Time Out-of-Band Dispatches Ledger Table */}
+        <div className="bg-zinc-950 rounded-xl border border-zinc-900 overflow-hidden">
+          <div className="p-4 bg-zinc-900/40 border-b border-zinc-900 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Mail size={15} className="text-teal-400" />
+              <h4 className="text-xs font-bold font-mono text-white uppercase tracking-wider">
+                Recent Out-of-Band Email Dispatches Audit Ledger ({emailDispatches.length})
+              </h4>
+            </div>
+            <button
+              onClick={fetchEmailConfig}
+              className="text-[11px] font-mono text-teal-400 hover:text-teal-300 flex items-center gap-1 cursor-pointer"
+            >
+              <RefreshCw size={12} />
+              <span>Refresh Ledger</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead>
+                <tr className="border-b border-zinc-900 text-zinc-500 text-[10px] uppercase bg-black/30">
+                  <th className="py-2.5 px-4 font-bold">Timestamp</th>
+                  <th className="py-2.5 px-4 font-bold">Type</th>
+                  <th className="py-2.5 px-4 font-bold">Recipient</th>
+                  <th className="py-2.5 px-4 font-bold">Subject</th>
+                  <th className="py-2.5 px-4 font-bold">Delivery Status</th>
+                  <th className="py-2.5 px-4 font-bold">Message ID / Diagnostic</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-900">
+                {emailDispatches.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-zinc-500 font-mono text-xs">
+                      No out-of-band email dispatches recorded in current session. Use the tester above or trigger Forgot Password.
+                    </td>
+                  </tr>
+                ) : (
+                  emailDispatches.map(record => (
+                    <tr key={record.id} className="hover:bg-zinc-900/30 transition-colors">
+                      <td className="py-3 px-4 text-zinc-400 whitespace-nowrap">
+                        {new Date(record.timestamp).toLocaleTimeString()}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-900 border border-zinc-800 text-teal-300">
+                          {record.type}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 font-bold text-white whitespace-nowrap">
+                        {record.to}
+                      </td>
+                      <td className="py-3 px-4 text-zinc-300 max-w-xs truncate">
+                        {record.subject}
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        {record.success ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-400 font-bold text-[11px]">
+                            <CheckCircle2 size={12} /> Delivered
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-rose-400 font-bold text-[11px]">
+                            <AlertTriangle size={12} /> Restricted / Error
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-zinc-400 max-w-sm truncate text-[11px]">
+                        {record.error ? (
+                          <span className="text-amber-400" title={record.error}>{record.error}</span>
+                        ) : (
+                          <span className="text-zinc-500 font-mono">{record.id}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

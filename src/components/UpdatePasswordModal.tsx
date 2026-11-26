@@ -109,8 +109,8 @@ export default function UpdatePasswordModal({
       return;
     }
 
-    if (newPassword.length < 12) {
-      setError('Password must contain at least 12 characters.');
+    if (newPassword.length < 8) {
+      setError('Password must contain at least 8 characters.');
       return;
     }
 
@@ -137,6 +137,11 @@ export default function UpdatePasswordModal({
         setIsSubmitting(false);
         return;
       }
+
+      if (effectiveTarget) {
+        effectiveTarget.mustResetPassword = false;
+      }
+      currentUser.mustResetPassword = false;
 
       setSuccessMessage('Administrative credentials successfully re-keyed.');
       addToast({
