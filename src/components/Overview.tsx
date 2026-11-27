@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Shield, Activity, Coins, ArrowUpRight, CheckCircle2, Cpu, Gauge, Calendar, Flame, AlertTriangle, BarChart2, ShieldAlert, Sparkles, Clock, Filter } from 'lucide-react';
-import { KillSignalEvent, DriftLogEvent, ValueMeterMetric, ApiRequestLog, AdminUser, GoverningAgent, Policy, LaborConfig } from '../types';
+import { KillSignalEvent, DriftLogEvent, ValueMeterMetric, ApiRequestLog, AdminUser, GoverningAgent, Policy, LaborConfig, OverviewStats } from '../types';
 import { GUARANTEED_SLA_MS, getStatusBadge, formatTimestamp } from '../utils';
 
 interface OverviewProps {
@@ -26,6 +26,8 @@ interface OverviewProps {
   governedAgents?: GoverningAgent[];
   governanceMode?: 'setup' | 'active';
   setGovernanceMode?: (mode: 'setup' | 'active') => void;
+  overviewStats?: OverviewStats;
+  onOverviewStatsChange?: (stats: OverviewStats) => void;
 }
 
 const EMPTY_AGENTS: GoverningAgent[] = [];
@@ -199,10 +201,68 @@ export default function Overview({
   bypassPolicyGuard = false,
   governedAgents = EMPTY_AGENTS,
   governanceMode = 'setup',
-  setGovernanceMode
+  setGovernanceMode,
+  overviewStats: initialOverviewStats,
+  onOverviewStatsChange
 }: OverviewProps) {
-  // Stats calculations
-  const totalHalted = killEvents.filter(e => e.status === 'HALTED').length;
+  const [overviewStats, setOverviewStats] = React.useState<OverviewStats>(
+    initialOverviewStats || { total: 0, allowed: 0, blocked: 0 }
+  );
+
+  React.useEffect(() => {
+    if (initialOverviewStats) {
+      setOverviewStats(initialOverviewStats);
+    }
+  }, [initialOverviewStats?.total, initialOverviewStats?.allowed, initialOverviewStats?.blocked]);
+
+  React.useEffect(() => {
+    let active = true;
+
+    const fetchOverviewStats = async () => {
+      try {
+        const token = typeof window !== 'undefined'
+          ? (sessionStorage.getItem('ag_session_token') || localStorage.getItem('ag_session_token'))
+          : null;
+        if (!token) return;
+        const res = await fetch('/api/overview/stats', {
+          cache: 'no-store',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (
+          active &&
+          data &&
+          typeof data.total === 'number' &&
+          typeof data.allowed === 'number' &&
+          typeof data.blocked === 'number'
+        ) {
+          const nextStats: OverviewStats = {
+            total: data.total,
+            allowed: data.allowed,
+            blocked: data.blocked
+          };
+          setOverviewStats(nextStats);
+          onOverviewStatsChange?.(nextStats);
+        }
+      } catch (err) {
+        console.warn('[Overview] Failed to fetch /api/overview/stats:', err);
+      }
+    };
+
+    fetchOverviewStats();
+    const interval = setInterval(fetchOverviewStats, 10000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [onOverviewStatsChange]);
+
+  // Stats calculations from GET /api/overview/stats (all real intercept records, no 250/200 cap)
+  const totalHalted = overviewStats.blocked;
   const activeDriftWarnings = driftEvents.filter(e => {
     if (e.isTest || (e as any).is_test || (e as any).archived || e.remedatedAt) return false;
     if (typeof e.cognitiveHealthScore === 'number') {
@@ -214,15 +274,15 @@ export default function Overview({
   const totalSavedValue = valueMetrics.reduce((acc, m) => acc + m.humanLaborSaved, 0);
   const netSavingsValue = totalSavedValue - totalSpend;
 
-  // Overall Governance Health Score based on ratio of authorized versus total API requests
-  const totalAuthorized = apiLogs.filter(log => log.status === 'AUTHORIZED').length;
-  const totalRequests = apiLogs.length;
-  const governanceHealthScore = totalRequests > 0 ? (totalAuthorized / totalRequests) * 100 : 100;
+  // Overall Governance Health Score = allowed / total * 100 (0 when there is no data)
+  const totalAuthorized = overviewStats.allowed;
+  const totalRequests = overviewStats.total;
+  const governanceHealthScore = totalRequests > 0 ? (totalAuthorized / totalRequests) * 100 : 0;
 
   // Real-time SLA Compliance (<GUARANTEED_SLA_MS)
   const slaSamples = apiLogs.length > 0 ? apiLogs : killEvents;
   const slaWithinTargetCount = slaSamples.filter(item => (item.latencyMs ?? 0) <= GUARANTEED_SLA_MS).length;
-  const slaCompliancePct = slaSamples.length > 0 ? (slaWithinTargetCount / slaSamples.length) * 100 : 100;
+  const slaCompliancePct = slaSamples.length > 0 ? (slaWithinTargetCount / slaSamples.length) * 100 : 0;
   const slaDashValue = Math.max(0, Math.min(100, Math.round(slaCompliancePct)));
 
   // Real-time Enterprise Context Engine parameters
@@ -479,7 +539,7 @@ export default function Overview({
           </div>
           <h3 className="text-xs font-mono text-[#556070] font-bold tracking-wider">PILLAR 4: GOVERNANCE</h3>
           <p className="text-2xl font-display font-bold text-[#F0EEE6] mt-1 leading-none group-hover:text-sky-300 transition-colors">
-            {governanceHealthScore.toFixed(1)}% Health Score
+            {totalRequests > 0 ? governanceHealthScore.toFixed(1) : '0'}% Health Score
           </p>
           <div className="mt-4 flex flex-col gap-2 border-t border-[#1F2E40] pt-3">
             <div className="flex items-center justify-between">

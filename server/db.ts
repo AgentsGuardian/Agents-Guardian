@@ -24,6 +24,7 @@ import {
   INITIAL_GOVERNED_AGENTS
 } from '../src/data';
 import { hashPassword, hashTenantApiKey } from './authUtils.js';
+import { encryptSecret, decryptSecret } from './kms.js';
 
 export interface AuditLedgerRow {
   id: string;
@@ -37,6 +38,8 @@ export interface AuditLedgerRow {
   signature: string;
   signature_status: string;
   timestamp: string;
+  kms_signature?: string;
+  kms_key_version?: string;
 }
 
 export interface PolicyVersionRecord {
@@ -64,7 +67,7 @@ interface PersistentSchema {
   policy_versions?: PolicyVersionRecord[];
   iam_users: AdminUser[];
   audit_ledger: AuditLedgerRow[];
-  tenant_api_keys: { key_hash: string; tenant_id: string; raw_key_prefix: string; created_at: string }[];
+  tenant_api_keys: { key_hash: string; tenant_id: string; raw_key_prefix: string; encrypted_key?: string; created_at: string }[];
   governed_agents: GoverningAgent[];
   kill_events?: KillSignalEvent[];
   drift_events?: DriftLogEvent[];
@@ -78,7 +81,7 @@ interface PersistentSchema {
   kv_store: Record<string, { v: string; updated_at: string }>;
 }
 
-// Retention caps for high-frequency telemetry collections
+// Retention caps for high-frequency telemetry collections (display window only for api_logs/kill_events)
 const RETENTION_LIMITS = {
   API_LOGS: 250,
   NOTIFICATIONS: 100,
@@ -86,6 +89,51 @@ const RETENTION_LIMITS = {
   KILL_EVENTS: 200,
   DRIFT_EVENTS: 200
 };
+
+export function classifyInterceptDecision(record: {
+  status?: string;
+  decision?: string;
+  enforcement_mode?: string;
+  enforcementMode?: string;
+}): 'allowed' | 'blocked' {
+  const decision = String(record.decision || '').trim().toUpperCase();
+  const status = String(record.status || '').trim().toUpperCase();
+
+  if (
+    decision === 'DENY' ||
+    decision === 'DENIED' ||
+    decision === 'HALT' ||
+    decision === 'HALTED' ||
+    decision === 'HALTED_AGENT_DENIED' ||
+    decision === 'BLOCK' ||
+    decision === 'BLOCKED' ||
+    decision === 'REJECTED' ||
+    decision === 'THROTTLE' ||
+    decision === 'THROTTLED'
+  ) {
+    return 'blocked';
+  }
+
+  if (
+    decision === 'ALLOW' ||
+    decision === 'ALLOWED' ||
+    decision === 'AUTHORIZED' ||
+    decision === 'WARN'
+  ) {
+    return 'allowed';
+  }
+
+  if (
+    status === 'AUTHORIZED' ||
+    status === 'ALLOWED' ||
+    status === 'ALLOW' ||
+    status === 'SUCCESS'
+  ) {
+    return 'allowed';
+  }
+
+  return 'blocked';
+}
 
 class StorageEngine {
   private firestoreDb: Firestore | null = null;
@@ -213,42 +261,25 @@ class StorageEngine {
     const requirePersistent = process.env.REQUIRE_PERSISTENT_STORAGE === 'true' ||
       (process.env.NODE_ENV === 'production' && process.env.STRICT_STORAGE === 'true');
 
-    const projectId = 'agents-guardian';
+    const projectId = process.env.GOOGLE_CLOUD_PROJECT;
     const databaseId = 'default';
     const region = 'nam5';
-
-    const fallbackSa = {
-      "type": "service_account",
-      "project_id": "agents-guardian",
-      "private_key_id": "6b8da6d186ee38ac3b45f32a51949a7581fb9336",
-      "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC3P4BpmqDsTXqW\n9LyTPIND4M7T33FkyIP18YJi663K9p9IAoKh08gILZySnp1dsjd8+s6/QM6nvmNp\nWSJK4PD+RiU5kfo4TVj8eEHhU+Uctp0J3D8T/TCjeY+CZ2afqsG8HRmadxFPdVVb\n1cenfpZkaJNYAUDkpsCe2Roent5ov9rCsuxEWB8DfegY1vXXy9pFxES9eKBQ27W1\n9GeFu4GSm6/Y1MplB6gCUx3yO2vYihdHRoPqE/w18J2ZfBwDO9yE5BmVJQBZ7/zG\n+8t1t8a1AyIHNKc0IVpjQ2C+naUb6TCNHM+7BnL2LbmvmHTG/kj+yNxMeknS6FKJ\n6T4BetFTAgMBAAECggEAG/+uYbRYITLnZ7hGNeL5lX38bCAIZeNDUmlPyEiFWe0b\nwjdr+UjwF9vMQBTPK5lG5Cg4Pb2rtbKf4uFVHYbIG7nhBy5YQpEC5zSCsGiOqbf3\nP6Hw21+Etn2k4UJmSkAfcNwrZNALi438eFcuNdfgJ8BYvwoV/bnC1aKLXKFejzd6\ntxRmcyS4dXojFGWotXm8FBebMy37ibYyXDKILVYaQQJHmoqQ42H0AgOdjHgo3/tH\nKhO5TyDz8hNYd8ILnEVro0UDXYMun95EqRzEYb1pE5xHYknoQ2Og3yttmZVhM+yY\nk7IpHWayssEkUbJwIjemZUnlrnyJ1smXOxkXTL1i4QKBgQDuzeG1Z0/5OXCLB1kl\U4cGbv4Ao40sTFgTcnPtBt5HD5R1W2sKwCMmnGVzJLPADFdrIx1WLwK/330AZW/s\nC4b74emo4luvGqIZiwusQRY5FPxMt/YI51xrDnbxCyWKe/8wwvRBkNh0ktkg8tJX\njHWtQxLEL75KhaCeBNEzdWpvoQKBgQDEcX9GszpXw8X+/IjRWBfX+OMLmB59N1ui\ngl7CxcaTQnLu2KBbuQRF/BwUaWW8pEYFkrIzJD/0aJHySFik8npFXBtdePS/5/zy\UiFzXfNAnw8UCGHlvCx0pcuPaixls+YMnbgzKa+Ya9kMrlXpXXYsN9mN5Tnfl6Oc\n1CJYwZsscwKBgQCrfCD3OYdOexb8X3x+t2qhDhdMsiXwh6o/3NKuhV4dPWzokYte\nnvcfBPQ9KUADS1mDUCYC+6NH0d9b53vlz6lRO7ulUVdxePiqyxTIz7x7pTxAg2Ik\npq/RGQQEuHJu7fglNfpdEvy9Sa6uYHD3+Z+PmjjhtT87GJZsoxzvjQOvwQKBgDrn\GVXWugDE+CKMEG5NLuEYhOPeGg5LwhNJaiaW7QMM4q+RjwvRv2FIxhasv8+/pitX\noE1Lak3b6R8v6DyVZGpVwvLVKPY+Fo+GZvdTzXOr/fZwyQH82YukhxQarvNT7QAN\nbsUQk9FtTSjLQYF2/88kc/xjJmZP7sRAq4fXjbLXAoGBAM2cmfCP7PO8ek1fauDu\nqN5vYQG6AQzhv8/1VPPD+zO9J2EeVhI6EUMTz3WgNqGQ3t7cqGaBgegNTYH5TlYU\nsRm/RyxWwIfksXhiY1VPA74Do7jFLBsE1FlzEZGrGlVnFzLb1IrPW5/n6Gg3SMb\nIrnfD8Lk2H3NV2nlMVqd52qJ\n-----END PRIVATE KEY-----\n",
-      "client_email": "firebase-adminsdk-fbsvc@agents-guardian.iam.gserviceaccount.com",
-      "client_id": "105195869590972487666",
-      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-      "token_uri": "https://oauth2.googleapis.com/token",
-      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-      "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40agents-guardian.iam.gserviceaccount.com",
-      "universe_domain": "googleapis.com"
-    };
-
-    let sa = fallbackSa;
-    if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON && process.env.FIREBASE_SERVICE_ACCOUNT_JSON.trim()) {
-      try {
-        sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-      } catch (e) {
-        console.warn('[StorageEngine] Failed to parse custom FIREBASE_SERVICE_ACCOUNT_JSON, using embedded fallback credentials:', e);
-      }
-    }
 
     try {
       let app: App;
       const existingApps = getApps();
       if (existingApps.length > 0) {
         app = existingApps[0];
+      } else if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON && process.env.FIREBASE_SERVICE_ACCOUNT_JSON.trim()) {
+        const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+        app = initializeApp({
+          credential: cert(sa),
+          projectId: sa.project_id || projectId
+        });
       } else {
         app = initializeApp({
-          credential: cert(sa as any),
-          projectId: sa.project_id || projectId
+          credential: applicationDefault(),
+          projectId
         });
       }
 
@@ -623,8 +654,11 @@ class StorageEngine {
 
   public async registerApiKey(rawKey: string, tenantId: string) {
     if (!rawKey || !rawKey.trim()) return;
-    const keyHash = hashTenantApiKey(rawKey.trim());
-    const prefix = rawKey.trim().slice(0, 8) + '...';
+    const cleanKey = rawKey.trim();
+    const plainKey = cleanKey.startsWith('kms:') ? await decryptSecret(cleanKey) : cleanKey;
+    const encryptedKey = await encryptSecret(plainKey);
+    const keyHash = hashTenantApiKey(plainKey);
+    const prefix = plainKey.slice(0, 8) + '...';
     const createdAt = new Date().toISOString();
 
     if (this.isFirestoreConnected && this.firestoreDb) {
@@ -633,6 +667,7 @@ class StorageEngine {
           key_hash: keyHash,
           tenant_id: tenantId,
           raw_key_prefix: prefix,
+          encrypted_key: encryptedKey,
           created_at: createdAt
         }, { merge: true });
         console.log(`[StorageEngine:Firestore] Successfully registered API key hash for tenant ${tenantId} (${prefix})`);
@@ -642,21 +677,34 @@ class StorageEngine {
     }
 
     this.memoryStore = this.loadPersistentFileStore();
-    if (!this.memoryStore.tenant_api_keys.some(k => k.key_hash === keyHash)) {
+    const existingIdx = this.memoryStore.tenant_api_keys.findIndex(k => k.key_hash === keyHash);
+    if (existingIdx >= 0) {
+      this.memoryStore.tenant_api_keys[existingIdx] = {
+        key_hash: keyHash,
+        tenant_id: tenantId,
+        raw_key_prefix: prefix,
+        encrypted_key: encryptedKey,
+        created_at: createdAt
+      };
+    } else {
       this.memoryStore.tenant_api_keys.push({
         key_hash: keyHash,
         tenant_id: tenantId,
         raw_key_prefix: prefix,
+        encrypted_key: encryptedKey,
         created_at: createdAt
       });
-      this.flushPersistentFileStore();
     }
+    this.flushPersistentFileStore();
   }
 
   public async replaceTenantApiKey(rawKey: string, tenantId: string): Promise<void> {
     if (!rawKey) return;
-    const keyHash = hashTenantApiKey(rawKey);
-    const prefix = rawKey.trim().slice(0, 10) + '...';
+    const cleanKey = rawKey.trim();
+    const plainKey = cleanKey.startsWith('kms:') ? await decryptSecret(cleanKey) : cleanKey;
+    const encryptedKey = await encryptSecret(plainKey);
+    const keyHash = hashTenantApiKey(plainKey);
+    const prefix = plainKey.slice(0, 10) + '...';
     const createdAt = new Date().toISOString();
 
     if (this.isFirestoreConnected && this.firestoreDb) {
@@ -671,6 +719,7 @@ class StorageEngine {
           key_hash: keyHash,
           tenant_id: tenantId,
           raw_key_prefix: prefix,
+          encrypted_key: encryptedKey,
           created_at: createdAt
         });
         await batch.commit();
@@ -686,12 +735,13 @@ class StorageEngine {
       key_hash: keyHash,
       tenant_id: tenantId,
       raw_key_prefix: prefix,
+      encrypted_key: encryptedKey,
       created_at: createdAt
     });
     this.flushPersistentFileStore();
   }
 
-  public async getTenantApiKeys(): Promise<{ key_hash: string; tenant_id: string; raw_key_prefix: string; created_at: string }[]> {
+  public async getTenantApiKeys(): Promise<{ key_hash: string; tenant_id: string; raw_key_prefix: string; encrypted_key?: string; created_at: string }[]> {
     if (this.isFirestoreConnected && this.firestoreDb) {
       try {
         const snap = await this.firestoreDb.collection('tenant_api_keys').get();
@@ -827,6 +877,38 @@ class StorageEngine {
     }
   }
 
+  public async updateAuditLedgerSignature(
+    id: string,
+    kmsSignature: string,
+    kmsKeyVersion: string
+  ): Promise<void> {
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        await this.firestoreDb.collection('audit_ledger').doc(id).set(
+          {
+            kms_signature: kmsSignature,
+            kms_key_version: kmsKeyVersion,
+            signature: `kms:${kmsSignature}`,
+            signature_status: 'VALID_KMS'
+          },
+          { merge: true }
+        );
+      } catch (err: any) {
+        console.warn(`[StorageEngine:Firestore] Failed updating KMS signature on audit_ledger ${id}:`, err?.message || err);
+      }
+    }
+
+    this.memoryStore = this.loadPersistentFileStore();
+    const target = this.memoryStore.audit_ledger.find(e => e.id === id);
+    if (target) {
+      target.kms_signature = kmsSignature;
+      target.kms_key_version = kmsKeyVersion;
+      target.signature = `kms:${kmsSignature}`;
+      target.signature_status = 'VALID_KMS';
+      this.flushPersistentFileStore();
+    }
+  }
+
   public async getAuditLedger(tenantId?: string): Promise<AuditLedgerRow[]> {
     if (this.isFirestoreConnected && this.firestoreDb) {
       try {
@@ -851,38 +933,74 @@ class StorageEngine {
   }
 
   public async getGovernedAgents(tenantId?: string): Promise<GoverningAgent[]> {
+    let agents: GoverningAgent[] = [];
     if (this.isFirestoreConnected && this.firestoreDb) {
       try {
         const snap = await this.firestoreDb.collection('governed_agents').get();
         const allAgents = snap.docs.map(d => d.data() as GoverningAgent);
-        if (!tenantId) return allAgents;
-        return allAgents.filter(a => a.tenantId === tenantId || (!a.tenantId && tenantId === 'tenant_default'));
+        agents = !tenantId
+          ? allAgents
+          : allAgents.filter(a => a.tenantId === tenantId || (!a.tenantId && tenantId === 'tenant_default'));
       } catch (err: any) {
         console.error('[StorageEngine:Firestore] Error reading governed_agents:', err?.message || err);
       }
     }
-    this.memoryStore = this.loadPersistentFileStore();
-    if (!tenantId) return this.memoryStore.governed_agents;
-    return this.memoryStore.governed_agents.filter(a => a.tenantId === tenantId || (!a.tenantId && tenantId === 'tenant_default'));
+    if (agents.length === 0) {
+      this.memoryStore = this.loadPersistentFileStore();
+      agents = !tenantId
+        ? this.memoryStore.governed_agents
+        : this.memoryStore.governed_agents.filter(a => a.tenantId === tenantId || (!a.tenantId && tenantId === 'tenant_default'));
+    }
+
+    const decryptedAgents: GoverningAgent[] = [];
+    for (const agent of agents) {
+      const copy: any = { ...agent };
+      if (typeof copy.apiKey === 'string' && copy.apiKey) {
+        copy.apiKey = await decryptSecret(copy.apiKey);
+      }
+      if (typeof copy.agentApiKey === 'string' && copy.agentApiKey) {
+        copy.agentApiKey = await decryptSecret(copy.agentApiKey);
+      }
+      if (typeof copy.secretKey === 'string' && copy.secretKey) {
+        copy.secretKey = await decryptSecret(copy.secretKey);
+      }
+      decryptedAgents.push(copy);
+    }
+    return decryptedAgents;
   }
 
   public async saveGovernedAgentsBatch(agents: GoverningAgent[]): Promise<void> {
+    const encryptedAgents: GoverningAgent[] = [];
+    for (const agent of agents) {
+      const copy: any = { ...agent };
+      if (typeof copy.apiKey === 'string' && copy.apiKey) {
+        copy.apiKey = await encryptSecret(copy.apiKey);
+      }
+      if (typeof copy.agentApiKey === 'string' && copy.agentApiKey) {
+        copy.agentApiKey = await encryptSecret(copy.agentApiKey);
+      }
+      if (typeof copy.secretKey === 'string' && copy.secretKey) {
+        copy.secretKey = await encryptSecret(copy.secretKey);
+      }
+      encryptedAgents.push(copy);
+    }
+
     if (this.isFirestoreConnected && this.firestoreDb) {
       try {
         const batch = this.firestoreDb.batch();
-        for (const agent of agents) {
+        for (const agent of encryptedAgents) {
           const docId = agent.id || `GA-${crypto.randomUUID().slice(0, 8)}`;
           const ref = this.firestoreDb.collection('governed_agents').doc(docId);
           batch.set(ref, { ...agent, id: docId }, { merge: true });
         }
         await batch.commit();
-        console.log(`[StorageEngine:Firestore] Successfully wrote batch of ${agents.length} governed_agents.`);
+        console.log(`[StorageEngine:Firestore] Successfully wrote batch of ${encryptedAgents.length} governed_agents.`);
       } catch (err: any) {
         console.error('[StorageEngine:Firestore] Error writing governed_agents batch:', err?.message || err);
       }
     }
     this.memoryStore = this.loadPersistentFileStore();
-    this.memoryStore.governed_agents = [...agents];
+    this.memoryStore.governed_agents = [...encryptedAgents];
     this.flushPersistentFileStore();
   }
 
@@ -1001,30 +1119,45 @@ class StorageEngine {
     }
     this.memoryStore = this.loadPersistentFileStore();
     if (!this.memoryStore.kill_events) this.memoryStore.kill_events = [];
-    if (!this.memoryStore.kill_events.some(k => k.id === event.id)) {
+    const existingIdx = this.memoryStore.kill_events.findIndex(k => k.id === event.id);
+    if (existingIdx >= 0) {
+      this.memoryStore.kill_events[existingIdx] = { ...this.memoryStore.kill_events[existingIdx], ...event };
+    } else {
       this.memoryStore.kill_events.unshift(event);
-      this.flushPersistentFileStore();
     }
+    this.flushPersistentFileStore();
   }
 
   public async saveKillEventsBatch(events: KillSignalEvent[]): Promise<void> {
-    const capped = events.slice(0, RETENTION_LIMITS.KILL_EVENTS);
+    if (!Array.isArray(events) || events.length === 0) return;
     if (this.isFirestoreConnected && this.firestoreDb) {
       try {
-        const batch = this.firestoreDb.batch();
-        for (const ev of capped) {
-          const ref = this.firestoreDb.collection('kill_events').doc(ev.id);
-          batch.set(ref, ev, { merge: true });
+        for (let i = 0; i < events.length; i += 400) {
+          const chunk = events.slice(i, i + 400);
+          const batch = this.firestoreDb.batch();
+          for (const ev of chunk) {
+            const ref = this.firestoreDb.collection('kill_events').doc(ev.id);
+            batch.set(ref, ev, { merge: true });
+          }
+          await batch.commit();
         }
-        await batch.commit();
-        console.log(`[StorageEngine:Firestore] Successfully wrote batch of ${capped.length} kill_events.`);
-        await this.enforceCollectionRetention('kill_events', RETENTION_LIMITS.KILL_EVENTS, 'timestamp');
+        console.log(`[StorageEngine:Firestore] Successfully wrote batch of ${events.length} kill_events.`);
       } catch (err: any) {
         console.error('[StorageEngine:Firestore] Error writing kill_events batch:', err?.message || err);
       }
     }
     this.memoryStore = this.loadPersistentFileStore();
-    this.memoryStore.kill_events = capped;
+    const existing = this.memoryStore.kill_events || [];
+    const byId = new Map<string, KillSignalEvent>();
+    for (const ev of existing) {
+      if (ev?.id) byId.set(ev.id, ev);
+    }
+    for (const ev of events) {
+      if (ev?.id) byId.set(ev.id, { ...(byId.get(ev.id) || {}), ...ev });
+    }
+    this.memoryStore.kill_events = Array.from(byId.values()).sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
     this.flushPersistentFileStore();
   }
 
@@ -1108,27 +1241,79 @@ class StorageEngine {
       }
     }
     this.memoryStore = this.loadPersistentFileStore();
-    return this.memoryStore.api_logs || [];
+    return (this.memoryStore.api_logs || []).slice(0, RETENTION_LIMITS.API_LOGS);
+  }
+
+  public async getOverviewStats(tenantId?: string): Promise<{ total: number; allowed: number; blocked: number }> {
+    const matchesTenant = (docTenant?: string): boolean => {
+      if (!tenantId) return true;
+      if (docTenant) return docTenant === tenantId;
+      return tenantId === 'tenant_default';
+    };
+
+    if (this.isFirestoreConnected && this.firestoreDb) {
+      try {
+        const snap = await this.firestoreDb
+          .collection('api_logs')
+          .select('tenantId', 'status', 'decision', 'enforcement_mode', 'enforcementMode')
+          .get();
+        let allowed = 0;
+        let blocked = 0;
+        for (const doc of snap.docs) {
+          const data = doc.data() as any;
+          if (!matchesTenant(data.tenantId)) continue;
+          if (classifyInterceptDecision(data) === 'allowed') {
+            allowed += 1;
+          } else {
+            blocked += 1;
+          }
+        }
+        return {
+          total: allowed + blocked,
+          allowed,
+          blocked
+        };
+      } catch (err: any) {
+        console.error('[StorageEngine:Firestore] Error computing overview stats from api_logs:', err?.message || err);
+      }
+    }
+
+    this.memoryStore = this.loadPersistentFileStore();
+    const allLogs = this.memoryStore.api_logs || [];
+    let allowed = 0;
+    let blocked = 0;
+    for (const log of allLogs) {
+      if (!matchesTenant(log.tenantId)) continue;
+      if (classifyInterceptDecision(log) === 'allowed') {
+        allowed += 1;
+      } else {
+        blocked += 1;
+      }
+    }
+    return {
+      total: allowed + blocked,
+      allowed,
+      blocked
+    };
   }
 
   public async createApiLog(log: ApiRequestLog): Promise<void> {
     if (this.isFirestoreConnected && this.firestoreDb) {
       try {
         await this.firestoreDb.collection('api_logs').doc(log.id).set(log, { merge: true });
-        await this.enforceCollectionRetention('api_logs', RETENTION_LIMITS.API_LOGS, 'timestamp');
       } catch (err: any) {
         console.error(`[StorageEngine:Firestore] Failed saving api_log ${log.id}:`, err?.message || err);
       }
     }
     this.memoryStore = this.loadPersistentFileStore();
     if (!this.memoryStore.api_logs) this.memoryStore.api_logs = [];
-    if (!this.memoryStore.api_logs.some(l => l.id === log.id)) {
+    const existingIdx = this.memoryStore.api_logs.findIndex(l => l.id === log.id);
+    if (existingIdx >= 0) {
+      this.memoryStore.api_logs[existingIdx] = { ...this.memoryStore.api_logs[existingIdx], ...log };
+    } else {
       this.memoryStore.api_logs.unshift(log);
-      if (this.memoryStore.api_logs.length > RETENTION_LIMITS.API_LOGS) {
-        this.memoryStore.api_logs = this.memoryStore.api_logs.slice(0, RETENTION_LIMITS.API_LOGS);
-      }
-      this.flushPersistentFileStore();
     }
+    this.flushPersistentFileStore();
   }
 
   public async saveApiLog(log: ApiRequestLog): Promise<void> {
@@ -1136,23 +1321,33 @@ class StorageEngine {
   }
 
   public async saveApiLogsBatch(logs: ApiRequestLog[]): Promise<void> {
-    const capped = logs.slice(0, RETENTION_LIMITS.API_LOGS);
+    if (!Array.isArray(logs) || logs.length === 0) return;
     if (this.isFirestoreConnected && this.firestoreDb) {
       try {
+        const recent = logs.slice(0, 50);
         const batch = this.firestoreDb.batch();
-        for (const log of capped.slice(0, 50)) {
+        for (const log of recent) {
           const ref = this.firestoreDb.collection('api_logs').doc(log.id);
           batch.set(ref, log, { merge: true });
         }
         await batch.commit();
-        console.log(`[StorageEngine:Firestore] Successfully wrote batch of ${Math.min(capped.length, 50)} api_logs.`);
-        await this.enforceCollectionRetention('api_logs', RETENTION_LIMITS.API_LOGS, 'timestamp');
+        console.log(`[StorageEngine:Firestore] Successfully wrote batch of ${recent.length} api_logs.`);
       } catch (err: any) {
         console.error('[StorageEngine:Firestore] Error writing api_logs batch:', err?.message || err);
       }
     }
     this.memoryStore = this.loadPersistentFileStore();
-    this.memoryStore.api_logs = capped;
+    const existing = this.memoryStore.api_logs || [];
+    const byId = new Map<string, ApiRequestLog>();
+    for (const log of existing) {
+      if (log?.id) byId.set(log.id, log);
+    }
+    for (const log of logs) {
+      if (log?.id) byId.set(log.id, { ...(byId.get(log.id) || {}), ...log });
+    }
+    this.memoryStore.api_logs = Array.from(byId.values()).sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
     this.flushPersistentFileStore();
   }
 

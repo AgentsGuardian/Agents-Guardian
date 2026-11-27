@@ -10,7 +10,7 @@ import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { generateSharedAiContent, isAiClientConfigured } from './server/aiClient';
 import { governanceEngine } from './server/governanceEngine';
 import { forwardToGatewayEdge } from './server/gatewayClient';
 import { storageEngine } from './server/db';
@@ -18,6 +18,7 @@ import { driftEngine } from './server/driftEngine';
 import { signJwt, verifyJwt, hashPassword, verifyPassword, hashTenantApiKey } from './server/authUtils';
 import { verifyGoogleOidcToken } from './server/googleAuth';
 import { emailService } from './server/emailService';
+import { getKmsStatus } from './server/kms';
 import type { KillSignalEvent } from './src/types';
 
 // Helper to resolve application base URL for out-of-band email notifications
@@ -252,7 +253,7 @@ const requireRole = (allowedRoles: string[]) => {
 const handleHealthCheck = async (req: express.Request, res: express.Response) => {
   await storageEngine.waitUntilReady();
   const status = storageEngine.getHealthStatus();
-  const policyJudgeConfigured = Boolean((process.env.DRIFT_JUDGE_API_KEY || process.env.GEMINI_API_KEY || '').trim());
+  const policyJudgeConfigured = isAiClientConfigured();
   if (status.degraded) {
     return res.status(200).json({
       status: 'degraded',
@@ -946,6 +947,30 @@ app.get('/api/state', requireAdminAuth, (req: AuthenticatedRequest, res) => {
   res.json(governanceEngine.getState());
 });
 
+// 1.2. Real-Time Overview Stats API (unbounded counts across all real intercept records)
+app.get(['/api/overview/stats', '/api/v1/overview/stats'], requireAdminAuth, async (req: AuthenticatedRequest, res: express.Response) => {
+  try {
+    const authTenantId = req.tenantId || req.authUser?.tenantId || 'tenant_default';
+    const requestedTenantId = typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()
+      ? req.query.tenant_id.trim()
+      : authTenantId;
+    const tenantId = (authTenantId === 'tenant_default' || req.authUser?.role === 'SuperAdmin')
+      ? requestedTenantId
+      : authTenantId;
+
+    const stats = await storageEngine.getOverviewStats(tenantId);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({
+      total: stats.total,
+      allowed: stats.allowed,
+      blocked: stats.blocked
+    });
+  } catch (err: any) {
+    console.error('[Server] Error computing /api/overview/stats:', err?.message || err);
+    return res.status(500).json({ error: 'Failed to compute overview stats' });
+  }
+});
+
 // 1.5. Internal Tier 2 Semantic Scan Service Endpoint (Private Service-to-Service)
 app.post('/api/v1/internal/semantic-scan', async (req: express.Request, res: express.Response) => {
   const internalSecret = process.env.INTERNAL_SERVICE_SECRET;
@@ -1158,16 +1183,16 @@ const handleInlineProxy = async (req: AuthenticatedRequest, res: express.Respons
     // Note: The authorization and policy evaluation decision was strictly evaluated by gateway-edge above.
     // When authorized, we proceed with upstream model execution and attach verified AgentsGuardian audit headers.
     let upstreamContent = '';
-    const ai = getAiClient();
-    if (ai) {
+    if (isAiClientConfigured()) {
       try {
-        const geminiRes = await ai.models.generateContent({
-          model: 'gemini-4-hydrogen',
+        const geminiRes = await generateSharedAiContent({
           contents: userPromptText || 'Provide a helpful assistant response.',
-          config: {
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
-          }
+          temperature: 0,
+          callerLabel: 'InlineProxy'
         });
+        console.log(
+          `[InlineProxy] model=${geminiRes.model} prompt_tokens=${geminiRes.promptTokens} output_tokens=${geminiRes.outputTokens}`
+        );
         upstreamContent = geminiRes.text || '';
       } catch (geminiErr: any) {
         console.warn('Gemini API call error in proxy handler:', geminiErr?.message || geminiErr);
@@ -2332,6 +2357,7 @@ app.post('/api/kill-events', requireAdminAuth, requireRole(['SuperAdmin', 'Admin
   if (state.killEvents.length > 100) state.killEvents.pop();
 
   storageEngine.createKillEvent(newEvent).catch(err => console.error('[Server:KillEvents] Error writing kill event to Firestore:', err));
+  governanceEngine.signKillDecisionAsync(newEvent);
 
   governanceEngine.appendAuditLedgerEntry(tenantId, 'GA-KILL-TRIGGER', 'ACTION_HALTED', {
     eventId: newEvent.id,
@@ -2771,6 +2797,11 @@ app.get('/api/admin/email-dispatches', requireAdminAuth, requireRole(['SuperAdmi
   });
 });
 
+// Cloud KMS Status (Admin Only)
+app.get(['/api/admin/kms-status', '/api/v1/admin/kms-status'], requireAdminAuth, requireRole(['SuperAdmin', 'Admin']), (req: AuthenticatedRequest, res: express.Response) => {
+  res.json(getKmsStatus());
+});
+
 // Real-Time Out-of-Band Email Inbox Inspection Endpoint
 app.get('/api/auth/latest-email', (req: express.Request, res: express.Response) => {
   const email = (req.query.email as string || '').toLowerCase().trim();
@@ -3071,24 +3102,7 @@ app.delete('/api/notifications', requireAdminAuth, requireRole(['SuperAdmin', 'A
 });
 
 
-// Lazy Gemini Client Initialization
-let aiClient: GoogleGenAI | null = null;
-function getAiClient(): GoogleGenAI | null {
-  if (!aiClient) {
-    const key = (process.env.GEMINI_API_KEY || process.env.DRIFT_JUDGE_API_KEY || '').trim();
-    if (key) {
-      aiClient = new GoogleGenAI({
-        apiKey: key,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build'
-          }
-        }
-      });
-    }
-  }
-  return aiClient;
-}
+// Shared AI Client configuration check via server/aiClient.ts
 
 // Helper: Intelligent Semantic Knowledge Base Synthesizer (Fallback when API key is not set or network offline)
 function synthesizeIntelligentReply(query: string, laborConfig: any, budgetCap: number): string {
@@ -3245,8 +3259,7 @@ app.post(['/api/copilot', '/api/copilot/ask'], async (req, res) => {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    const client = getAiClient();
-    if (client) {
+    if (isAiClientConfigured()) {
       try {
         const systemPrompt = `You are the Guardian Automated Support CoPilot for Agent Guardian (GaaS - Governance as a Service), an enterprise AI agent governance and observability platform.
 Your user is ${user?.name || 'Administrator'} (${user?.role || 'SuperAdmin'}).
@@ -3274,14 +3287,16 @@ KEY PLATFORM CONSTRUCTS & RECENT FEATURES TO KNOW:
 
 Answer the user query: "${query}" directly, thoroughly, and professionally.`;
 
-        const response = await client.models.generateContent({
-          model: 'gemini-4-hydrogen',
+        const response = await generateSharedAiContent({
           contents: query,
-          config: {
-            systemInstruction: systemPrompt,
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          }
+          systemInstruction: systemPrompt,
+          temperature: 0,
+          callerLabel: 'Copilot'
         });
+
+        console.log(
+          `[Copilot] model=${response.model} prompt_tokens=${response.promptTokens} output_tokens=${response.outputTokens}`
+        );
 
         if (response && response.text) {
           return res.json({ reply: response.text, mode: 'gemini' });
@@ -3313,8 +3328,7 @@ app.post('/api/parse-law-pdf', async (req, res) => {
       return res.status(400).json({ error: 'Filename or Act Preset is required' });
     }
 
-    const client = getAiClient();
-    if (client) {
+    if (isAiClientConfigured()) {
       try {
         const prompt = `You are an elite Legal Compliance Officer and Systems Engineer.
 Analyze the following law, regulation, or AI Act:
@@ -3341,13 +3355,15 @@ Each policy object MUST have this exact schema:
 
 Return ONLY a valid raw JSON array containing exactly these 3 objects. Do not include markdown code block wrapper (e.g. no \`\`\`json) or any pre-text or post-text. Ensure it is valid JSON.`;
 
-        const response = await client.models.generateContent({
-          model: 'gemini-4-hydrogen',
+        const response = await generateSharedAiContent({
           contents: prompt,
-          config: {
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          }
+          temperature: 0,
+          callerLabel: 'ParseLawPdf'
         });
+
+        console.log(
+          `[ParseLawPdf] model=${response.model} prompt_tokens=${response.promptTokens} output_tokens=${response.outputTokens}`
+        );
 
         if (response && response.text) {
           try {

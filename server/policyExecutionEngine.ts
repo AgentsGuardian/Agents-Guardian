@@ -1,6 +1,10 @@
 import crypto from 'crypto';
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { Policy, PolicyCategory, PolicyEnforcementOutcome, ExecutableRuleDefinition } from '../src/types';
+import {
+  generateSharedAiContent,
+  getCandidateAiModels,
+  isAiClientConfigured
+} from './aiClient';
 
 export interface PolicyEvaluationContext {
   agentId: string;
@@ -58,14 +62,6 @@ interface CachedDecisionEntry {
 const DECISION_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const JUDGE_TIMEOUT_MS = 5000; // 5 seconds max
 const MAX_CACHE_ENTRIES = 2000;
-
-// Models from gemini-api skill that reject sampling params (temperature/topP/topK)
-const NO_SAMPLING_PARAM_MODELS = new Set([
-  'gemini-4-hydrogen',
-  'gemini-4-neon',
-  'gemini-4-argon',
-  'gemini-4-carbon'
-]);
 
 const compiledRuleCache = new Map<string, ExecutableRuleDefinition>();
 const aiDecisionCache = new Map<string, CachedDecisionEntry>();
@@ -336,58 +332,25 @@ function parseAndValidateJudgeJson(
 }
 
 async function invokeGeminiJudgeWithBudget(
-  apiKey: string,
   modelName: string,
   systemInstruction: string,
   contents: string,
   timeoutMs: number
-): Promise<string> {
-  const ai = new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build'
-      }
-    }
-  });
-
-  const normalizedModel = modelName.toLowerCase();
-  const config: Record<string, any> = {
+): Promise<{ text: string; promptTokens: number; outputTokens: number }> {
+  const res = await generateSharedAiContent({
+    model: modelName,
     systemInstruction,
-    responseMimeType: 'application/json'
-  };
-
-  if (!NO_SAMPLING_PARAM_MODELS.has(normalizedModel)) {
-    config.temperature = 0;
-  }
-
-  // Minimize reasoning overhead on Gemini 4 & 3.1 Flash Lite so synchronous 5s budget succeeds reliably
-  if (normalizedModel === 'gemini-4-hydrogen' || normalizedModel === 'gemini-4-neon' || normalizedModel === 'gemini-4-argon' || normalizedModel === 'gemini-4-carbon') {
-    config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
-  } else if (normalizedModel === 'gemini-3.1-flash-lite') {
-    config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
-  }
-
-  let timer: NodeJS.Timeout | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      reject(new Error(`Policy judge timed out after ${timeoutMs}ms (model: ${modelName})`));
-    }, timeoutMs);
+    contents,
+    responseMimeType: 'application/json',
+    temperature: 0,
+    timeoutMs,
+    callerLabel: 'PolicyJudge'
   });
-
-  try {
-    const res = await Promise.race([
-      ai.models.generateContent({
-        model: modelName,
-        contents,
-        config
-      }),
-      timeoutPromise
-    ]);
-    return (res.text || '').trim();
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  return {
+    text: (res.text || '').trim(),
+    promptTokens: res.promptTokens,
+    outputTokens: res.outputTokens
+  };
 }
 
 /**
@@ -442,8 +405,7 @@ export async function evaluatePoliciesWithAiJudge(
   }
 
   // 2. Resolve judge credentials strictly from environment (no hardcoded keys)
-  const apiKey = (process.env.DRIFT_JUDGE_API_KEY || process.env.GEMINI_API_KEY || '').trim();
-  if (!apiKey) {
+  if (!isAiClientConfigured()) {
     console.warn(`[PolicyJudge] OUTAGE agent=${context.agentId} code=MISSING_API_KEY reason="Missing DRIFT_JUDGE_API_KEY / GEMINI_API_KEY"`);
     return {
       outcome: 'OUTAGE',
@@ -460,16 +422,7 @@ export async function evaluatePoliciesWithAiJudge(
     };
   }
 
-  const configuredModel = (process.env.DRIFT_JUDGE_MODEL || process.env.GEMINI_MODEL || '').trim();
-  const candidateModels = Array.from(
-    new Set(
-      [
-        configuredModel,
-        'gemini-4-hydrogen',
-        'gemini-3.1-flash-lite'
-      ].filter(m => Boolean(m && m.trim()))
-    )
-  );
+  const candidateModels = getCandidateAiModels();
 
   const { systemInstruction, contents } = buildJudgePrompts(applicablePolicies, context);
   const judgeStartMs = Date.now();
@@ -504,8 +457,7 @@ export async function evaluatePoliciesWithAiJudge(
     }
 
     try {
-      const rawText = await invokeGeminiJudgeWithBudget(
-        apiKey,
+      const { text: rawText, promptTokens, outputTokens } = await invokeGeminiJudgeWithBudget(
         modelName,
         systemInstruction,
         contents,
@@ -553,7 +505,7 @@ export async function evaluatePoliciesWithAiJudge(
       });
 
       console.log(
-        `[PolicyJudge] agent=${context.agentId} decision=${result.outcome} policy=${result.policyCode || 'none'} model=${modelName} judge_latency_ms=${judgeLatencyMs}ms cached=false confidence=${parsed.confidence}`
+        `[PolicyJudge] agent=${context.agentId} decision=${result.outcome} policy=${result.policyCode || 'none'} model=${modelName} judge_latency_ms=${judgeLatencyMs}ms prompt_tokens=${promptTokens} output_tokens=${outputTokens} cached=false confidence=${parsed.confidence}`
       );
 
       return result;

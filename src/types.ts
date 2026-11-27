@@ -14,6 +14,25 @@ export interface GoverningAgent {
   attachedPolicyCode: string;
   status: 'NOMINAL' | 'MITIGATING' | 'ALERT' | 'HALTED';
   requestCount: number;
+  apiKey?: string;
+  haltedByEventId?: string;
+  haltedByReason?: string;
+}
+
+export type InterceptDecision =
+  | 'ALLOW'
+  | 'ALLOWED'
+  | 'DENY'
+  | 'HALT'
+  | 'THROTTLE'
+  | 'WARN'
+  | 'HALTED_AGENT_DENIED'
+  | 'REJECTED';
+
+export interface OverviewStats {
+  total: number;
+  allowed: number;
+  blocked: number;
 }
 
 export interface ApiRequestLog {
@@ -24,7 +43,15 @@ export interface ApiRequestLog {
   agentName: string;
   endpoint: string;
   status: 'AUTHORIZED' | 'HALTED';
+  decision?: InterceptDecision;
+  reason?: string;
+  policy_code?: string | null;
+  confidence?: number | null;
+  haltedByEventId?: string;
+  haltedByReason?: string;
   latencyMs: number;
+  kms_signature?: string;
+  kms_key_version?: string;
 }
 
 export interface Toast {
@@ -97,12 +124,20 @@ export interface KillSignalEvent {
   actionCommand: string;
   interceptedPacket: string; // API endpoint
   policyViolated: string;
+  policy_code?: string | null;
+  decision?: InterceptDecision;
+  reason?: string;
+  confidence?: number | null;
+  haltedByEventId?: string;
+  haltedByReason?: string;
   latencyMs: number; // e.g. 24 -> must be <35ms (GUARANTEED_SLA_MS)
   status: 'HALTED' | 'ALLOWED';
   rawJsonIntent: string;
   promptText?: string;
   prompt_text?: string;
   timestampAnnexV: string;
+  kms_signature?: string;
+  kms_key_version?: string;
 }
 
 export interface DriftLogEvent {
@@ -168,6 +203,8 @@ export interface AuditLedgerEntry {
   signature: string;
   signatureStatus?: 'VALID_KMS' | 'PENDING_KMS_UNAVAILABLE';
   timestamp: string;
+  kms_signature?: string;
+  kms_key_version?: string;
 }
 
 export type AdminRole = 'SuperAdmin' | 'Admin' | 'PolicyManager' | 'Auditor' | 'Operator';

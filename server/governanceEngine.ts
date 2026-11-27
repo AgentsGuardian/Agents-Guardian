@@ -10,6 +10,12 @@ import {
 } from './authUtils.js';
 import { storageEngine } from './db.js';
 import { driftEngine } from './driftEngine.js';
+import {
+  signDigest,
+  encryptSecret,
+  decryptSecret,
+  isKmsSecretsConfigured
+} from './kms.js';
 import { 
   Policy, 
   KillSignalEvent, 
@@ -55,6 +61,8 @@ export interface AuditLedgerEntry {
   signature: string;
   signatureStatus?: 'VALID_KMS' | 'PENDING_KMS_UNAVAILABLE';
   timestamp: string;
+  kms_signature?: string;
+  kms_key_version?: string;
 }
 
 export interface TenantRecord {
@@ -245,25 +253,7 @@ export class GovernanceEngineStore {
       }
     }
 
-    // Purge orphaned sample apiLogs from deleted demo/test agents while keeping all real agent logs
-    const validAgentIds = new Set(this.db.governedAgents.map(a => a.id.trim().toLowerCase()));
-    const validAgentNames = new Set(this.db.governedAgents.map(a => (a.name || '').trim().toLowerCase()).filter(Boolean));
-    const orphanedLogIds: string[] = [];
-    this.db.apiLogs = this.db.apiLogs.filter(log => {
-      const lId = (log.agentId || '').trim().toLowerCase();
-      const lName = (log.agentName || '').trim().toLowerCase();
-      const belongsToRealAgent = validAgentIds.has(lId) || (lName && validAgentNames.has(lName));
-      if (!belongsToRealAgent) {
-        if (log.id) orphanedLogIds.push(log.id);
-        return false;
-      }
-      return true;
-    });
-    if (orphanedLogIds.length > 0) {
-      await storageEngine.deleteApiLogIds(orphanedLogIds);
-    }
-
-    // Sort apiLogs newest first and sync per-agent requestCount with actual stored logs
+    // Sort apiLogs newest first and sync per-agent requestCount with actual stored logs (never delete existing records)
     this.db.apiLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     this.syncAgentRequestCounts();
 
@@ -287,7 +277,7 @@ export class GovernanceEngineStore {
     try {
       const encDefaultKey = await storageEngine.getKv('gaas_active_key_enc_tenant_default');
       if (encDefaultKey) {
-        const decrypted = this.decryptRawKey(encDefaultKey);
+        const decrypted = await this.decryptStoredKey(encDefaultKey);
         if (decrypted) {
           this.activeTenantRawKeys.set('tenant_default', decrypted);
           this.tenantKeyHashes.set(hashTenantApiKey(decrypted), 'tenant_default');
@@ -333,7 +323,9 @@ export class GovernanceEngineStore {
         entryHash: r.entry_hash,
         signature: r.signature,
         signatureStatus: (r.signature_status as any) || 'VALID_KMS',
-        timestamp: r.timestamp
+        timestamp: r.timestamp,
+        ...(r.kms_signature ? { kms_signature: r.kms_signature } : {}),
+        ...(r.kms_key_version ? { kms_key_version: r.kms_key_version } : {})
       }));
     }
   }
@@ -377,6 +369,33 @@ export class GovernanceEngineStore {
     }
   }
 
+  private async encryptStoredKey(rawKey: string): Promise<string> {
+    if (!rawKey) return rawKey;
+    if (rawKey.startsWith('kms:')) return rawKey;
+    if (isKmsSecretsConfigured()) {
+      const kmsEncrypted = await encryptSecret(rawKey);
+      if (kmsEncrypted.startsWith('kms:')) {
+        return kmsEncrypted;
+      }
+    } else {
+      // Log KMS warning once via encryptSecret while preserving existing key storage
+      await encryptSecret(rawKey);
+    }
+    return this.encryptRawKey(rawKey);
+  }
+
+  private async decryptStoredKey(stored: string): Promise<string | null> {
+    if (!stored) return null;
+    if (stored.startsWith('kms:')) {
+      const dec = await decryptSecret(stored);
+      return dec && !dec.startsWith('kms:') ? dec : null;
+    }
+    const aesDec = this.decryptRawKey(stored);
+    if (aesDec) return aesDec;
+    // Keep reading old plain values so nothing existing breaks
+    return stored;
+  }
+
   public async getOrProvisionActiveTenantKey(tenantId: string = 'tenant_default'): Promise<string> {
     const cached = this.activeTenantRawKeys.get(tenantId);
     if (cached) {
@@ -386,7 +405,7 @@ export class GovernanceEngineStore {
 
     const sealed = await storageEngine.getKv(`gaas_active_key_enc_${tenantId}`);
     if (sealed) {
-      const decrypted = this.decryptRawKey(sealed);
+      const decrypted = await this.decryptStoredKey(sealed);
       if (decrypted) {
         this.activeTenantRawKeys.set(tenantId, decrypted);
         this.tenantKeyHashes.set(hashTenantApiKey(decrypted), tenantId);
@@ -402,7 +421,7 @@ export class GovernanceEngineStore {
     this.tenantKeyHashes.set(keyHash, tenantId);
     this.activeTenantRawKeys.set(tenantId, rawKey);
     await storageEngine.replaceTenantApiKey(rawKey, tenantId);
-    await storageEngine.setKv(`gaas_active_key_enc_${tenantId}`, this.encryptRawKey(rawKey));
+    await storageEngine.setKv(`gaas_active_key_enc_${tenantId}`, await this.encryptStoredKey(rawKey));
     return rawKey;
   }
 
@@ -415,7 +434,7 @@ export class GovernanceEngineStore {
     this.activeTenantRawKeys.set(tenantId, rawKey);
 
     await storageEngine.replaceTenantApiKey(rawKey, tenantId);
-    await storageEngine.setKv(`gaas_active_key_enc_${tenantId}`, this.encryptRawKey(rawKey));
+    await storageEngine.setKv(`gaas_active_key_enc_${tenantId}`, await this.encryptStoredKey(rawKey));
 
     this.appendAuditLedgerEntry(tenantId, 'GAAS-KEY-MANAGER', 'GAAS_API_KEY_ROTATED', {
       tenantId,
@@ -428,23 +447,24 @@ export class GovernanceEngineStore {
 
   public async registerActiveTenantKey(rawKey: string, tenantId: string = 'tenant_default', actorEmail?: string): Promise<string> {
     const cleanKey = rawKey.trim();
-    const keyHash = hashTenantApiKey(cleanKey);
+    const plainKey = cleanKey.startsWith('kms:') ? await decryptSecret(cleanKey) : cleanKey;
+    const keyHash = hashTenantApiKey(plainKey);
     for (const [h, tId] of Array.from(this.tenantKeyHashes.entries())) {
       if (tId === tenantId) this.tenantKeyHashes.delete(h);
     }
     this.tenantKeyHashes.set(keyHash, tenantId);
-    this.activeTenantRawKeys.set(tenantId, cleanKey);
+    this.activeTenantRawKeys.set(tenantId, plainKey);
 
-    await storageEngine.replaceTenantApiKey(cleanKey, tenantId);
-    await storageEngine.setKv(`gaas_active_key_enc_${tenantId}`, this.encryptRawKey(cleanKey));
+    await storageEngine.replaceTenantApiKey(plainKey, tenantId);
+    await storageEngine.setKv(`gaas_active_key_enc_${tenantId}`, await this.encryptStoredKey(plainKey));
 
     this.appendAuditLedgerEntry(tenantId, 'GAAS-KEY-MANAGER', 'GAAS_API_KEY_REGISTERED', {
       tenantId,
-      keyPrefix: cleanKey.slice(0, 10) + '...',
+      keyPrefix: plainKey.slice(0, 10) + '...',
       actor: actorEmail || 'admin',
       registeredAt: new Date().toISOString()
     });
-    return cleanKey;
+    return plainKey;
   }
 
   private initDefaultTenants() {
@@ -844,9 +864,10 @@ export class GovernanceEngineStore {
     const previousStatus = agent.status;
     const previousPolicy = agent.attachedPolicyCode;
     Object.assign(agent, updates);
-    this.syncAgentRequestCounts(tenantId);
-    this.saveDB();
-    await storageEngine.saveGovernedAgentsBatch(this.db.governedAgents);
+    if (updates.status === 'NOMINAL' && previousStatus !== 'NOMINAL') {
+      agent.haltedByEventId = undefined;
+      agent.haltedByReason = undefined;
+    }
 
     if (updates.status === 'NOMINAL' && previousStatus !== 'NOMINAL') {
       this.appendAuditLedgerEntry(tenantId, agent.id, 'AGENT_RESUMED', {
@@ -868,7 +889,7 @@ export class GovernanceEngineStore {
         targetTab: 'gaas'
       });
     } else if ((updates.status === 'HALTED' || updates.status === 'ALERT') && previousStatus === 'NOMINAL') {
-      this.appendAuditLedgerEntry(tenantId, agent.id, 'AGENT_HALTED', {
+      const haltEntry = this.appendAuditLedgerEntry(tenantId, agent.id, 'AGENT_HALTED', {
         agentId: agent.id,
         agentName: agent.name,
         previousStatus,
@@ -876,6 +897,8 @@ export class GovernanceEngineStore {
         reason: 'Agent halted by administrator via GaaS gateway',
         timestamp: new Date().toISOString()
       });
+      agent.haltedByEventId = haltEntry.id;
+      agent.haltedByReason = 'Agent halted by administrator via GaaS gateway';
       this.db.notifications.unshift({
         id: `notif-${Date.now()}`,
         timestamp: new Date().toISOString(),
@@ -895,6 +918,10 @@ export class GovernanceEngineStore {
         timestamp: new Date().toISOString()
       });
     }
+
+    this.syncAgentRequestCounts(tenantId);
+    this.saveDB();
+    await storageEngine.saveGovernedAgentsBatch(this.db.governedAgents);
     return agent;
   }
 
@@ -916,6 +943,8 @@ export class GovernanceEngineStore {
         updated.push(agent);
 
         if (status === 'NOMINAL' && prevStatus !== 'NOMINAL') {
+          agent.haltedByEventId = undefined;
+          agent.haltedByReason = undefined;
           this.appendAuditLedgerEntry(tenantId, agent.id, 'AGENT_RESUMED', {
             agentId: agent.id,
             agentName: agent.name,
@@ -925,7 +954,7 @@ export class GovernanceEngineStore {
             timestamp: new Date().toISOString()
           });
         } else if ((status === 'HALTED' || status === 'ALERT') && prevStatus === 'NOMINAL') {
-          this.appendAuditLedgerEntry(tenantId, agent.id, 'AGENT_HALTED', {
+          const haltEntry = this.appendAuditLedgerEntry(tenantId, agent.id, 'AGENT_HALTED', {
             agentId: agent.id,
             agentName: agent.name,
             previousStatus: prevStatus,
@@ -933,6 +962,8 @@ export class GovernanceEngineStore {
             reason: 'Agent halted via bulk GaaS action',
             timestamp: new Date().toISOString()
           });
+          agent.haltedByEventId = haltEntry.id;
+          agent.haltedByReason = 'Agent halted via bulk GaaS action';
         }
       }
     }
@@ -1164,6 +1195,45 @@ export class GovernanceEngineStore {
     };
   }
 
+  private findHaltingEventForAgent(
+    tenantId: string,
+    agent: GoverningAgent
+  ): { eventId: string; reason: string } | null {
+    if (agent.haltedByEventId) {
+      return {
+        eventId: agent.haltedByEventId,
+        reason: agent.haltedByReason || 'Policy violation'
+      };
+    }
+
+    const aId = (agent.id || '').trim().toLowerCase();
+    const aName = (agent.name || '').trim().toLowerCase();
+    const match = this.db.killEvents.find(e => {
+      const eTenant = e.tenantId || 'tenant_default';
+      if (eTenant !== tenantId) return false;
+      const eId = (e.agentId || e.agent_id || '').trim().toLowerCase();
+      const eName = (e.agentName || '').trim().toLowerCase();
+      const sameAgent =
+        (aId !== '' && (eId === aId || eName === aId)) ||
+        (aName !== '' && (eName === aName || eId === aName));
+      if (!sameAgent) return false;
+      const isLockout =
+        e.decision === 'HALTED_AGENT_DENIED' ||
+        e.policy_code === 'POL-KILL-SWITCH' ||
+        e.policyViolated === 'Agent Halted (Kill-Switch Active)' ||
+        (typeof e.reason === 'string' && e.reason.startsWith('Agent already halted by event '));
+      return !isLockout;
+    });
+
+    if (match) {
+      return {
+        eventId: match.id,
+        reason: match.reason || match.policyViolated || 'Policy violation'
+      };
+    }
+    return null;
+  }
+
   // --- ADMIN SIMULATION ONLY: Dry-Run Policy Evaluation Utility ---
   // NOTICE: Live customer traffic enforcement is canonically handled by the Go gateway-edge service.
   public async simulatePolicyEvaluationDryRun(params: {
@@ -1222,6 +1292,10 @@ export class GovernanceEngineStore {
       const timestampIso = new Date().toISOString();
       const annexIVHash = `${timestampIso.replace(/[-:T.]/g, '').slice(0, 14)}-${eventId}-ANNEX-IV`;
       const rawIntent = (params.rawJsonIntent || params.promptText || '{}').toLowerCase();
+      const origHalt = this.findHaltingEventForAgent(tenantId, agent);
+      const haltedByEventId = origHalt?.eventId || agent.haltedByEventId || 'KILL-SWITCH';
+      const haltedByReason = origHalt?.reason || agent.haltedByReason || 'Agent halted by Kill-Switch';
+      const haltedReasonText = `Agent already halted by event ${haltedByEventId}: ${haltedByReason}`;
 
       // 1. Record API request log with status HALTED
       const apiLog: ApiRequestLog = {
@@ -1232,6 +1306,12 @@ export class GovernanceEngineStore {
         agentName: agent.name,
         endpoint: params.endpoint || '/v1/intercept',
         status: 'HALTED',
+        decision: 'HALTED_AGENT_DENIED',
+        reason: haltedReasonText,
+        policy_code: 'POL-KILL-SWITCH',
+        confidence: 1,
+        haltedByEventId,
+        haltedByReason,
         latencyMs
       };
       this.db.apiLogs.unshift(apiLog);
@@ -1252,7 +1332,9 @@ export class GovernanceEngineStore {
         enforcementOutcome: 'KILL_SWITCH',
         latencyMs,
         status: 'HALTED',
-        reason: 'Agent is halted. Resume it in Kill-Switch to continue',
+        reason: haltedReasonText,
+        haltedByEventId,
+        haltedByReason,
         rawIntent,
         promptText: params.promptText || '',
         prompt_text: params.promptText || '',
@@ -1271,6 +1353,12 @@ export class GovernanceEngineStore {
         actionCommand: params.actionCommand || 'standard_action',
         interceptedPacket: params.endpoint || '/v1/intercept',
         policyViolated: 'Agent Halted (Kill-Switch Active)',
+        policy_code: 'POL-KILL-SWITCH',
+        decision: 'HALTED_AGENT_DENIED',
+        reason: haltedReasonText,
+        confidence: 1,
+        haltedByEventId,
+        haltedByReason,
         latencyMs,
         status: 'HALTED',
         rawJsonIntent: params.rawJsonIntent || JSON.stringify(params, null, 2),
@@ -1281,6 +1369,9 @@ export class GovernanceEngineStore {
       this.db.killEvents.unshift(killEvent);
       if (this.db.killEvents.length > 100) this.db.killEvents.pop();
       storageEngine.createKillEvent(killEvent).catch(err => console.error('[StorageEngine] Error saving kill event to Firestore:', err));
+
+      // Sign the kill/halt decision asynchronously after response is sent
+      this.signKillDecisionAsync(killEvent, apiLog);
 
       this.saveDB();
 
@@ -1308,12 +1399,13 @@ export class GovernanceEngineStore {
         enforcement_mode: 'KILL_SWITCH',
         policy_violated: 'Agent Halted (Kill-Switch Active)',
         policy_code: 'POL-KILL-SWITCH',
+        confidence: 1,
         latency_ms: latencyMs,
         prompt_text: params.promptText || '',
         promptText: params.promptText || '',
         timestamp_annex_iv: annexIVHash,
         ledger_hash: ledgerEntry.entryHash,
-        reason: 'Agent is halted. Resume it in Kill-Switch to continue'
+        reason: haltedReasonText
       };
     }
 
@@ -1423,6 +1515,10 @@ export class GovernanceEngineStore {
           agentName: agent.name,
           endpoint: params.endpoint || '/v1/intercept',
           status: 'HALTED',
+          decision: 'DENY',
+          reason: 'policy judge unavailable',
+          policy_code: failClosedPolicy?.code || null,
+          confidence: 0,
           latencyMs
         };
         this.db.apiLogs.unshift(apiLog);
@@ -1479,6 +1575,7 @@ export class GovernanceEngineStore {
           redisKeys
         });
 
+        this.signHaltLogAsync(apiLog, `${eventId}:${agent.id}:ACTION_DENIED_JUDGE_UNAVAILABLE:${timestampIso}`);
         this.saveDB();
 
         return {
@@ -1492,6 +1589,7 @@ export class GovernanceEngineStore {
           enforcement_mode: 'DENY',
           policy_violated: failClosedPolicy?.name || 'Policy Judge Unavailable',
           policy_code: failClosedPolicy?.code || null,
+          confidence: 0,
           latency_ms: latencyMs,
           prompt_text: params.promptText || '',
           promptText: params.promptText || '',
@@ -1511,6 +1609,10 @@ export class GovernanceEngineStore {
           agentName: agent.name,
           endpoint: params.endpoint || '/v1/intercept',
           status: 'AUTHORIZED',
+          decision: 'ALLOW',
+          reason: 'policy judge unavailable (fail-open with alert)',
+          policy_code: null,
+          confidence: 0,
           latencyMs
         };
         this.db.apiLogs.unshift(apiLog);
@@ -1621,6 +1723,14 @@ export class GovernanceEngineStore {
     const isBlock = evalResult?.outcome === 'BLOCK';
     const isHalted = isBlock && enforcementOutcome !== 'WARN';
     const isWarningOnly = isBlock && enforcementOutcome === 'WARN';
+    const resolvedPolicyCode = isBlock ? (violatedPolicy?.code || evalResult?.policyCode || null) : null;
+    const aiReason = isBlock
+      ? (violationReason || evalResult?.reason || 'Blocked by AI policy judge.')
+      : (evalResult?.reason || 'Allowed by AI policy judge.');
+    const aiConfidence = typeof evalResult?.confidence === 'number' ? evalResult.confidence : null;
+    const recordedDecision: ApiRequestLog['decision'] = isHalted
+      ? (enforcementOutcome === 'KILL_SWITCH' ? 'HALT' : enforcementOutcome === 'THROTTLE' ? 'THROTTLE' : 'DENY')
+      : (isWarningOnly ? 'WARN' : 'ALLOW');
 
     // Create ApiRequestLog
     const apiLog: ApiRequestLog = {
@@ -1631,6 +1741,10 @@ export class GovernanceEngineStore {
       agentName: agent.name,
       endpoint: params.endpoint || '/v1/intercept',
       status: isHalted ? 'HALTED' : 'AUTHORIZED',
+      decision: recordedDecision,
+      reason: aiReason,
+      policy_code: resolvedPolicyCode,
+      confidence: aiConfidence,
       latencyMs
     };
     this.db.apiLogs.unshift(apiLog);
@@ -1656,12 +1770,14 @@ export class GovernanceEngineStore {
     if (isHalted) {
       const eventId = `KG-${Date.now()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
       const annexIVHash = `${timestampIso.replace(/[-:T.]/g, '').slice(0, 14)}-${eventId}-ANNEX-IV`;
-      const effectivePolicyCode = violatedPolicy?.code || evalResult?.policyCode || null;
+      const effectivePolicyCode = resolvedPolicyCode;
       const effectivePolicyName = violatedPolicy?.name || effectivePolicyCode || 'Policy Violation';
       let ledgerEntry: AuditLedgerEntry;
 
       if (enforcementOutcome === 'KILL_SWITCH') {
         agent.status = 'HALTED';
+        agent.haltedByEventId = eventId;
+        agent.haltedByReason = aiReason;
         storageEngine.saveGovernedAgentsBatch(this.db.governedAgents).catch(err => console.warn('Failed saving halted agent state:', err));
         this.saveDB();
 
@@ -1675,6 +1791,10 @@ export class GovernanceEngineStore {
           actionCommand: params.actionCommand || 'Intercepted Command',
           interceptedPacket: params.endpoint || 'POST /v1/intercept',
           policyViolated: `${effectivePolicyCode} (${effectivePolicyName})`,
+          policy_code: effectivePolicyCode,
+          decision: 'HALT',
+          reason: aiReason,
+          confidence: aiConfidence,
           latencyMs,
           status: 'HALTED',
           rawJsonIntent: params.rawJsonIntent || JSON.stringify(params, null, 2),
@@ -1686,6 +1806,9 @@ export class GovernanceEngineStore {
         this.db.killEvents.unshift(killEvent);
         if (this.db.killEvents.length > 100) this.db.killEvents.pop();
         storageEngine.createKillEvent(killEvent).catch(err => console.error('[StorageEngine] Error saving kill event to Firestore:', err));
+
+        // Sign kill/halt decision asynchronously after response is sent
+        this.signKillDecisionAsync(killEvent, apiLog);
 
         this.db.notifications.unshift({
           id: `notif-${Date.now()}`,
@@ -1719,6 +1842,7 @@ export class GovernanceEngineStore {
           redisKeys
         });
       } else if (enforcementOutcome === 'THROTTLE') {
+        this.signHaltLogAsync(apiLog, `${eventId}:${agent.id}:THROTTLE:${effectivePolicyCode}:${timestampIso}`);
         this.db.notifications.unshift({
           id: `notif-${Date.now()}`,
           timestamp: timestampIso,
@@ -1751,6 +1875,7 @@ export class GovernanceEngineStore {
           redisKeys
         });
       } else {
+        this.signHaltLogAsync(apiLog, `${eventId}:${agent.id}:DENY:${effectivePolicyCode}:${timestampIso}`);
         this.db.notifications.unshift({
           id: `notif-${Date.now()}`,
           timestamp: timestampIso,
@@ -1797,12 +1922,13 @@ export class GovernanceEngineStore {
         enforcement_mode: enforcementOutcome,
         policy_violated: violatedPolicy?.name || effectivePolicyName,
         policy_code: effectivePolicyCode,
+        confidence: aiConfidence,
         latency_ms: latencyMs,
         prompt_text: params.promptText || '',
         promptText: params.promptText || '',
         timestamp_annex_iv: annexIVHash,
         ledger_hash: ledgerEntry.entryHash,
-        reason: violationReason
+        reason: aiReason
       };
     } else {
       // Authorized execution (or WARN mode)
@@ -1909,7 +2035,9 @@ export class GovernanceEngineStore {
         human_labor_saved: humanLaborSaved,
         roi_multiplier: roiScore.toFixed(1),
         ledger_hash: ledgerEntry.entryHash,
-        reason: evalResult?.reason || 'Allowed by AI policy judge.'
+        policy_code: resolvedPolicyCode,
+        confidence: aiConfidence,
+        reason: aiReason
       };
     }
   }
@@ -2328,9 +2456,67 @@ ${regoRules}
       timestamp: entry.timestamp
     }).catch(err => console.warn('Append audit ledger DB error:', err));
 
+    // Asynchronously sign the audit-ledger entry after the response path without slowing /api/v1/intercept
+    setImmediate(async () => {
+      try {
+        if (kmsForceFailure || process.env.KMS_UNAVAILABLE === 'true') return;
+        const digestBuf = Buffer.from(entry.entryHash, 'hex');
+        const kmsRes = await signDigest(digestBuf);
+        if (kmsRes) {
+          entry.kms_signature = kmsRes.signature;
+          entry.kms_key_version = kmsRes.keyVersion;
+          entry.signature = `kms:${kmsRes.signature}`;
+          entry.signatureStatus = 'VALID_KMS';
+          await storageEngine.updateAuditLedgerSignature(entry.id, kmsRes.signature, kmsRes.keyVersion);
+        }
+      } catch (err: any) {
+        console.warn('[GovernanceEngine:KMS] Async audit ledger signing warning:', err?.message || err);
+      }
+    });
+
     this.saveDB();
 
     return entry;
+  }
+
+  public signKillDecisionAsync(killEvent: KillSignalEvent, apiLog?: ApiRequestLog): void {
+    setImmediate(async () => {
+      try {
+        const digestPayload = `${killEvent.id}:${killEvent.agentId || ''}:${killEvent.actionCommand || ''}:${killEvent.policyViolated || ''}:${killEvent.status}:${killEvent.timestamp}`;
+        const digestBuf = crypto.createHash('sha256').update(digestPayload, 'utf8').digest();
+        const kmsRes = await signDigest(digestBuf);
+        if (kmsRes) {
+          killEvent.kms_signature = kmsRes.signature;
+          killEvent.kms_key_version = kmsRes.keyVersion;
+          if (apiLog) {
+            apiLog.kms_signature = kmsRes.signature;
+            apiLog.kms_key_version = kmsRes.keyVersion;
+            await storageEngine.saveApiLog(apiLog).catch(() => {});
+          }
+          await storageEngine.createKillEvent(killEvent);
+          this.saveDB();
+        }
+      } catch (err: any) {
+        console.warn('[GovernanceEngine:KMS] Async kill decision signing warning:', err?.message || err);
+      }
+    });
+  }
+
+  public signHaltLogAsync(apiLog: ApiRequestLog, digestPayload: string): void {
+    setImmediate(async () => {
+      try {
+        const digestBuf = crypto.createHash('sha256').update(digestPayload, 'utf8').digest();
+        const kmsRes = await signDigest(digestBuf);
+        if (kmsRes) {
+          apiLog.kms_signature = kmsRes.signature;
+          apiLog.kms_key_version = kmsRes.keyVersion;
+          await storageEngine.saveApiLog(apiLog).catch(() => {});
+          this.saveDB();
+        }
+      } catch (err: any) {
+        console.warn('[GovernanceEngine:KMS] Async halt decision signing warning:', err?.message || err);
+      }
+    });
   }
 
   public verifyAuditLedgerIntegrity() {

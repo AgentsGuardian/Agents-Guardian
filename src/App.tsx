@@ -21,7 +21,7 @@ import UpdatePasswordModal from './components/UpdatePasswordModal';
 import { useGovernanceStore } from './store/useGovernanceStore';
 import { Sliders, Palette, ChevronDown, Check, LogOut, Users, KeyRound, Eye, ShieldCheck } from 'lucide-react';
 
-import { Policy, KillSignalEvent, DriftLogEvent, ValueMeterMetric, Toast, AdminUser, LaborConfig, AdminRole } from './types';
+import { Policy, KillSignalEvent, DriftLogEvent, ValueMeterMetric, Toast, AdminUser, LaborConfig, AdminRole, OverviewStats } from './types';
 import { GUARANTEED_SLA_MS, generateTransactionId } from './utils';
 import { INITIAL_ADMINS } from './data';
 
@@ -286,6 +286,7 @@ export default function App() {
   // Uplifted GaaS API States
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | 'off'>(30000);
   const [latencyThreshold, setLatencyThreshold] = useState<number>(GUARANTEED_SLA_MS);
+  const [overviewStats, setOverviewStats] = useState<OverviewStats>({ total: 0, allowed: 0, blocked: 0 });
 
   // Fetch real-time server governance state when logged in
   useEffect(() => {
@@ -360,8 +361,8 @@ export default function App() {
 
   const overallCognitiveHealth = useMemo(() => {
     const activeDrifts = driftEvents.filter(e => !e.isTest && !(e as any).is_test && !(e as any).archived && !e.remedatedAt);
-    if (activeDrifts.length === 0) return 100;
-    const total = activeDrifts.reduce((acc, curr) => acc + (typeof curr.cognitiveHealthScore === 'number' ? curr.cognitiveHealthScore : 100), 0);
+    if (activeDrifts.length === 0) return 0;
+    const total = activeDrifts.reduce((acc, curr) => acc + (typeof curr.cognitiveHealthScore === 'number' ? curr.cognitiveHealthScore : 0), 0);
     return Math.round(total / activeDrifts.length);
   }, [driftEvents]);
 
@@ -1036,6 +1037,8 @@ export default function App() {
             governedAgents={governedAgents}
             governanceMode={governanceMode}
             setGovernanceMode={setGovernanceMode}
+            overviewStats={overviewStats}
+            onOverviewStatsChange={setOverviewStats}
           />
         )}
 
@@ -1045,6 +1048,8 @@ export default function App() {
             policies={policies}
             onTriggerKillEvent={handleTriggerKillEvent}
             onClearLogs={handleClearKillLogs}
+            overviewStats={overviewStats}
+            onOverviewStatsChange={setOverviewStats}
           />
         )}
 

@@ -1,7 +1,11 @@
 import crypto from 'crypto';
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { storageEngine } from './db.js';
 import { DriftLogEvent, GoverningAgent } from '../src/types.js';
+import {
+  generateSharedAiContent,
+  getCandidateAiModels,
+  isAiClientConfigured
+} from './aiClient.js';
 
 export type AgentType = 'llm_chat' | 'tool_agent' | 'rpa_bot' | 'mcp_server' | 'framework_agent' | 'other';
 
@@ -602,6 +606,9 @@ Return ONLY a valid JSON array of extracted rules matching this exact schema:
         prompt,
         12000
       );
+      console.log(
+        `[JudgeAI Log] Extracted rules using model ${judgeRes.model} (Latency: ${judgeRes.latencyMs}ms, prompt_tokens=${judgeRes.promptTokens}, output_tokens=${judgeRes.outputTokens})`
+      );
 
       const cleaned = judgeRes.text.replace(/```json/gi, '').replace(/```/g, '').trim();
       let parsed: any;
@@ -1084,15 +1091,17 @@ STATUS: ${event.status}
         event.judge_timestamp = new Date().toISOString();
         event.latency_ms = judgeRes.latencyMs;
 
-        console.log(`[JudgeAI Log] Evaluated event ${event.event_id} for agent ${event.agent_id} using model ${judgeRes.model} (Latency: ${judgeRes.latencyMs}ms) - Score: ${score}`);
+        console.log(
+          `[JudgeAI Log] Evaluated event ${event.event_id} for agent ${event.agent_id} using model ${judgeRes.model} (Latency: ${judgeRes.latencyMs}ms, prompt_tokens=${judgeRes.promptTokens}, output_tokens=${judgeRes.outputTokens}) - Score: ${score}`
+        );
         return;
       }
     } catch (err: any) {
-      console.warn(`[JudgeAI Warn] Gemini judge unavailable for event ${event.event_id} (${err?.message || err}); running Layer A deterministic evaluation.`);
+      console.error(`[JudgeAI Error] Gemini judge failed for event ${event.event_id} (agent=${event.agent_id}):`, err?.message || err);
     }
 
-    // Deterministic Layer A compliance fallback strictly from real event payload (never demo data)
-    this.evaluateEventWithLayerAFallback(event, guideline, input, output);
+    event.judged = false;
+    event.judge_status = 'unjudged';
   }
 
   private evaluateEventWithLayerAFallback(
@@ -1174,58 +1183,23 @@ STATUS: ${event.status}
   }
 
   private async invokeGeminiWithTimeout(
-    apiKey: string,
     modelName: string,
     contents: string,
     timeoutMs: number
-  ): Promise<string> {
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build'
-        }
-      }
+  ): Promise<{ text: string; promptTokens: number; outputTokens: number }> {
+    const res = await generateSharedAiContent({
+      model: modelName,
+      contents,
+      responseMimeType: 'application/json',
+      temperature: 0,
+      timeoutMs,
+      callerLabel: 'DriftJudge'
     });
-
-    const NO_SAMPLING_PARAM_MODELS = new Set([
-      'gemini-4-hydrogen',
-      'gemini-4-neon',
-      'gemini-4-argon',
-      'gemini-4-carbon'
-    ]);
-
-    const normalizedModel = modelName.toLowerCase();
-    const config: Record<string, any> = {
-      responseMimeType: 'application/json'
+    return {
+      text: res.text || '',
+      promptTokens: res.promptTokens,
+      outputTokens: res.outputTokens
     };
-    if (!NO_SAMPLING_PARAM_MODELS.has(normalizedModel)) {
-      config.temperature = 0;
-    }
-    if (normalizedModel === 'gemini-4-hydrogen' || normalizedModel === 'gemini-4-neon' || normalizedModel === 'gemini-4-argon' || normalizedModel === 'gemini-4-carbon') {
-      config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
-    } else if (normalizedModel === 'gemini-3.1-flash-lite') {
-      config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
-    }
-
-    let timer: NodeJS.Timeout | undefined;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Gemini request timed out after ${timeoutMs}ms (model: ${modelName})`)), timeoutMs);
-    });
-
-    try {
-      const res = await Promise.race([
-        ai.models.generateContent({
-          model: modelName,
-          contents,
-          config
-        }),
-        timeoutPromise
-      ]);
-      return res.text || '';
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
   }
 
   private async callJudgeProviderWithTimeout(
@@ -1233,16 +1207,12 @@ STATUS: ${event.status}
     dataPayload: string, 
     timeoutMs: number = 8000, 
     overrideModel?: string
-  ): Promise<{ text: string; model: string; latencyMs: number }> {
-    const apiKey = (process.env.DRIFT_JUDGE_API_KEY || process.env.GEMINI_API_KEY || '').trim();
-    if (!apiKey) {
+  ): Promise<{ text: string; model: string; latencyMs: number; promptTokens: number; outputTokens: number }> {
+    if (!isAiClientConfigured()) {
       throw new Error('Missing DRIFT_JUDGE_API_KEY / GEMINI_API_KEY');
     }
 
-    const configuredModel = (overrideModel || process.env.DRIFT_JUDGE_MODEL || process.env.GEMINI_MODEL || '').trim();
-    const candidateModels = Array.from(
-      new Set([configuredModel, 'gemini-4-hydrogen', 'gemini-3.1-flash-lite'].filter(m => Boolean(m && m.trim())))
-    );
+    const candidateModels = getCandidateAiModels(overrideModel);
     const startTime = Date.now();
     const deadlineMs = startTime + timeoutMs;
     let lastError: any = null;
@@ -1251,14 +1221,13 @@ STATUS: ${event.status}
       const remainingMs = deadlineMs - Date.now();
       if (remainingMs <= 150) break;
       try {
-        const text = await this.invokeGeminiWithTimeout(
-          apiKey,
+        const { text, promptTokens, outputTokens } = await this.invokeGeminiWithTimeout(
           modelName,
           `${systemPrompt}\n\n${dataPayload}`,
           remainingMs
         );
         const latencyMs = Date.now() - startTime;
-        return { text, model: modelName, latencyMs };
+        return { text, model: modelName, latencyMs, promptTokens, outputTokens };
       } catch (err: any) {
         lastError = err;
         console.warn(`[JudgeAI Warn] Model ${modelName} failed:`, err?.message || err);

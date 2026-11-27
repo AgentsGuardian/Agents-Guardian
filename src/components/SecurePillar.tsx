@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Shield, Play, Terminal, RefreshCw, CheckCircle2 } from 'lucide-react';
-import { KillSignalEvent, Policy } from '../types';
+import { KillSignalEvent, Policy, OverviewStats } from '../types';
 import { GUARANTEED_SLA_MS } from '../utils';
 import { SIMULATION_TRIGGER_TEMPLATES, TaskTrigger } from '../data';
 import CollapsibleSection from './CollapsibleSection';
@@ -16,9 +16,65 @@ interface SecurePillarProps {
   policies: Policy[];
   onTriggerKillEvent: (newEvent: KillSignalEvent) => void;
   onClearLogs: () => void;
+  overviewStats?: OverviewStats;
+  onOverviewStatsChange?: (stats: OverviewStats) => void;
 }
 
-export default function SecurePillar({ killEvents, policies, onTriggerKillEvent, onClearLogs }: SecurePillarProps) {
+function isHaltedAgentDenialEvent(event: KillSignalEvent): boolean {
+  return (
+    event.decision === 'HALTED_AGENT_DENIED' ||
+    event.policy_code === 'POL-KILL-SWITCH' ||
+    event.policyViolated === 'Agent Halted (Kill-Switch Active)' ||
+    Boolean(event.haltedByEventId) ||
+    (typeof event.reason === 'string' && event.reason.startsWith('Agent already halted by event '))
+  );
+}
+
+function formatEventVerdict(event: KillSignalEvent, allEvents: KillSignalEvent[]): string {
+  if (isHaltedAgentDenialEvent(event)) {
+    if (event.haltedByEventId) {
+      return `Agent already halted by event ${event.haltedByEventId}: ${event.haltedByReason || 'Policy violation'}`;
+    }
+    if (typeof event.reason === 'string' && event.reason.startsWith('Agent already halted by event ')) {
+      return event.reason;
+    }
+
+    const eId = (event.agentId || event.agent_id || '').trim().toLowerCase();
+    const eName = (event.agentName || '').trim().toLowerCase();
+    const eTime = new Date(event.timestamp).getTime();
+
+    const matchingOriginals = allEvents.filter(other => {
+      if (other.id === event.id) return false;
+      if (isHaltedAgentDenialEvent(other)) return false;
+      const oId = (other.agentId || other.agent_id || '').trim().toLowerCase();
+      const oName = (other.agentName || '').trim().toLowerCase();
+      return (eId !== '' && (oId === eId || oName === eId)) || (eName !== '' && (oName === eName || oId === eName));
+    });
+
+    const priorOriginal =
+      matchingOriginals.find(o => new Date(o.timestamp).getTime() <= eTime) || matchingOriginals[0];
+
+    if (priorOriginal) {
+      return `Agent already halted by event ${priorOriginal.id}: ${priorOriginal.reason || priorOriginal.policyViolated || 'Policy violation'}`;
+    }
+    return `Agent already halted by event KILL-SWITCH: ${event.reason || 'Policy violation'}`;
+  }
+
+  if (typeof event.reason === 'string' && event.reason.trim().length > 0) {
+    return event.reason.trim();
+  }
+
+  return `Blocked by policy ${event.policy_code || event.policyViolated || 'enforcement rule'}.`;
+}
+
+export default function SecurePillar({
+  killEvents,
+  policies,
+  onTriggerKillEvent,
+  onClearLogs,
+  overviewStats,
+  onOverviewStatsChange
+}: SecurePillarProps) {
   const [selectedTemplate, setSelectedTemplate] = useState<TaskTrigger>(SIMULATION_TRIGGER_TEMPLATES[0]);
   const [customJson, setCustomJson] = useState<string>(selectedTemplate.rawJson);
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
@@ -27,8 +83,52 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
   const [simLogResult, setSimLogResult] = useState<string>('');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
+  const [blockedTotal, setBlockedTotal] = useState<number>(overviewStats?.blocked ?? 0);
 
   const timersRef = useRef<NodeJS.Timeout[]>([]);
+
+  useEffect(() => {
+    if (typeof overviewStats?.blocked === 'number') {
+      setBlockedTotal(overviewStats.blocked);
+    }
+  }, [overviewStats?.blocked]);
+
+  const fetchOverviewStats = useCallback(async () => {
+    try {
+      const token = typeof window !== 'undefined'
+        ? (sessionStorage.getItem('ag_session_token') || localStorage.getItem('ag_session_token'))
+        : null;
+      if (!token) return;
+      const res = await fetch('/api/overview/stats', {
+        cache: 'no-store',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && typeof data.total === 'number' && typeof data.allowed === 'number' && typeof data.blocked === 'number') {
+        const nextStats: OverviewStats = {
+          total: data.total,
+          allowed: data.allowed,
+          blocked: data.blocked
+        };
+        setBlockedTotal(nextStats.blocked);
+        onOverviewStatsChange?.(nextStats);
+      }
+    } catch (err) {
+      console.warn('[SecurePillar] Failed to fetch /api/overview/stats:', err);
+    }
+  }, [onOverviewStatsChange]);
+
+  useEffect(() => {
+    fetchOverviewStats();
+    const interval = setInterval(fetchOverviewStats, 10000);
+    return () => {
+      clearInterval(interval);
+    };
+  }, [fetchOverviewStats]);
 
   useEffect(() => {
     return () => {
@@ -94,6 +194,10 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
           actionCommand: selectedTemplate.name,
           interceptedPacket: selectedTemplate.actionType,
           policyViolated: `${resData.policy_code || matchingPolicy.code} (${resData.policy_violated || matchingPolicy.name})`,
+          policy_code: resData.policy_code || matchingPolicy?.code || null,
+          reason: resData.reason || 'Security boundary condition breach',
+          confidence: typeof resData.confidence === 'number' ? resData.confidence : null,
+          decision: resData.decision || 'HALT',
           latencyMs: finalLatency,
           status: 'HALTED',
           rawJsonIntent: customJson,
@@ -101,6 +205,7 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
         };
 
         onTriggerKillEvent(simulatedEvent);
+        fetchOverviewStats();
         setIsSimulating(false);
         setSimLogResult(prev => prev + `\n\n🛑 [REAL SERVER PROTOCOL HALT INITIATED] \nServer Evaluation Latency: ${finalLatency}ms (Deterministic Sub-10ms Target Passed)\nVerdict: ${resData.decision || 'REJECTED'} (${resData.reason || 'Security boundary condition breach'})\nImmutable Annex IV Ledger entry generated: ${annexIVHash}\nSHA-256 Ledger Hash: ${resData.ledger_hash || 'SHA256-GEN-VERIFIED'}`);
       } catch (err: any) {
@@ -389,7 +494,7 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
         subtitle="Strict cryptographic transaction logging of every intercepted action"
         headerExtra={
           <span className="text-xs font-mono font-bold bg-[#0D1B2A] px-3 py-1 border border-[#1F2E40] text-[#8B9BAA] rounded mr-2">
-            {killEvents.length} Halts Recorded
+            {blockedTotal} Halts Recorded
           </span>
         }
       >
@@ -468,7 +573,7 @@ export default function SecurePillar({ killEvents, policies, onTriggerKillEvent,
                               {event.rawJsonIntent}
                             </pre>
                             <div className="p-3 bg-[#E24B4A]/5 rounded border border-[#E24B4A]/10 text-[11px] text-red-200">
-                              <strong>Deterministic Safety Intercept Verdict:</strong> Headless identity access token has been completely revoked. The server returned HTTP 403 Forbidden with payload lock. Safe state restored in {event.latencyMs}ms.
+                              <strong>Deterministic Safety Intercept Verdict:</strong> {formatEventVerdict(event, killEvents)}
                             </div>
                           </div>
                         </td>
